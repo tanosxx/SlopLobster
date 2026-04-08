@@ -366,6 +366,10 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative
 .tool-act-btn{background:none;border:none;color:var(--tx-4);cursor:pointer;font-size:9px;padding:2px 5px;border-radius:3px;transition:.12s;display:flex;align-items:center;gap:3px}
 .tool-act-btn:hover{color:var(--tx-0);background:var(--bg-3)}
 .tool-act-btn.copied{color:var(--green)}
+.scroll-lock-btn{display:flex;align-items:center;gap:4px;background:none;border:1px solid var(--border);color:var(--tx-3);padding:3px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-family:'JetBrains Mono',monospace;transition:.15s;white-space:nowrap}
+.scroll-lock-btn.following{color:var(--accent);border-color:rgba(232,160,35,.2);background:rgba(232,160,35,.06)}
+.scroll-lock-btn.paused{color:var(--red);border-color:rgba(239,68,68,.2);background:rgba(239,68,68,.06)}
+.tool-result-line{white-space:pre-wrap;word-break:break-all}
 </style>
 </head>
 <body>
@@ -480,7 +484,7 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative
     <div id="img-attachments" style="display:none"></div>
     <div class="input-hints">
       <span><b>Enter</b> send · <b>Shift+Enter</b> newline · <b>/</b> commands · drop files to attach</span>
-      <button class="scroll-toggle" id="scroll-toggle" onclick="toggleAutoScroll()" title="Toggle auto-scroll"><i class="fas fa-arrow-down"></i> auto-scroll</button>
+      <button class="scroll-lock-btn following" id="scroll-lock-btn" onclick="toggleAutoScroll()" title="Toggle auto-scroll"><i class="fas fa-arrow-down"></i><span>Following</span></button>
     </div>
   </div>
 </div>
@@ -528,7 +532,7 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative
 <script>
 const COMPANION_SCRIPT = `#!/usr/bin/env python3
 """SlopLobster Companion Server v1.4 — Shell + Git + Web Search for SlopLobster Agent."""
-import http.server, subprocess, json, os, sys, signal, platform, re, urllib.request, urllib.parse, urllib.error, shutil
+import http.server, subprocess, json, os, sys, signal, platform, re, urllib.request, urllib.parse, urllib.error, shutil, threading, time
 from html.parser import HTMLParser
 
 PORT = 8765
@@ -926,6 +930,46 @@ def search_ddg(query, num=8):
         return [{"error": "No results parsed from HTML."}]
     return results
 
+def stream_cmd(write_fn, cmd, cwd=None, timeout=DEFAULT_TIMEOUT):
+    base_cwd = cwd or os.getcwd()
+    stripped = cmd.strip()
+    first_word = stripped.split(None, 1)[0] if stripped else ''
+    if first_word in ('python', 'python3'):
+        if not shutil.which(first_word):
+            alt = 'python3' if first_word == 'python' else 'python'
+            if shutil.which(alt):
+                cmd = alt + stripped[len(first_word):]
+    if WINDOWS_BASH:
+        kw = dict(args=[WINDOWS_BASH, "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=base_cwd)
+    elif platform.system() == "Windows":
+        translated = _translate_for_cmd(cmd)
+        kw = dict(shell=True, args=translated, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=base_cwd)
+    else:
+        kw = dict(shell=True, args=cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=base_cwd, start_new_session=True)
+    proc = subprocess.Popen(**kw)
+    out_buf = []; err_buf = []; lock = threading.Lock()
+    def reader(stream, buf, kind):
+        try:
+            for line in iter(stream.readline, ''):
+                with lock: buf.append(line); write_fn(kind, line)
+            stream.close()
+        except: pass
+    t1 = threading.Thread(target=reader, args=(proc.stdout, out_buf, 'o'))
+    t2 = threading.Thread(target=reader, args=(proc.stderr, err_buf, 'e'))
+    t1.daemon = True; t2.daemon = True; t1.start(); t2.start()
+    start = time.time()
+    while t1.is_alive() or t2.is_alive():
+        if time.time() - start > timeout:
+            kill_tree(proc.pid)
+            with lock: write_fn('e', "\\n[Timed out after " + str(timeout) + "s]\\n")
+            break
+        time.sleep(0.03)
+    t1.join(timeout=2); t2.join(timeout=2); proc.wait(timeout=3)
+    with lock: full = ''.join(out_buf) + ''.join(err_buf)
+    if len(full) > MAX_OUTPUT: full = full[:MAX_OUTPUT] + "\\n[Truncated at " + str(MAX_OUTPUT) + "]"
+    write_fn('d', str(proc.returncode))
+    return full, proc.returncode
+
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def handle_one_request(self):
@@ -962,14 +1006,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 body = self.read_body()
                 command = body.get("command", "")
                 if not command:
-                    return self.send_json(400, {"error": "No command"})
+                    self.send_json(400, {"error": "No command"})
+                    return
                 timeout = max(5, min(body.get("timeout", DEFAULT_TIMEOUT), MAX_TIMEOUT))
                 cwd = body.get("cwd") or None
-                exit_code, output = run_cmd(command, cwd=cwd, timeout=timeout)
-                self.send_json(200, {"output": output, "exit_code": exit_code})
             except Exception as e:
-                self.send_json(500, {"error": str(e)})
-        elif path == '/search':
+                self.send_json(400, {"error": str(e)})
+                return
+            self.send_response(200)
+            self._cors()
+            self.send_header("Content-Type", "application/x-ndjson")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            def wfn(kind, data):
+                try:
+                    self.wfile.write((json.dumps({"t": kind, "d": data}, ensure_ascii=False) + "\\n").encode("utf-8"))
+                    self.wfile.flush()
+                except: pass
+            try:
+                stream_cmd(wfn, command, cwd=cwd, timeout=timeout)
+            except Exception as e:
+                wfn('e', "[Error: " + str(e) + "]")
+                wfn('d', "1")
             try:
                 body = self.read_body()
                 query = body.get("query", "").strip()
@@ -1882,31 +1940,35 @@ const DANGEROUS = [
 function isDangerous(cmd){return DANGEROUS.some(p=>p.test(cmd));}
 
 /* ═══════════════ COMPANION ═══════════════ */
-async function execViaCompanion(command, explicitTimeout, externalSignal){
-  if(externalSignal?.aborted) return '[Cancelled by user]';
-  let timeout = explicitTimeout ? Math.max(5, explicitTimeout) : state.cmdTimeout;
-  const cmdLower = (command || '').toLowerCase();
-  const longPatterns = [/\bpip\s+(install|install)\b/,/\bnpm\s+(install|i)\b/,/\byarn\s+(install|add)\b/,/\bcargo\s+(install|build)\b/,/\bgo\s+(install|build|get|mod)\b/,/\bmake\b/,/\bcmake\b/,/\bdocker\s+(build|pull)\b/,/\bapt\s+(install|update)\b/,/\bbrew\s+(install|upgrade)\b/,/\bsudo\s+/,/\bpip3?\s+install\b/,/\bpython[23]?\s+-m\s+pip\b/,/\bnpm\s+run\b/,/\b(npx|pnpm|bun)\s+install\b/,/\bgit\s+(clone|checkout|pull|push)\b/];
+async function execViaCompanion(command, explicitTimeout, externalSignal, onLine){
+  if(externalSignal?.aborted)return'[Cancelled by user]';
+  let timeout=explicitTimeout?Math.max(5,explicitTimeout):state.cmdTimeout;
+  const cmdLower=(command||'').toLowerCase();
+  const longPatterns=[/\bpip\s+(install|install)\b/,/\bnpm\s+(install|i)\b/,/\byarn\s+(install|add)\b/,/\bcargo\s+(install|build)\b/,/\bgo\s+(install|build|get|mod)\b/,/\bmake\b/,/\bcmake\b/,/\bdocker\s+(build|pull)\b/,/\bapt\s+(install|update)\b/,/\bbrew\s+(install|upgrade)\b/,/\bsudo\s+/,/\bpip3?\s+install\b/,/\bpython[23]?\s+-m\s+pip\b/,/\bnpm\s+run\b/,/\b(npx|pnpm|bun)\s+install\b/,/\bgit\s+(clone|checkout|pull|push)\b/];
   for(const p of longPatterns){if(p.test(cmdLower)){timeout=Math.max(timeout,300);break;}}
-  const httpTimeout = timeout + 15000;
+  const httpTimeout=timeout+15000;
   try{
-    const res = await fetch(`${state.compUrl}/execute`,{
+    const res=await fetch(`${state.compUrl}/execute`,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({command,timeout}),
       signal:AbortSignal.timeout(httpTimeout)
     });
-    if(externalSignal?.aborted) return '[Cancelled by user]';
+    if(externalSignal?.aborted)return'[Cancelled by user]';
+    const ct=res.headers.get('Content-Type')||'';
+    if(ct.includes('ndjson')&&onLine){
+      return await readNdjsonStream(res,externalSignal,onLine);
+    }
     if(!res.ok){const t=await res.text().catch(()=>res.statusText);throw new Error(`Companion HTTP ${res.status}: ${t}`);}
     const data=await res.json();
-    if(externalSignal?.aborted) return '[Cancelled by user]';
+    if(externalSignal?.aborted)return'[Cancelled by user]';
     let output=data.output||'(no output)';
-    if(data.exit_code!==0) output+=`\n[exit code: ${data.exit_code}]`;
+    if(data.exit_code!==0)output+='\n[exit code: '+data.exit_code+']';
     return output;
   }catch(e){
-    if(externalSignal?.aborted) return '[Cancelled by user]';
+    if(externalSignal?.aborted)return'[Cancelled by user]';
     const msg=e.message||'';
     const isTimeout=msg.includes('timed out')||msg.includes('Timeout')||msg.includes('AbortError')||msg.includes('The operation was aborted');
-    if(isTimeout) return `[Command timed out after extended limit. The command may still be running on the companion server.]\nError: ${msg}\n\nTip: For package installs (pip, npm, cargo, etc.), the timeout is automatically extended to 300s. If still timing out, the package may be very large or the network slow. Try splitting into smaller installs.`;
+    if(isTimeout)return'[Command timed out after extended limit.]\nError: '+msg+'\n\nTip: For package installs, timeout auto-extends to 300s.';
     const isConnErr=msg.includes('Failed to fetch')||msg.includes('NetworkError')||msg.includes('ECONNREFUSED');
     if(isConnErr){
       state.compConnected=false;state.compInfo=null;
@@ -1914,10 +1976,44 @@ async function execViaCompanion(command, explicitTimeout, externalSignal){
       document.getElementById('comp-text').textContent='Shell';
       document.getElementById('comp-info').innerHTML='<div style="color:var(--yellow)">Connection lost — reconnect</div>';
       renderToolList();
-      return `[Companion connection lost: ${msg} — falling back to virtual shell]\n${await execVirtual(command)}`;
+      return'[Companion connection lost: '+msg+' — falling back to virtual shell]\n'+await execVirtual(command);
     }
-    return `[Companion error: ${msg}]\n${await execVirtual(command)}`;
+    return'[Companion error: '+msg+']\n'+await execVirtual(command);
   }
+}
+
+async function readNdjsonStream(res,signal,onLine){
+  const reader=res.body.getReader();const dec=new TextDecoder();
+  let buf='',output='',exitCode=0;
+  try{
+    while(true){
+      if(signal?.aborted){reader.cancel();break;}
+      const{done,value}=await reader.read();if(done)break;
+      buf+=dec.decode(value,{stream:true});
+      const lines=buf.split('\n');buf=lines.pop();
+      for(const line of lines){
+        if(!line.trim())continue;
+        try{
+          const m=JSON.parse(line);
+          if(m.t==='d')exitCode=parseInt(m.d)||0;
+          else if(m.t==='o'||m.t==='e'){output+=m.d;onLine(m.d,m.t==='e');}
+        }catch{output+=line+'\n';onLine(line+'\n',false);}
+      }
+    }
+  }catch(e){if(!signal?.aborted)output+='\n[Stream error: '+e.message+']';}
+  if(buf.trim()){
+    try{const m=JSON.parse(buf);if(m.t==='d')exitCode=parseInt(m.d)||0;else{output+=m.d;onLine(m.d,m.t==='e');}}
+    catch{output+=buf;onLine(buf,false);}
+  }
+  if(exitCode!==0)output+='\n[exit code: '+exitCode+']';
+  return output;
+}
+
+function streamToolResult(panel,text){
+  const res=panel.el.querySelector('.tool-result');
+  if(res.classList.contains('loading')){res.classList.remove('loading');res.className='tool-result';}
+  res.textContent+=text;panel.el._resultText=res.textContent;
+  res.scrollTop=res.scrollHeight;scrollBottom();
 }
 
 async function fetchViaCompanion(url, maxBytes){
@@ -2008,7 +2104,7 @@ async function checkCompanion(){
 }
 
 /* ═══════════════ TOOL DISPATCH ═══════════════ */
-async function executeTool(name, argsStr, signal){
+async function executeTool(name, argsStr, signal, panel){
   let args;try{args=JSON.parse(argsStr);}catch{args={};}
   if(args.path!=null&&args.path!==''){try{sanitizePath(args.path);}catch(e){return{output:'Security: '+e.message};}}
   if(args.source!=null&&args.source!==''){try{sanitizePath(args.source);}catch(e){return{output:'Security: '+e.message};}}
@@ -2056,8 +2152,12 @@ async function executeTool(name, argsStr, signal){
         if(state.compConnected&&isDangerous(cmd)){
           return new Promise(resolve=>{showShellConfirm(cmd,async ok=>{resolve(ok?{output:await execViaCompanion(cmd,args.timeout,signal)}:{output:'Command cancelled by user.'});});});
         }
-        if(state.compConnected){result={output:await execViaCompanion(cmd,args.timeout,signal)};}
-        else{result={output:await execVirtual(cmd)};}
+        if(state.compConnected){
+          let streamedOutput='';
+          const onLine=panel?(text)=>{streamedOutput+=text;streamToolResult(panel,text);}:null;
+          const out=await execViaCompanion(cmd,args.timeout,signal,onLine);
+          result={output:onLine?streamedOutput:out};
+        }else{result={output:await execVirtual(cmd)};}
         break;
       }
       case 'screenshot':
@@ -2314,34 +2414,41 @@ function showCompactBanner(before,after){
 function formatTok(n){return n<1000?Math.round(n)+' tok':(n/1000).toFixed(1)+'k tok';}
 
 /* ═══════════════ SMART SCROLL ═══════════════ */
-let programmaticScroll = false;
-let scrollDebounce = null;
+function isNearBottom(el, threshold){threshold=threshold||100;return el.scrollHeight-el.scrollTop-el.clientHeight<threshold;}
 
-function isNearBottom(el, threshold) {
-  threshold = threshold || 120;
-  return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-}
-
-function scrollBottom() {
-  if (!state.autoScroll) return;
-  var el = $msg();
-  if (isNearBottom(el, 200)) {
-    programmaticScroll = true;
-    el.scrollTop = el.scrollHeight;
-    clearTimeout(scrollBottom._t);
-    scrollBottom._t = setTimeout(function() { programmaticScroll = false; }, 80);
-  }
-}
-
-function scrollToBottomForce() {
-  var el = $msg();
-  state.autoScroll = true;
-  updateScrollToggle();
-  programmaticScroll = true;
-  el.scrollTop = el.scrollHeight;
-  clearTimeout(scrollBottom._t);
-  scrollBottom._t = setTimeout(function() { programmaticScroll = false; }, 80);
+function scrollBottom(){
+  if(!state.autoScroll)return;
+  $msg().scrollTop=$msg().scrollHeight;
   document.getElementById('scroll-bottom-btn').classList.remove('visible');
+}
+
+function scrollToBottomForce(){
+  state.autoScroll=true;updateScrollLockBtn();
+  $msg().scrollTop=$msg().scrollHeight;
+  document.getElementById('scroll-bottom-btn').classList.remove('visible');
+}
+
+function toggleAutoScroll(){
+  state.autoScroll=!state.autoScroll;updateScrollLockBtn();
+  if(state.autoScroll)scrollToBottomForce();
+}
+
+function updateScrollLockBtn(){
+  const btn=document.getElementById('scroll-lock-btn');
+  if(!btn)return;
+  btn.className='scroll-lock-btn '+(state.autoScroll?'following':'paused');
+  btn.innerHTML=state.autoScroll
+    ?'<i class="fas fa-arrow-down"></i><span>Following</span>'
+    :'<i class="fas fa-pause"></i><span>Paused</span>';
+}
+
+function setupScrollDetection(){
+  $msg().addEventListener('scroll',function(){
+    const near=isNearBottom($msg(),100);
+    document.getElementById('scroll-bottom-btn').classList.toggle('visible',!near);
+    if(near&&!state.autoScroll){state.autoScroll=true;updateScrollLockBtn();}
+    else if(!near&&state.autoScroll){state.autoScroll=false;updateScrollLockBtn();}
+  },{passive:true});
 }
 
 /* ═══════════════ PROGRESS PERSISTENCE ═══════════════ */
@@ -2544,7 +2651,7 @@ async function agentLoop(){
 
       const results=await Promise.all(nonThinkTcs.map(async(tc,i)=>{
         if(toolAbortCtrls[i].signal.aborted){updateToolStatus(toolPanels[i],'err');updateToolResult(toolPanels[i],'Cancelled by user.');return{tc,outText:'Cancelled by user.',cancelled:true};}
-        let result;try{result=await executeTool(tc.function.name,tc.function.arguments,toolAbortCtrls[i].signal);updateToolStatus(toolPanels[i],'ok');}
+        let result;try{result=await executeTool(tc.function.name,tc.function.arguments,toolAbortCtrls[i].signal,toolPanels[i]);updateToolStatus(toolPanels[i],'ok');}
         catch(e){if(toolAbortCtrls[i].signal.aborted){updateToolStatus(toolPanels[i],'err');updateToolResult(toolPanels[i],'Cancelled by user.');return{tc,outText:'Cancelled by user.',cancelled:true};}result={output:'Error: '+e.message};updateToolStatus(toolPanels[i],'err');}
         const outText=(typeof result==='string')?result:(result&&result.output)||'';
         const diff=(typeof result==='object'&&result&&result.diff)||null;
@@ -2766,7 +2873,8 @@ function updateToolStatus(w,s){
 
 function updateToolResult(w,r){
   if(!w||!w.el)return;const res=w.el.querySelector('.tool-result');if(!res)return;
-  const text=(r!=null)?String(r):'(no output)';res.className='tool-result';res.textContent=text;w.el._resultText=text;
+  const text=(r!=null)?String(r):'(no output)';
+  if(res.textContent===text&&!res.classList.contains('loading'))return;
   const isTruncated=text.length>500&&text.includes('[Truncated');
   if(isTruncated){res.classList.add('truncated');const eb=w.el.querySelector('.tool-expand-btn');if(eb)eb.style.display='';}
   w.el.querySelector('.tool-hdr').onclick=()=>{
@@ -3455,7 +3563,7 @@ function init(){
   });
 
   if(!document.getElementById('s-sys-prompt').value)document.getElementById('s-sys-prompt').value=DEFAULT_SYS;
-  updateWelcomeStatus();updateScrollToggle();setTimeout(() => testConnection(5), 800);
+  updateWelcomeStatus();updateScrollLockBtn();setTimeout(() => testConnection(5), 800);
   setInterval(checkCompanion,20000);
 }
 init();
