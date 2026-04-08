@@ -49,7 +49,7 @@ SlopLobster is a local AI coding agent that runs entirely in your browser. It co
 
 **Git Integration** — `git_status`, `git_diff`, `git_log`, `git_add`, `git_commit` tools when the companion is running.
 
-**Image Understanding** — If your model supports vision (LLaVA, Qwen-VL, Pixtral, etc.), the agent can view image files and take screenshots of the current UI state to inspect error messages, tool output, or code changes visually.
+**Image Understanding** — If your model supports vision (Gemma 4, Qwen-VL, Pixtral, etc.), the agent can view image files and take screenshots of the current UI state to inspect error messages, tool output, or code changes visually.
 
 **Context Management** — Tracks estimated token usage, auto-compacts when the context window fills up, and saves a detailed progress file (`.sloplobster-progress.md`) to the workspace so the agent can recover full context after compaction.
 
@@ -59,7 +59,7 @@ SlopLobster is a local AI coding agent that runs entirely in your browser. It co
 
 ### 1. LM Studio
 
-[Download LM Studio](https://lmstudio.ai/), load a model that supports tool/function calling (recommended: Qwen 2.5 Coder 32B, Llama 3.1 70B, or similar), and start the local server on `localhost:1234`.
+[Download LM Studio](https://lmstudio.ai/), load a model that supports tool/function calling (recommended: Qwen 3.5, Gemma 4, or similar), and start the local server on `localhost:1234`.
 
 ### 2. SlopLobster
 
