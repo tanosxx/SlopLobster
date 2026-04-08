@@ -340,6 +340,32 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative
 .shortcut-row .desc{color:var(--tx-3)}
 .input-flash{animation:inputFlash .6s ease-out}
 @keyframes inputFlash{0%{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow),0 0 20px var(--accent-glow)}100%{border-color:var(--border);box-shadow:none}}
+.health-warning{display:flex;align-items:center;gap:8px;padding:8px 14px;background:rgba(249,115,22,.06);border:1px solid rgba(249,115,22,.15);border-radius:8px;margin:5px 0;font-size:12px;color:var(--orange);animation:msgIn .2s ease-out}
+.health-warning i{font-size:12px;flex-shrink:0}
+.change-summary{background:var(--bg-2);border:1px solid var(--border);border-radius:8px;margin:8px 0;overflow:hidden;animation:msgIn .25s ease-out;width:100%;max-width:860px;flex-shrink:0}
+.change-summary-hdr{display:flex;align-items:center;gap:6px;padding:8px 12px;cursor:pointer;transition:.12s;border-bottom:1px solid var(--border)}
+.change-summary-hdr:hover{background:var(--bg-3)}
+.change-summary-hdr i{color:var(--teal);font-size:11px}
+.change-summary-hdr .cs-label{font-size:11px;font-weight:600;color:var(--tx-1)}
+.change-summary-hdr .cs-stats{margin-left:auto;font-size:10px;color:var(--tx-4);font-family:'JetBrains Mono',monospace;display:flex;gap:8px}
+.change-summary-hdr .cs-stats span{display:flex;align-items:center;gap:3px}
+.change-summary-body{padding:6px 12px 10px;max-height:300px;overflow-y:auto;display:none}
+.change-summary-body.open{display:block}
+.cs-file{display:flex;align-items:center;gap:6px;padding:3px 0;font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--tx-2);cursor:pointer;transition:.1s}
+.cs-file:hover{color:var(--tx-0)}
+.cs-file i{width:12px;text-align:center;font-size:9px}
+.cs-op{font-size:9px;padding:0 4px;border-radius:3px;font-weight:600}
+.cs-op.modified{background:rgba(234,179,8,.1);color:var(--yellow)}
+.cs-op.created{background:rgba(34,197,94,.1);color:var(--green)}
+.cs-op.deleted{background:rgba(239,68,68,.1);color:var(--red)}
+.cs-op.moved{background:rgba(34,211,238,.1);color:var(--cyan)}
+.cs-empty{font-size:11px;color:var(--tx-4);font-style:italic;padding:4px 0}
+.tool-stop{background:none;border:1px solid rgba(239,68,68,.3);color:var(--red);cursor:pointer;font-size:9px;padding:1px 6px;border-radius:3px;transition:.12s;font-family:'JetBrains Mono',monospace;margin-left:4px}
+.tool-stop:hover{background:rgba(239,68,68,.1);border-color:var(--red)}
+.tool-actions{display:flex;gap:2px;margin-left:auto}
+.tool-act-btn{background:none;border:none;color:var(--tx-4);cursor:pointer;font-size:9px;padding:2px 5px;border-radius:3px;transition:.12s;display:flex;align-items:center;gap:3px}
+.tool-act-btn:hover{color:var(--tx-0);background:var(--bg-3)}
+.tool-act-btn.copied{color:var(--green)}
 </style>
 </head>
 <body>
@@ -1054,6 +1080,13 @@ const state = {
   projectType:null, projectMeta:null,
   convSearchQuery:''
 };
+
+const inputHistory = [];
+let inputHistoryIdx = -1;
+let inputDraft = '';
+const toolCallHistory = [];
+let fileTreeRefreshTimer = null;
+function debouncedFileTreeRefresh(){clearTimeout(fileTreeRefreshTimer);fileTreeRefreshTimer=setTimeout(()=>refreshFileTree(),300);}
 
 const DEFAULT_SYS = `You are SlopLobster, a local AI coding agent with direct filesystem access, shell execution, web search, and optional image understanding.
 
@@ -1849,28 +1882,42 @@ const DANGEROUS = [
 function isDangerous(cmd){return DANGEROUS.some(p=>p.test(cmd));}
 
 /* ═══════════════ COMPANION ═══════════════ */
-async function execViaCompanion(command, explicitTimeout){
-  // Detect long-running commands and scale timeout
+async function execViaCompanion(command, explicitTimeout, externalSignal){
+  if(externalSignal?.aborted) return '[Cancelled by user]';
   let timeout = explicitTimeout ? Math.max(5, explicitTimeout) : state.cmdTimeout;
   const cmdLower = (command || '').toLowerCase();
-  const longPatterns = [/\bpip\s+(install|install)\b/, /\bnpm\s+(install|i)\b/, /\byarn\s+(install|add)\b/, /\bcargo\s+(install|build)\b/, /\bgo\s+(install|build|get|mod)\b/, /\bmake\b/, /\bcmake\b/, /\bdocker\s+(build|pull)\b/, /\bapt\s+(install|update)\b/, /\bbrew\s+(install|upgrade)\b/, /\bsudo\s+/, /\bpip3?\s+install\b/, /\bpython[23]?\s+-m\s+pip\b/, /\bnpm\s+run\b/, /\b(npx|pnpm|bun)\s+install\b/, /\bgit\s+(clone|checkout|pull|push)\b/];
-  for (const p of longPatterns) {
-    if (p.test(cmdLower)) { timeout = Math.max(timeout, 300); break; }
-  }
+  const longPatterns = [/\bpip\s+(install|install)\b/,/\bnpm\s+(install|i)\b/,/\byarn\s+(install|add)\b/,/\bcargo\s+(install|build)\b/,/\bgo\s+(install|build|get|mod)\b/,/\bmake\b/,/\bcmake\b/,/\bdocker\s+(build|pull)\b/,/\bapt\s+(install|update)\b/,/\bbrew\s+(install|upgrade)\b/,/\bsudo\s+/,/\bpip3?\s+install\b/,/\bpython[23]?\s+-m\s+pip\b/,/\bnpm\s+run\b/,/\b(npx|pnpm|bun)\s+install\b/,/\bgit\s+(clone|checkout|pull|push)\b/];
+  for(const p of longPatterns){if(p.test(cmdLower)){timeout=Math.max(timeout,300);break;}}
   const httpTimeout = timeout + 15000;
-  const res = await fetch(`${state.compUrl}/execute`, {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({command, timeout}),
-    signal: AbortSignal.timeout(httpTimeout)
-  });
-  if (!res.ok) {
-    const t = await res.text().catch(() => res.statusText);
-    throw new Error(`Companion HTTP ${res.status}: ${t}`);
+  try{
+    const res = await fetch(`${state.compUrl}/execute`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({command,timeout}),
+      signal:AbortSignal.timeout(httpTimeout)
+    });
+    if(externalSignal?.aborted) return '[Cancelled by user]';
+    if(!res.ok){const t=await res.text().catch(()=>res.statusText);throw new Error(`Companion HTTP ${res.status}: ${t}`);}
+    const data=await res.json();
+    if(externalSignal?.aborted) return '[Cancelled by user]';
+    let output=data.output||'(no output)';
+    if(data.exit_code!==0) output+=`\n[exit code: ${data.exit_code}]`;
+    return output;
+  }catch(e){
+    if(externalSignal?.aborted) return '[Cancelled by user]';
+    const msg=e.message||'';
+    const isTimeout=msg.includes('timed out')||msg.includes('Timeout')||msg.includes('AbortError')||msg.includes('The operation was aborted');
+    if(isTimeout) return `[Command timed out after extended limit. The command may still be running on the companion server.]\nError: ${msg}\n\nTip: For package installs (pip, npm, cargo, etc.), the timeout is automatically extended to 300s. If still timing out, the package may be very large or the network slow. Try splitting into smaller installs.`;
+    const isConnErr=msg.includes('Failed to fetch')||msg.includes('NetworkError')||msg.includes('ECONNREFUSED');
+    if(isConnErr){
+      state.compConnected=false;state.compInfo=null;
+      document.getElementById('comp-dot').className='status-dot off';
+      document.getElementById('comp-text').textContent='Shell';
+      document.getElementById('comp-info').innerHTML='<div style="color:var(--yellow)">Connection lost — reconnect</div>';
+      renderToolList();
+      return `[Companion connection lost: ${msg} — falling back to virtual shell]\n${await execVirtual(command)}`;
+    }
+    return `[Companion error: ${msg}]\n${await execVirtual(command)}`;
   }
-  const data = await res.json();
-  let output = data.output || '(no output)';
-  if (data.exit_code !== 0) output += `\n[exit code: ${data.exit_code}]`;
-  return output;
 }
 
 async function fetchViaCompanion(url, maxBytes){
@@ -1961,129 +2008,98 @@ async function checkCompanion(){
 }
 
 /* ═══════════════ TOOL DISPATCH ═══════════════ */
-async function executeTool(name, argsStr){
-  let args;
-  try{args=JSON.parse(argsStr);}catch{args={};}
-
-  /* Validate path arguments that are present */
-  if(args.path!=null&&args.path!==''){
-    try{sanitizePath(args.path);}catch(e){return{output:'Security: '+e.message};}
-  }
-  if(args.source!=null&&args.source!==''){
-    try{sanitizePath(args.source);}catch(e){return{output:'Security: '+e.message};}
-  }
-  if(args.destination!=null&&args.destination!==''){
-    try{sanitizePath(args.destination);}catch(e){return{output:'Security: '+e.message};}
-  }
-
+async function executeTool(name, argsStr, signal){
+  let args;try{args=JSON.parse(argsStr);}catch{args={};}
+  if(args.path!=null&&args.path!==''){try{sanitizePath(args.path);}catch(e){return{output:'Security: '+e.message};}}
+  if(args.source!=null&&args.source!==''){try{sanitizePath(args.source);}catch(e){return{output:'Security: '+e.message};}}
+  if(args.destination!=null&&args.destination!==''){try{sanitizePath(args.destination);}catch(e){return{output:'Security: '+e.message};}}
   try{
+    let result;
     switch(name){
       case 'read_file':
         if(!args.path)return{output:'Error: "path" is required for read_file'};
-        return await readFileSafe(args.path);
+        result=await readFileSafe(args.path);break;
       case 'read_file_lines':
         if(!args.path)return{output:'Error: "path" is required for read_file_lines'};
-        return await readFileLinesSafe(args.path,args.start_line,args.end_line);
+        result=await readFileLinesSafe(args.path,args.start_line,args.end_line);break;
       case 'edit_file':
         if(!args.path)return{output:'Error: "path" is required for edit_file'};
         if(!Array.isArray(args.edits)||!args.edits.length)return{output:'Error: "edits" must be a non-empty array of {old_text, new_text} objects'};
-        for(let i=0;i<args.edits.length;i++){
-          if(!args.edits[i].old_text)return{output:'Error: edits['+i+'].old_text is missing or empty'};
-        }
-        return await editFileSafe(args.path,args.edits);
+        for(let i=0;i<args.edits.length;i++){if(!args.edits[i].old_text)return{output:'Error: edits['+i+'].old_text is missing or empty'};}
+        result=await editFileSafe(args.path,args.edits);
+        if(!String(result.output).includes('ERROR'))debouncedFileTreeRefresh();break;
       case 'write_file':
         if(!args.path)return{output:'Error: "path" is required for write_file'};
         if(args.content===undefined||args.content===null)return{output:'Error: "content" is required for write_file'};
-        return await writeFileSafe(args.path,args.content);
+        result=await writeFileSafe(args.path,args.content);
+        debouncedFileTreeRefresh();break;
       case 'list_directory':
-        return{output:await listDirSafe(args.path||'',args.recursive||false)};
+        result={output:await listDirSafe(args.path||'',args.recursive||false)};break;
       case 'search_files':
         if(!args.pattern)return{output:'Error: "pattern" is required for search_files'};
-        return{output:await searchFilesSafe(args.pattern)};
+        result={output:await searchFilesSafe(args.pattern)};break;
       case 'grep':
         if(!args.pattern)return{output:'Error: "pattern" is required for grep'};
-        return{output:await grepSafe(args.pattern,args.path||'',args.include||'',args.context_lines||0)};
+        result={output:await grepSafe(args.pattern,args.path||'',args.include||'',args.context_lines||0)};break;
       case 'delete_file':
         if(!args.path)return{output:'Error: "path" is required for delete_file'};
-        return{output:await deleteFileSafe(args.path,args.recursive)};
+        result={output:await deleteFileSafe(args.path,args.recursive)};
+        debouncedFileTreeRefresh();break;
       case 'move_file':
         if(!args.source)return{output:'Error: "source" is required for move_file'};
         if(!args.destination)return{output:'Error: "destination" is required for move_file'};
-        return{output:await moveFileSafe(args.source,args.destination)};
+        result={output:await moveFileSafe(args.source,args.destination)};
+        debouncedFileTreeRefresh();break;
       case 'execute_command':{
         const cmd=String(args.command||'').trim();
         if(!cmd)return{output:'Error: "command" is required for execute_command'};
         if(state.compConnected&&isDangerous(cmd)){
-          return new Promise(resolve=>{showShellConfirm(cmd,async ok=>{resolve(ok?{output:await execViaCompanion(cmd,args.timeout)}:{output:'Command cancelled by user.'});});});
+          return new Promise(resolve=>{showShellConfirm(cmd,async ok=>{resolve(ok?{output:await execViaCompanion(cmd,args.timeout,signal)}:{output:'Command cancelled by user.'});});});
         }
-        if(state.compConnected){
-          try{return{output:await execViaCompanion(cmd,args.timeout)};}
-          catch(e){
-            const msg=e.message||'';
-            const isTimeout=msg.includes('timed out')||msg.includes('Timeout')||msg.includes('AbortError')||msg.includes('The operation was aborted');
-            if(isTimeout){
-              return{output:'[Command timed out after extended limit. The command may still be running on the companion server.]\nError: '+msg+'\n\nTip: For package installs (pip, npm, cargo, etc.), the timeout is automatically extended to 300s. If still timing out, the package may be very large or the network slow. Try splitting into smaller installs.'};
-            }
-            const isConnErr=msg.includes('Failed to fetch')||msg.includes('NetworkError')||msg.includes('ECONNREFUSED');
-            if(isConnErr){
-              state.compConnected=false;state.compInfo=null;
-              document.getElementById('comp-dot').className='status-dot off';
-              document.getElementById('comp-text').textContent='Shell';
-              document.getElementById('comp-info').innerHTML='<div style="color:var(--yellow)">Connection lost — reconnect</div>';
-              renderToolList();
-              return{output:'[Companion connection lost: '+msg+' — falling back to virtual shell]\n'+await execVirtual(cmd)};
-            }
-            return{output:'[Companion error: '+msg+']\n'+await execVirtual(cmd)};
-          }
-        }
-        return{output:await execVirtual(cmd)};
+        if(state.compConnected){result={output:await execViaCompanion(cmd,args.timeout,signal)};}
+        else{result={output:await execVirtual(cmd)};}
+        break;
       }
-      case 'screenshot':{
-        if(!state.visionCapable)return{output:'Screenshot requires a vision-capable model. Current model does not support image input.'};
+      case 'screenshot':
+        if(!state.visionCapable)return{output:'Screenshot requires a vision-capable model.'};
         try{
           const reason=args.reason||'agent requested';
-          const dataUrl=navigator.mediaDevices?.getDisplayMedia
-            ?await captureScreenRegion('SlopLobster wants to see your screen',reason)
-            :await captureScreenshotFallback();
+          const dataUrl=navigator.mediaDevices?.getDisplayMedia?await captureScreenRegion('SlopLobster wants to see your screen',reason):await captureScreenshotFallback();
           if(!dataUrl)return{output:'Screenshot cancelled by user.'};
           const sizeKB=Math.round((dataUrl.length*3/4)/1024);
-          return{output:'Screenshot captured ('+sizeKB+' KB). Image will be included in next context.',_screenshotDataUrl:dataUrl,_screenshotReason:reason,_screenshotPath:'screen-capture'};
-        }catch(e){return{output:'Screenshot failed: '+e.message};}
-      }
+          result={output:'Screenshot captured ('+sizeKB+' KB).',_screenshotDataUrl:dataUrl,_screenshotReason:reason,_screenshotPath:'screen-capture'};
+        }catch(e){result={output:'Screenshot failed: '+e.message};}
+        break;
       case 'web_search':
-        if(!state.compConnected)return{output:'web_search requires the companion server. Start SlopLobster-companion.py and connect.',_searchData:null};
+        if(!state.compConnected)return{output:'web_search requires the companion server.',_searchData:null};
         if(!args.query)return{output:'Error: "query" is required for web_search'};
         try{
           const data=await searchViaCompanion(args.query,args.num_results,args.fetch_top);
           let text='Search: "'+args.query+'"\nFound '+data.count+' results\n\n';
-          data.results.forEach((r,i)=>{
-            text+=(i+1)+'. '+(r.title||'(no title)')+'\n   '+r.url+'\n';
-            if(r.snippet)text+='   '+r.snippet+'\n';
-            if(r.content)text+='\n   --- Fetched content ('+(r.content_chars||r.content.length).toLocaleString()+' chars) ---\n'+r.content.slice(0,8000)+(r.content.length>8000?'\n   ... (truncated)':'')+'\n';
-            if(r.content_error)text+='   [Fetch failed: '+r.content_error+']\n';
-            text+='\n';
-          });
-          return{output:text,_searchData:data};
-        }catch(e){return{output:'Search error: '+e.message,_searchData:null};}
+          data.results.forEach((r,i)=>{text+=(i+1)+'. '+(r.title||'(no title)')+'\n   '+r.url+'\n';if(r.snippet)text+='   '+r.snippet+'\n';if(r.content)text+='\n   --- Fetched content ('+(r.content_chars||r.content.length).toLocaleString()+' chars) ---\n'+r.content.slice(0,8000)+(r.content.length>8000?'\n   ... (truncated)':'')+'\n';if(r.content_error)text+='   [Fetch failed: '+r.content_error+']\n';text+='\n';});
+          result={output:text,_searchData:data};
+        }catch(e){result={output:'Search error: '+e.message,_searchData:null};}
+        break;
       case 'fetch_url':
         if(!state.compConnected)return{output:'fetch_url requires the companion server.'};
-        if(!args.url||typeof args.url!=='string'||!args.url.trim())return{output:'Error: "url" is required for fetch_url and must start with http:// or https://'};
+        if(!args.url||typeof args.url!=='string'||!args.url.trim())return{output:'Error: "url" is required for fetch_url'};
         if(!args.url.trim().startsWith('http://')&&!args.url.trim().startsWith('https://'))return{output:'Error: URL must start with http:// or https://'};
-        return{output:await fetchViaCompanion(args.url.trim(),args.max_bytes)};
-      case 'git_status':return{output:await gitStatus()};
-      case 'git_diff':return{output:await gitDiff(args.staged,args.file)};
-      case 'git_log':return{output:await gitLog(args.count)};
+        result={output:await fetchViaCompanion(args.url.trim(),args.max_bytes)};break;
+      case 'git_status':result={output:await gitStatus()};break;
+      case 'git_diff':result={output:await gitDiff(args.staged,args.file)};break;
+      case 'git_log':result={output:await gitLog(args.count)};break;
       case 'git_add':
         if(!args.paths)return{output:'Error: "paths" is required for git_add'};
-        return{output:await gitAdd(args.paths)};
+        result={output:await gitAdd(args.paths)};break;
       case 'git_commit':
         if(!args.message)return{output:'Error: "message" is required for git_commit'};
-        return{output:await gitCommit(args.message)};
+        result={output:await gitCommit(args.message)};break;
       case 'think':
         if(!args.thought)return{output:'Error: "thought" is required for think'};
-        return{output:args.thought};
-      default:return{output:'Unknown tool: '+name};
+        result={output:args.thought};break;
+      default:result={output:'Unknown tool: '+name};
     }
+    return result;
   }catch(e){
     return{output:'Error: '+e.message};
   }
@@ -2490,179 +2506,85 @@ async function agentLoop(){
   state.running=true;updateSendBtn();
   let iters=0;
   const SOFT_WARN=12,COMPACT_AT=20,HARD_STOP=35;
+  const sessionChanges={modified:new Set(),created:new Set(),deleted:new Set(),moved:[]};
+  toolCallHistory.length=0;
 
   while(state.running){
     const ctxPct=getContextPct();
-
-    if(ctxPct>=state.autoCompactPct){
-      const saved=await saveProgressToWorkspace('context limit ('+Math.round(ctxPct)+'%)');
-      await progressCompact(saved);
-      iters=0;if(!state.running)break;continue;
-    }
-    if(iters>=COMPACT_AT){
-      const saved=await saveProgressToWorkspace('iteration limit ('+iters+')');
-      await progressCompact(saved);
-      iters=0;if(!state.running)break;continue;
-    }
+    if(ctxPct>=state.autoCompactPct){const saved=await saveProgressToWorkspace('context limit ('+Math.round(ctxPct)+'%)');await progressCompact(saved);iters=0;if(!state.running)break;continue;}
+    if(iters>=COMPACT_AT){const saved=await saveProgressToWorkspace('iteration limit ('+iters+')');await progressCompact(saved);iters=0;if(!state.running)break;continue;}
     if(iters===SOFT_WARN){
-      state.messages.push({role:'user',content:
-        '[SYSTEM: You have completed '+iters+' iterations. Context will compact at '+COMPACT_AT+
-        ' (in '+(COMPACT_AT-iters)+' more). A progress file will be saved to `'+PROGRESS_FILE+
-        '` so you can continue after compaction. Prioritize finishing the most critical remaining work, or clearly document what is left.]'});
+      state.messages.push({role:'user',content:'[SYSTEM: You have completed '+iters+' iterations. Context will compact at '+COMPACT_AT+' (in '+(COMPACT_AT-iters)+' more). A progress file will be saved to `'+PROGRESS_FILE+'` so you can continue after compaction. Prioritize finishing the most critical remaining work, or clearly document what is left.]'});
       state.messages.push({role:'assistant',content:'Noted. I will focus on completing the essential remaining work before context compacts.'});
     }
-
     iters++;
+    if(iters>HARD_STOP){await saveProgressToWorkspace('hard stop ('+iters+' iterations)');appendMsg('system','Stopped after '+iters+' iterations. Progress saved to `'+PROGRESS_FILE+'`.');break;}
 
-    if(iters>HARD_STOP){
-      await saveProgressToWorkspace('hard stop ('+iters+' iterations)');
-      appendMsg('system','Stopped after '+iters+' iterations. Progress saved to `'+PROGRESS_FILE+'`. Start a new conversation and ask to continue.');
-      break;
-    }
-
-    /* ── LLM turn ── */
-    const th=showThinking();
-    let cur='',tcs=[];
+    const th=showThinking();let cur='',tcs=[];
     const liveThinkEls=new Map();
     try{
-      await streamChat(
-        state.messages,
-        t=>{cur=t;if(th)th.remove();updateStreamingMsg(t);},
-        c=>{tcs=c;},
-        (thinkText)=>{
-          let idx=-1;for(let i=0;i<tcs.length;i++){if(tcs[i].function.name==='think')idx=i;}
-          if(idx===-1)return;
-          if(th)th.remove();
-          if(!liveThinkEls.has(idx)){
-            const el=createLiveThinkBlock();
-            if(streamEl&&streamEl.parentNode)streamEl.parentNode.insertBefore(el,streamEl);
-            else $msg().appendChild(el);
-            liveThinkEls.set(idx,el);
-          }
-          updateLiveThinkBlock(liveThinkEls.get(idx),thinkText);
-          scrollBottom();
-        }
-      );
-    }
-    catch(e){
+      await streamChat(state.messages,t=>{cur=t;if(th)th.remove();updateStreamingMsg(t);},c=>{tcs=c;},(thinkText)=>{let idx=-1;for(let i=0;i<tcs.length;i++){if(tcs[i].function.name==='think')idx=i;}if(idx===-1)return;if(th)th.remove();if(!liveThinkEls.has(idx)){const el=createLiveThinkBlock();if(streamEl&&streamEl.parentNode)streamEl.parentNode.insertBefore(el,streamEl);else $msg().appendChild(el);liveThinkEls.set(idx,el);}updateLiveThinkBlock(liveThinkEls.get(idx),thinkText);scrollBottom();});
+    }catch(e){
       if(th&&th.parentNode)th.remove();
-      if(e.name==='AbortError'){
-        if(iters>2) saveProgressToWorkspace('user stopped ('+iters+' iterations)');
-        appendMsg('system','Stopped.');break;
-      }
+      if(e.name==='AbortError'){if(iters>2)saveProgressToWorkspace('user stopped ('+iters+' iterations)');appendMsg('system','Stopped.');break;}
       appendMsg('system','Error: '+e.message);break;
     }
     if(th&&th.parentNode)th.remove();
-
-    const am={role:'assistant',content:cur||null};
-    if(tcs.length)am.tool_calls=tcs;
-    state.messages.push(am);updateContextMeter();
-
-    for(const[,el]of liveThinkEls)finalizeLiveThinkBlock(el);
-    liveThinkEls.clear();
-
+    const am={role:'assistant',content:cur||null};if(tcs.length)am.tool_calls=tcs;state.messages.push(am);updateContextMeter();
+    for(const[,el]of liveThinkEls)finalizeLiveThinkBlock(el);liveThinkEls.clear();
     if(!tcs.length){finalizeStreamingMsg(cur);break;}
     if(cur)finalizeStreamingMsg(cur);
-
-    /* ── Separate think from action tool calls ── */
     const thinkTcs=tcs.filter(tc=>tc.function.name==='think');
     const nonThinkTcs=tcs.filter(tc=>tc.function.name!=='think');
 
-    /* ── Execute action tools ── */
     if(nonThinkTcs.length){
-      const isParallel=nonThinkTcs.length>1;
-      if(isParallel)showParallelBadge(nonThinkTcs.length);
-      const toolPanels=nonThinkTcs.map(tc=>showToolPanel(tc.function.name,tc.function.arguments,'run'));
+      const isParallel=nonThinkTcs.length>1;if(isParallel)showParallelBadge(nonThinkTcs.length);
+      const toolAbortCtrls=nonThinkTcs.map(()=>new AbortController());
+      const toolPanels=nonThinkTcs.map((tc,i)=>showToolPanel(tc.function.name,tc.function.arguments,'run',()=>toolAbortCtrls[i].abort()));
 
       const results=await Promise.all(nonThinkTcs.map(async(tc,i)=>{
-        let result;
-        try{
-          result=await executeTool(tc.function.name,tc.function.arguments);
-          updateToolStatus(toolPanels[i],'ok');
-        }catch(e){
-          result={output:'Error: '+e.message};
-          updateToolStatus(toolPanels[i],'err');
-        }
+        if(toolAbortCtrls[i].signal.aborted){updateToolStatus(toolPanels[i],'err');updateToolResult(toolPanels[i],'Cancelled by user.');return{tc,outText:'Cancelled by user.',cancelled:true};}
+        let result;try{result=await executeTool(tc.function.name,tc.function.arguments,toolAbortCtrls[i].signal);updateToolStatus(toolPanels[i],'ok');}
+        catch(e){if(toolAbortCtrls[i].signal.aborted){updateToolStatus(toolPanels[i],'err');updateToolResult(toolPanels[i],'Cancelled by user.');return{tc,outText:'Cancelled by user.',cancelled:true};}result={output:'Error: '+e.message};updateToolStatus(toolPanels[i],'err');}
         const outText=(typeof result==='string')?result:(result&&result.output)||'';
         const diff=(typeof result==='object'&&result&&result.diff)||null;
         const searchData=(typeof result==='object'&&result&&result._searchData)||null;
-
-        /* Store image metadata on panel for unified injection */
         if(typeof result==='object'&&result){
-          if(result._screenshotDataUrl){
-            toolPanels[i].el._imageDataUrl=result._screenshotDataUrl;
-            toolPanels[i].el._imagePath='screenshot';
-            toolPanels[i].el._imageReason=result._screenshotReason||'agent requested';
-            toolPanels[i].el._imageType='screenshot';
-          }else if(result._imageDataUrl){
-            toolPanels[i].el._imageDataUrl=result._imageDataUrl;
-            toolPanels[i].el._imagePath=result._imagePath||'unknown';
-            toolPanels[i].el._imageReason=result._imageReason||'file read';
-            toolPanels[i].el._imageType='file';
-          }
+          if(result._screenshotDataUrl){toolPanels[i].el._screenshotDataUrl=result._screenshotDataUrl;toolPanels[i].el._imagePath='screenshot';toolPanels[i].el._imageReason=result._screenshotReason||'agent requested';toolPanels[i].el._imageType='screenshot';}
+          else if(result._imageDataUrl){toolPanels[i].el._imageDataUrl=result._imageDataUrl;toolPanels[i].el._imagePath=result._imagePath||'unknown';toolPanels[i].el._imageReason=result._imageReason||'file read';toolPanels[i].el._imageType='file';}
         }
-
-        updateToolResult(toolPanels[i],outText);
-        if(diff)showDiffPanel(diff);
-        if(searchData)showSearchPanel(searchData);
+        updateToolResult(toolPanels[i],outText);if(diff)showDiffPanel(diff);if(searchData)showSearchPanel(searchData);
+        if(!outText.includes('Error:')&&!outText.includes('ERROR')&&!outText.includes('Cancelled')){
+          const args=safeParseArgs(tc.function.arguments);
+          if(tc.function.name==='write_file')sessionChanges.created.add(args.path);
+          if(tc.function.name==='edit_file')sessionChanges.modified.add(args.path);
+          if(tc.function.name==='delete_file')sessionChanges.deleted.add(args.path);
+          if(tc.function.name==='move_file')sessionChanges.moved.push({from:args.source,to:args.destination});
+        }
+        const sig=tc.function.name+':'+(tc.function.arguments||'').slice(0,100);
+        const success=!outText.includes('Error:')&&!outText.includes('ERROR')&&!outText.includes('Cancelled');
+        toolCallHistory.push({sig,success});if(toolCallHistory.length>20)toolCallHistory.shift();
         return{tc,outText,diff,searchData};
       }));
 
-      /* ── Push tool results + inject images ── */
-      for(const{tc,outText}of results){
-        state.messages.push({role:'tool',tool_call_id:tc.id,content:outText,_diff:null,_searchData:null});
-      }
-      /* Re-attach diff/search data from the results array to the correct messages */
-      for(let ri=0;ri<results.length;ri++){
-        const msgIdx=state.messages.length-results.length+ri;
-        if(results[ri].diff)state.messages[msgIdx]._diff=results[ri].diff;
-        if(results[ri].searchData)state.messages[msgIdx]._searchData=results[ri].searchData;
-      }
+      if(toolCallHistory.length>=3){const r=toolCallHistory.slice(-3);if(r[0].sig===r[1].sig&&r[1].sig===r[2].sig&&!r[0].success&&!r[1].success&&!r[2].success){
+        const wEl=document.createElement('div');wEl.className='health-warning';wEl.innerHTML='<i class="fas fa-triangle-exclamation"></i><span>Agent stuck in a loop — same tool call failed 3 times. Intervening...</span>';$msg().appendChild(wEl);scrollBottom();
+        state.messages.push({role:'user',content:'[SYSTEM: Your last 3 tool calls were identical and all failed: "'+r[0].sig+'". Stop repeating this. Try a fundamentally different approach or ask the user for help.]'});
+        state.messages.push({role:'assistant',content:'Understood. I was stuck in a failure loop. Let me try a completely different approach.'});toolCallHistory.length=0;
+      }}
 
-      /* ── Unified image injection (screenshots + file reads) ── */
-      for(let ri=0;ri<results.length;ri++){
-        const panel=toolPanels[ri];
-        if(!panel.el._imageDataUrl)continue;
-        const imgUrl=panel.el._imageDataUrl;
-        const imgPath=panel.el._imagePath||'image';
-        const imgReason=panel.el._imageReason||'captured';
-        const imgType=panel.el._imageType||'screenshot';
-
-        /* Show preview in tool panel */
-        if(!panel.el.querySelector('.screenshot-preview')){
-          panel.el.classList.add('screenshot-tool');
-          const preview=document.createElement('div');
-          preview.className='screenshot-preview';
-          const label=imgType==='file'
-            ?'<div style="font-size:10px;color:var(--tx-3);margin-bottom:4px;font-family:\'JetBrains Mono\',monospace"><i class="fas fa-image" style="color:var(--accent)"></i> '+esc(imgPath)+'</div>'
-            :'';
-          preview.innerHTML=label+'<img src="'+imgUrl+'" onclick="openImgViewer(this.src)" alt="'+esc(imgPath)+'">';
-          panel.el.appendChild(preview);
-        }
-
-        /* Push as image-bearing user message */
-        state.messages.push({
-          role:'user',
-          content:'['+imgType+': '+imgReason+' — '+imgPath+']',
-          _images:[{type:'image_url',image_url:{url:imgUrl}}],
-          _isAgentImage:true,
-          _imageType:imgType
-        });
+      for(const{tc,outText,cancelled}of results){if(cancelled)continue;state.messages.push({role:'tool',tool_call_id:tc.id,content:outText,_diff:null,_searchData:null});}
+      for(let ri=0;ri<results.length;ri++){const msgIdx=state.messages.length-results.filter(r=>!r.cancelled).length+ri;if(results[ri].diff)state.messages[msgIdx]._diff=results[ri].diff;if(results[ri].searchData)state.messages[msgIdx]._searchData=results[ri].searchData;}
+      for(let ri=0;ri<results.length;ri++){const panel=toolPanels[ri];if(!panel.el._imageDataUrl&&!panel.el._screenshotDataUrl)continue;const imgUrl=panel.el._screenshotDataUrl||panel.el._imageDataUrl;const imgPath=panel.el._imagePath||'image';const imgReason=panel.el._imageReason||'captured';const imgType=panel.el._imageType||'screenshot';
+        if(!panel.el.querySelector('.screenshot-preview')){panel.el.classList.add('screenshot-tool');const preview=document.createElement('div');preview.className='screenshot-preview';const label=imgType==='file'?'<div style="font-size:10px;color:var(--tx-3);margin-bottom:4px;font-family:\'JetBrains Mono\',monospace"><i class="fas fa-image" style="color:var(--accent)"></i> '+esc(imgPath)+'</div>':'';preview.innerHTML=label+'<img src="'+imgUrl+'" onclick="openImgViewer(this.src)" alt="'+esc(imgPath)+'">';panel.el.appendChild(preview);}
+        state.messages.push({role:'user',content:'['+imgType+': '+imgReason+' — '+imgPath+']',_images:[{type:'image_url',image_url:{url:imgUrl}}],_isAgentImage:true,_imageType:imgType});
       }
     }
-
-    /* ── Push think results (no panels, no images) ── */
-    for(const tc of thinkTcs){
-      let thought='';
-      try{const a=JSON.parse(tc.function.arguments);thought=a.thought||'';}
-      catch{thought=tc.function.arguments||'';}
-      state.messages.push({role:'tool',tool_call_id:tc.id,content:thought});
-    }
-
+    for(const tc of thinkTcs){let thought='';try{const a=JSON.parse(tc.function.arguments);thought=a.thought||'';}catch{thought=tc.function.arguments||'';}state.messages.push({role:'tool',tool_call_id:tc.id,content:thought});}
     updateContextMeter();
   }
-
   state.running=false;state.abortCtrl=null;updateSendBtn();saveCurrentConv();
+  if(sessionChanges.modified.size||sessionChanges.created.size||sessionChanges.deleted.size||sessionChanges.moved.length){showChangeSummary(sessionChanges);refreshFileTree();}
 }
 
 
@@ -2820,21 +2742,19 @@ function showShellConfirm(cmd,callback){
   $msg().appendChild(el);scrollBottom();
 }
 
-function showToolPanel(name,argsStr,status){
-  let prev='';try{const a=JSON.parse(argsStr);prev=Object.entries(a).map(([k,v])=>{const sv=String(v);return`<span>${esc(k)}</span>: ${esc(sv.length>120?sv.slice(0,120)+'...':sv)}`;}).join('<br>');}catch{prev=esc(argsStr?.slice(0,200)||'');}
+function showToolPanel(name, argsStr, status, onStopClick){
+  let prev='';try{const a=JSON.parse(argsStr);prev=Object.entries(a).map(([k,v])=>'<span>'+esc(k)+'</span>: '+esc(String(v).length>120?String(v).slice(0,120)+'...':String(v))).join('<br>');}catch{prev=esc(argsStr?.slice(0,200)||'');}
   const el=document.createElement('div');el.className='tool-panel';
-  el._toolName=name;el._toolArgs=argsStr;
-  el._screenshotDataUrl = null;
-  el._screenshotReason = null;
-  el._imageDataUrl = null;
-  el._imagePath = null;
-  el._imageReason = null;
-  el._imageType = null;
-  el.innerHTML=`<div class="tool-hdr"><i class="fas fa-bolt tool-icon"></i><span class="tool-name">${esc(name)}</span><span class="tool-status ${status}">${status==='run'?'Running...':status==='ok'?'Done':'Error'}</span></div><div class="tool-params">${prev}</div><div class="tool-result loading"></div>`;
+  el._toolName=name;el._toolArgs=argsStr;el._screenshotDataUrl=null;el._imageDataUrl=null;el._imagePath=null;el._imageReason=null;el._imageType=null;el._resultText='';el._collapsed=false;
+  el.innerHTML=`<div class="tool-hdr"><i class="fas fa-bolt tool-icon"></i><span class="tool-name">${esc(name)}</span><span class="tool-status ${status}">${status==='run'?'Running...':status==='ok'?'Done':'Error'}</span><div class="tool-actions">${onStopClick?'<button class="tool-stop" title="Stop"><i class="fas fa-stop"></i> Stop</button>':''}<button class="tool-act-btn" onclick="copyToolOutput(this)" title="Copy output"><i class="fas fa-copy"></i></button><button class="tool-act-btn tool-expand-btn" onclick="toggleToolExpand(this)" title="Expand/Collapse" style="display:none"><i class="fas fa-expand"></i></button></div></div><div class="tool-params">${prev}</div><div class="tool-result loading"></div>`;
+  if(onStopClick)el.querySelector('.tool-stop').onclick=(e)=>{e.stopPropagation();onStopClick();};
   $msg().appendChild(el);scrollBottom();return{el};
 }
+
 function updateToolStatus(w,s){
-  const st=w.el.querySelector('.tool-status');st.className='tool-status '+s;st.textContent=s==='ok'?'Done':'Error';
+  const st=w.el.querySelector('.tool-status');st.className='tool-status '+s;st.textContent=s==='ok'?'Done':s==='err'?'Error':'Running...';
+  const stopBtn=w.el.querySelector('.tool-stop');if(stopBtn)stopBtn.style.display=s==='run'?'':'none';
+  const expandBtn=w.el.querySelector('.tool-expand-btn');if(expandBtn&&s!=='run')expandBtn.style.display='';
   if(s==='err'){
     const existing=w.el.querySelector('.tool-retry-btn');if(existing)existing.remove();
     const retryBtn=document.createElement('button');retryBtn.className='msg-act tool-retry-btn';
@@ -2843,36 +2763,27 @@ function updateToolStatus(w,s){
     w.el.querySelector('.tool-hdr').appendChild(retryBtn);
   }
 }
-function retrySingleTool(w){
-  if(state.running){showToast('Wait for current response','warn');return;}
-  const name=w.el._toolName,argsStr=w.el._toolArgs;
-  updateToolStatus(w,'run');
-  const res=w.el.querySelector('.tool-result');res.className='tool-result loading';res.textContent='';
-  executeTool(name,argsStr).then(result=>{
-    const outText=typeof result==='string'?result:result.output;
-    const diff=typeof result==='object'?result.diff:null;
-    const searchData=typeof result==='object'?result._searchData:null;
-    updateToolStatus(w,'ok');updateToolResult(w,outText);
-    if(diff)showDiffPanel(diff);
-    if(searchData)showSearchPanel(searchData);
-    // Update the corresponding tool message in state
-    const idx=state.messages.findIndex(m=>m.role==='tool'&&m._panelEl===w.el);
-    if(idx>=0)state.messages[idx].content=outText;
-  }).catch(e=>{
-    updateToolStatus(w,'err');updateToolResult(w,'Error: '+e.message);
-  });
-}
-
 
 function updateToolResult(w,r){
-  if(!w||!w.el)return;
-  const res=w.el.querySelector('.tool-result');
-  if(!res)return;
-  const text=(r!=null)?String(r):'(no output)';
-  res.className='tool-result';res.textContent=text;
-  if(text.length>500&&text.includes('[Truncated'))res.classList.add('truncated');
-  w.el.querySelector('.tool-hdr').onclick=()=>{const vis=res.style.display!=='none';res.style.display=vis?'none':'block';};
+  if(!w||!w.el)return;const res=w.el.querySelector('.tool-result');if(!res)return;
+  const text=(r!=null)?String(r):'(no output)';res.className='tool-result';res.textContent=text;w.el._resultText=text;
+  const isTruncated=text.length>500&&text.includes('[Truncated');
+  if(isTruncated){res.classList.add('truncated');const eb=w.el.querySelector('.tool-expand-btn');if(eb)eb.style.display='';}
+  w.el.querySelector('.tool-hdr').onclick=()=>{
+    w.el._collapsed=!w.el._collapsed;res.style.display=w.el._collapsed?'none':'';
+    const ic=w.el.querySelector('.tool-expand-btn i');if(ic)ic.className=w.el._collapsed?'fas fa-compress':'fas fa-expand';
+  };
   scrollBottom();
+}
+
+function copyToolOutput(btn){
+  const panel=btn.closest('.tool-panel');const text=panel._resultText||panel.querySelector('.tool-result')?.textContent||'';
+  navigator.clipboard.writeText(text).then(()=>{btn.classList.add('copied');btn.innerHTML='<i class="fas fa-check"></i>';setTimeout(()=>{btn.classList.remove('copied');btn.innerHTML='<i class="fas fa-copy"></i>';},1200);});
+}
+function toggleToolExpand(btn){
+  const panel=btn.closest('.tool-panel');const res=panel.querySelector('.tool-result');
+  panel._collapsed=!panel._collapsed;res.style.display=panel._collapsed?'none':'';
+  btn.querySelector('i').className=panel._collapsed?'fas fa-compress':'fas fa-expand';
 }
 
 /* ═══════════════ DIFF PANEL (compact by default) ═══════════════ */
@@ -2942,6 +2853,19 @@ function showSearchPanel(data){
     return html;
   }).join('');
   el.innerHTML=`<div class="search-hdr"><i class="fas fa-globe"></i><div class="search-q">${esc(data.query)}</div><span class="search-meta">${data.count} results</span></div><div class="search-results">${resultsHtml}</div>`;
+  $msg().appendChild(el);scrollBottom();
+}
+
+function showChangeSummary(changes){
+  const el=document.createElement('div');el.className='change-summary';
+  const modC=changes.modified.size,creC=changes.created.size,delC=changes.deleted.size,movC=changes.moved.length;
+  const total=modC+creC+delC+movC;
+  const statsHtml=`<span style="color:var(--yellow)">+${creC} created</span><span style="color:var(--orange)">~${modC} modified</span>${delC?'<span style="color:var(--red)">-'+delC+' deleted</span>':''}${movC?'<span style="color:var(--cyan)">→'+movC+' moved</span>':''}`;
+  el.innerHTML=`<div class="change-summary-hdr" onclick="this.nextElementSibling.classList.toggle('open')"><i class="fas fa-list-check"></i><span class="cs-label">Session Changes</span><div class="cs-stats">${statsHtml}</div></div><div class="change-summary-body">`;
+  const body=el.querySelector('.change-summary-body');
+  const allFiles=[...changes.created].map(f=>({f,op:'created',icon:'fa-plus',cls:'created'}),[...changes.modified].map(f=>({f,op:'modified',icon:'fa-pen',cls:'modified'}),[...changes.deleted].map(f=>({f,op:'deleted',icon:'fa-trash',cls:'deleted'})),changes.moved.map(m=>({f:m.from+' → '+m.to,op:'moved',icon:'fa-arrow-right',cls:'moved'}))));
+  if(!allFiles.length){body.innerHTML='<div class="cs-empty">No file changes in this session</div>';}
+  else{body.innerHTML=allFiles.map(({f,op,icon,cls})=>`<div class="cs-file" onclick="insertPath('${(f.split(' → ')[0]||f).replace(/'/g,"\\'")}')"><span class="cs-op ${cls}">${op}</span><i class="fas ${icon}"></i>${esc(f)}</div>`).join('');}
   $msg().appendChild(el);scrollBottom();
 }
 
@@ -3344,6 +3268,8 @@ function handleSend(){
   
   const images=state.pendingImages.splice(0);
   inp.value='';inp.style.height='auto';
+  if(t&&t!==inputHistory[0]){inputHistory.unshift(t);if(inputHistory.length>100)inputHistory.pop();}
+  inputHistoryIdx=-1;inputDraft='';
   addImageAttachmentsToInputArea();
   
   if(!state.activeConvId)newConversation();
@@ -3486,6 +3412,21 @@ function init(){
   const inp=document.getElementById('msg-input');
   inp.addEventListener('input',()=>{inp.style.height='auto';inp.style.height=Math.min(inp.scrollHeight,150)+'px';updateSendBtn();});
   inp.addEventListener('keydown',e=>{
+    if(e.key==='ArrowUp'){
+      if(inputHistory.length&&(inputHistoryIdx<inputHistory.length-1||inp.value!==inputHistory[inputHistoryIdx])){
+        if(inputHistoryIdx===-1)inputDraft=inp.value;
+        inputHistoryIdx=Math.min(inputHistoryIdx+1,inputHistory.length-1);
+        inp.value=inputHistory[inputHistoryIdx];inp.style.height='auto';inp.style.height=Math.min(inp.scrollHeight,150)+'px';updateSendBtn();e.preventDefault();
+      }
+      return;
+    }
+    if(e.key==='ArrowDown'){
+      if(inputHistoryIdx>-1){
+        inputHistoryIdx--;inp.value=inputHistoryIdx===-1?inputDraft:inputHistory[inputHistoryIdx];
+        inp.style.height='auto';inp.style.height=Math.min(inp.scrollHeight,150)+'px';updateSendBtn();e.preventDefault();
+      }
+      return;
+    }
     if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();handleSend();}
   });
 
