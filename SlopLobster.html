@@ -291,6 +291,26 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative
 .screenshot-btn{background:none;border:1px solid transparent;color:var(--tx-4);padding:4px 7px;border-radius:5px;font-size:12px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px;transition:.15s}
 .screenshot-btn:hover:not(:disabled){background:var(--bg-3);color:var(--tx-0);border-color:var(--border-l)}
 .screenshot-btn:disabled{opacity:.25;cursor:not-allowed}
+.screen-capture-overlay{position:fixed;inset:0;z-index:400;background:#08080a;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif}
+.screen-capture-hint{position:absolute;top:20px;left:50%;transform:translateX(-50%);background:var(--bg-2);border:1px solid var(--border);border-radius:10px;padding:10px 20px;text-align:center;z-index:410;max-width:420px}
+.screen-capture-hint .hint-icon{font-size:14px;color:var(--accent);margin-bottom:4px}
+.screen-capture-hint .hint-text{font-size:12px;color:var(--tx-1);line-height:1.5}
+.screen-capture-hint .hint-reason{font-size:11px;color:var(--tx-3);font-style:italic;margin-top:4px}
+.screen-capture-area{position:relative;cursor:crosshair}
+.screen-capture-canvas{display:block;border-radius:4px;box-shadow:0 0 40px rgba(0,0,0,.6)}
+.selection-rect{position:absolute;border:2px solid var(--accent);box-shadow:0 0 0 9999px rgba(0,0,0,.55);pointer-events:none;z-index:2;display:none}
+.selection-rect::after{content:'';position:absolute;inset:0;background:rgba(232,160,35,.04)}
+.selection-info{position:absolute;background:var(--bg-1);color:var(--tx-0);font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid var(--border);font-family:'JetBrains Mono',monospace;pointer-events:none;z-index:3;display:none;white-space:nowrap}
+.screen-capture-placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--tx-4);font-size:13px;pointer-events:none;z-index:1;transition:opacity .2s}
+.screen-capture-actions{position:fixed;bottom:32px;left:50%;transform:translateX(-50%);display:none;gap:8px;z-index:410;background:var(--bg-1);border:1px solid var(--border);border-radius:10px;padding:8px 12px;box-shadow:0 12px 40px rgba(0,0,0,.6)}
+.sc-btn{padding:7px 16px;border-radius:6px;border:1px solid var(--border);background:var(--bg-3);color:var(--tx-1);font-size:12px;cursor:pointer;font-family:'Space Grotesk',sans-serif;transition:.15s;white-space:nowrap}
+.sc-btn:hover{background:var(--bg-4);color:var(--tx-0);border-color:var(--border-l)}
+.sc-btn-capture{background:var(--accent);color:var(--bg-0);border-color:var(--accent);font-weight:600}
+.sc-btn-capture:hover{background:var(--accent-h);border-color:var(--accent-h)}
+.sc-btn-cancel{color:var(--tx-3)}
+.sc-btn-cancel:hover{color:var(--red);border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.08)}
+.screen-capture-flash{position:fixed;inset:0;background:white;opacity:0;pointer-events:none;z-index:450;animation:scFlash .25s ease-out}
+@keyframes scFlash{0%{opacity:.2}100%{opacity:0}}
 .img-attach{display:flex;align-items:flex-start;gap:8px;margin-top:6px;padding:8px;background:var(--bg-2);border:1px solid var(--border);border-radius:8px}
 .img-attach img{max-height:80px;max-width:160px;border-radius:4px;border:1px solid var(--border);cursor:pointer;transition:opacity .15s;object-fit:cover}
 .img-attach img:hover{opacity:.85}
@@ -1223,25 +1243,182 @@ function fileToBase64FromFile(file) {
   });
 }
 
-async function captureScreenshot(fullPage) {
-  if (typeof html2canvas === 'undefined') throw new Error('html2canvas not loaded');
-  /* Flash effect */
-  const flash = document.createElement('div');
-  flash.className = 'screenshot-flash';
-  document.body.appendChild(flash);
-  setTimeout(() => flash.remove(), 350);
+async function captureScreenRegion(promptText, reasonText) {
+  /* ── Request screen share ── */
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { cursor: 'never', displaySurface: 'monitor' },
+      audio: false,
+      preferCurrentTab: false,
+      selfBrowserSurface: 'exclude',
+      systemAudio: 'exclude'
+    });
+  } catch (e) {
+    if (e.name === 'NotAllowedError') return null;
+    throw e;
+  }
 
-  const target = fullPage ? document.body : document.querySelector('.content') || document.body;
+  /* ── Grab a frame ── */
+  const video = document.createElement('video');
+  video.srcObject = stream;
+  video.muted = true;
+  await new Promise((res, rej) => { video.onloadedmetadata = () => video.play().then(res).catch(rej); video.onerror = rej; });
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const offscreen = document.createElement('canvas');
+  offscreen.width = vw; offscreen.height = vh;
+  offscreen.getContext('2d').drawImage(video, 0, 0, vw, vh);
+  stream.getTracks().forEach(t => t.stop());
+  video.srcObject = null;
+
+  /* ── Scale to fit viewport ── */
+  const maxW = window.innerWidth - 40, maxH = window.innerHeight - 160;
+  const scale = Math.min(maxW / vw, maxH / vh, 1);
+  const drawW = Math.round(vw * scale), drawH = Math.round(vh * scale);
+
+  /* ── Build overlay ── */
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'screen-capture-overlay';
+
+    if (promptText) {
+      const hint = document.createElement('div');
+      hint.className = 'screen-capture-hint';
+      hint.innerHTML = `<div class="hint-icon"><i class="fas fa-camera"></i></div><div class="hint-text">${esc(promptText)}</div>${reasonText ? '<div class="hint-reason">' + esc(reasonText) + '</div>' : ''}`;
+      overlay.appendChild(hint);
+    }
+
+    const area = document.createElement('div');
+    area.className = 'screen-capture-area';
+    area.style.width = drawW + 'px';
+    area.style.height = drawH + 'px';
+
+    const canvas = document.createElement('canvas');
+    canvas.className = 'screen-capture-canvas';
+    canvas.width = drawW; canvas.height = drawH;
+    canvas.getContext('2d').drawImage(offscreen, 0, 0, drawW, drawH);
+
+    const placeholder = document.createElement('div');
+    placeholder.className = 'screen-capture-placeholder';
+    placeholder.innerHTML = '<i class="fas fa-crop-simple" style="margin-right:6px"></i> Click and drag to select area';
+
+    const selRect = document.createElement('div');
+    selRect.className = 'selection-rect';
+
+    const info = document.createElement('div');
+    info.className = 'selection-info';
+
+    area.append(canvas, placeholder, selRect, info);
+    overlay.appendChild(area);
+
+    const actions = document.createElement('div');
+    actions.className = 'screen-capture-actions';
+    const btnSel = document.createElement('button'); btnSel.className = 'sc-btn sc-btn-capture'; btnSel.textContent = 'Capture Selection';
+    const btnAll = document.createElement('button'); btnAll.className = 'sc-btn'; btnAll.textContent = 'Capture All';
+    const btnRedo = document.createElement('button'); btnRedo.className = 'sc-btn'; btnRedo.textContent = 'Reselect';
+    const btnCancel = document.createElement('button'); btnCancel.className = 'sc-btn sc-btn-cancel'; btnCancel.textContent = 'Cancel';
+    actions.append(btnSel, btnAll, btnRedo, btnCancel);
+    overlay.appendChild(actions);
+    document.body.appendChild(overlay);
+
+    let dragging = false, sx, sy, cx, cy, hasSel = false;
+
+    function pos(e) {
+      const r = canvas.getBoundingClientRect();
+      const t = e.touches ? e.touches[0] : e;
+      return { x: Math.max(0, Math.min(drawW, t.clientX - r.left)), y: Math.max(0, Math.min(drawH, t.clientY - r.top)) };
+    }
+
+    function showSel() {
+      const x = Math.min(sx, cx), y = Math.min(sy, cy), w = Math.abs(cx - sx), h = Math.abs(cy - sy);
+      selRect.style.display = 'block';
+      selRect.style.left = x + 'px'; selRect.style.top = y + 'px';
+      selRect.style.width = w + 'px'; selRect.style.height = h + 'px';
+      const ow = Math.round(w / scale), oh = Math.round(h / scale);
+      info.style.display = 'block';
+      info.style.left = x + 'px'; info.style.top = Math.max(0, y - 26) + 'px';
+      info.textContent = ow + ' \u00d7 ' + oh;
+    }
+
+    function hideSel() { selRect.style.display = 'none'; info.style.display = 'none'; }
+
+    function onDown(e) {
+      e.preventDefault();
+      const p = pos(e); dragging = true; sx = p.x; sy = p.y; cx = p.x; cy = p.y;
+      hasSel = false; actions.style.display = 'none'; hideSel();
+      placeholder.style.opacity = '0';
+    }
+    function onMove(e) {
+      if (!dragging) return; e.preventDefault();
+      const p = pos(e); cx = p.x; cy = p.y; showSel();
+    }
+    function onUp() {
+      if (!dragging) return; dragging = false;
+      if (Math.abs(cx - sx) > 8 && Math.abs(cy - sy) > 8) { hasSel = true; actions.style.display = 'flex'; }
+      else { hideSel(); placeholder.style.opacity = '1'; }
+    }
+
+    canvas.addEventListener('mousedown', onDown);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    canvas.addEventListener('touchstart', onDown, { passive: false });
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('touchend', onUp);
+
+    function crop() {
+      const x = Math.min(sx, cx), y = Math.min(sy, cy);
+      const w = Math.abs(cx - sx), h = Math.abs(cy - sy);
+      const ox = Math.round(x / scale), oy = Math.round(y / scale);
+      const ow = Math.max(1, Math.round(w / scale)), oh = Math.max(1, Math.round(h / scale));
+      const c = document.createElement('canvas'); c.width = ow; c.height = oh;
+      c.getContext('2d').drawImage(offscreen, ox, oy, ow, oh, 0, 0, ow, oh);
+      return compressImageToBase64(c, 1280);
+    }
+
+    function flash() {
+      const f = document.createElement('div'); f.className = 'screen-capture-flash';
+      document.body.appendChild(f); setTimeout(() => f.remove(), 300);
+    }
+
+    function cleanup() {
+      canvas.removeEventListener('mousedown', onDown);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      canvas.removeEventListener('touchstart', onDown);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onUp);
+      overlay.remove();
+    }
+
+    btnSel.onclick = () => { flash(); const r = crop(); cleanup(); resolve(r); };
+    btnAll.onclick = () => { flash(); cleanup(); resolve(compressImageToBase64(offscreen, 1280)); };
+    btnRedo.onclick = () => { hasSel = false; actions.style.display = 'none'; hideSel(); placeholder.style.opacity = '1'; };
+    btnCancel.onclick = () => { cleanup(); resolve(null); };
+
+    function onEsc(e) { if (e.key === 'Escape') { cleanup(); resolve(null); window.removeEventListener('keydown', onEsc); } }
+    window.addEventListener('keydown', onEsc);
+  });
+}
+
+/* Fallback for environments without getDisplayMedia */
+async function captureScreenshotFallback() {
+  if (typeof html2canvas === 'undefined') throw new Error('No screen capture available');
+  const flash = document.createElement('div'); flash.className = 'screenshot-flash';
+  document.body.appendChild(flash); setTimeout(() => flash.remove(), 350);
+  const target = document.querySelector('.content') || document.body;
   const canvas = await html2canvas(target, {
-    backgroundColor: '#08080a',
-    scale: Math.min(window.devicePixelRatio, 1.5),
-    useCORS: true,
-    logging: false,
-    imageTimeout: 5000,
-    /* Exclude certain elements */
-    ignoreElements: (el) => el.classList?.contains('screenshot-flash') || el.classList?.contains('img-viewer')
+    backgroundColor: '#08080a', scale: Math.min(window.devicePixelRatio, 1.5),
+    useCORS: true, logging: false, imageTimeout: 5000,
+    ignoreElements: (el) => el.classList?.contains('screenshot-flash') || el.classList?.contains('img-viewer') || el.classList?.contains('screen-capture-overlay')
   });
   return compressImageToBase64(canvas, 1280);
+}
+
+async function captureScreenshot() {
+  if (navigator.mediaDevices?.getDisplayMedia) return await captureScreenRegion();
+  return await captureScreenshotFallback();
 }
 
 function fileToBase64(file) {
@@ -1313,8 +1490,7 @@ function getToolDefs(){
     {type:'function',function:{name:'move_file',description:'Move or rename a file or directory. Creates parent directories in destination if needed.',parameters:{type:'object',properties:{source:{type:'string',description:'Current relative path'},destination:{type:'string',description:'New relative path'}},required:['source','destination']}}},
   ];
   if(state.visionCapable){
-    tools.push({type:'function',function:{name:'screenshot',description:'Capture the current SlopLobster interface as a screenshot. Returns a base64 image of what is currently visible (or the full page). Use this when you need to visually inspect the current state: error messages, tool results, code changes displayed in the UI, or the file tree. The image will be included in your context so you can see it.',parameters:{type:'object',properties:{full_page:{type:'boolean',description:'Capture the full scrollable page instead of just the visible area (default: false)'},reason:{type:'string',description:'Brief note on what you are looking for in the screenshot'},target:{type:'string',enum:['chat','sidebar','full'],description:'What to capture: "chat" (message area, default), "sidebar" (file tree + tools), "full" (entire window)'}},required:[]}}});
-  }
+    tools.push({type:'function',function:{name:'screenshot',description:'Capture a region of the user\'s screen. A prompt appears asking the user to share their screen and select an area. Use this to see error messages in terminals, other windows, IDE output, or anything outside SlopLobster. The captured image is included in your next context so you can see it. Falls back to capturing the SlopLobster UI if screen sharing is unavailable.',parameters:{type:'object',properties:{reason:{type:'string',description:'Brief note on what you are looking for — shown to the user so they know what to capture'}},required:[]}}});  }
   if(state.compConnected){
     tools.push({type:'function',function:{name:'web_search',description:'Search the web via DuckDuckGo. Returns titles, URLs, and snippets. Set fetch_top=1-2 to auto-fetch full page content of top results for deeper reading. Essential for finding up-to-date docs, APIs, solutions.',parameters:{type:'object',properties:{query:{type:'string',description:'Search query'},num_results:{type:'number',description:'Number of results (1-20, default 8)'},fetch_top:{type:'number',description:'Fetch full content of top N results (0-3, default 0). Use 1-2 for quick lookups.'}},required:['query']}}});
     tools.push({type:'function',function:{name:'fetch_url',description:'Fetch and extract content from a URL. Modes: "text" (default, clean readable text), "raw" (full source).',parameters:{type:'object',properties:{url:{type:'string',description:'Full URL to fetch'},mode:{type:'string',enum:['text','raw'],description:'Extraction mode (default: text)'},max_bytes:{type:'number',description:'Max response bytes (default 500000)'}},required:['url']}}});
@@ -1826,12 +2002,13 @@ async function executeTool(name, argsStr){
     case 'screenshot':{
       if(!state.visionCapable) return {output:'Screenshot requires a vision-capable model. Current model does not support image input.'};
       try{
-        const target=args.target||'chat';
-        let fullPage=args.full_page||false;
-        if(target==='full') fullPage=true;
-        const dataUrl=await captureScreenshot(fullPage);
+        const reason = args.reason || 'agent requested';
+        const dataUrl = navigator.mediaDevices?.getDisplayMedia
+          ? await captureScreenRegion('SlopLobster wants to see your screen', reason)
+          : await captureScreenshotFallback();
+        if(!dataUrl) return {output:'Screenshot cancelled by user.'};
         const sizeKB=Math.round((dataUrl.length*3/4)/1024);
-        return {output:`Screenshot captured (${sizeKB} KB). Image will be included in next context.`,_screenshotDataUrl:dataUrl,_screenshotReason:args.reason||'agent requested'};
+        return {output:`Screenshot captured (${sizeKB} KB). Image will be included in next context.`,_screenshotDataUrl:dataUrl,_screenshotReason:reason,_screenshotPath:'screen-capture'};
       }catch(e){return {output:'Screenshot failed: '+e.message};}
     }
     case 'web_search':
@@ -3132,7 +3309,10 @@ function handleSend(){
 async function userScreenshot(){
   if(!state.visionCapable){showToast('Current model does not support images','warn');return;}
   try{
-    const dataUrl=await captureScreenshot(false);
+    const dataUrl = navigator.mediaDevices?.getDisplayMedia
+      ? await captureScreenRegion('Select an area to capture', 'This image will be sent to the model')
+      : await captureScreenshotFallback();
+    if(!dataUrl){showToast('Screenshot cancelled','info');return;}
     const sizeKB=Math.round((dataUrl.length*3/4)/1024);
     state.pendingImages.push({dataUrl,name:'screenshot.jpg',size:sizeKB+' KB'});
     addImageAttachmentsToInputArea();
