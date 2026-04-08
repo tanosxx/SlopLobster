@@ -338,6 +338,8 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative
 .kbd{background:var(--bg-3);border:1px solid var(--border);padding:1px 6px;border-radius:3px;font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--tx-2);font-weight:500}
 .shortcut-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:12px;color:var(--tx-2)}
 .shortcut-row .desc{color:var(--tx-3)}
+.input-flash{animation:inputFlash .6s ease-out}
+@keyframes inputFlash{0%{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow),0 0 20px var(--accent-glow)}100%{border-color:var(--border);box-shadow:none}}
 </style>
 </head>
 <body>
@@ -1960,82 +1962,130 @@ async function checkCompanion(){
 
 /* ═══════════════ TOOL DISPATCH ═══════════════ */
 async function executeTool(name, argsStr){
-  let args;try{args=JSON.parse(argsStr);}catch{args={};}
-  if(args.path){try{sanitizePath(args.path);}catch(e){return{output:`Security: ${e.message}`};}}
-  switch(name){
-    case 'read_file': return await readFileSafe(args.path);
-    case 'read_file_lines': return await readFileLinesSafe(args.path, args.start_line, args.end_line);
-    case 'edit_file':return await editFileSafe(args.path,args.edits||[]);
-    case 'write_file':return await writeFileSafe(args.path,args.content||'');
-    case 'list_directory': return{output: await listDirSafe(args.path||'', args.recursive||false)};
-    case 'search_files':return{output:await searchFilesSafe(args.pattern||'')};
-    case 'grep':return{output:await grepSafe(args.pattern||'',args.path||'',args.include||'',args.context_lines||0)};
-    case 'delete_file':return{output:await deleteFileSafe(args.path,args.recursive)};
-    case 'move_file':return{output:await moveFileSafe(args.source,args.destination)};
-    case 'execute_command':{
-      const cmd=args.command||'';
-      if(state.compConnected&&isDangerous(cmd)){
-        return new Promise(resolve=>{showShellConfirm(cmd,async ok=>{resolve(ok?{output:await execViaCompanion(cmd,args.timeout)}:{output:'Command cancelled by user.'});});});
-      }
-      if(state.compConnected){
-        try{return{output:await execViaCompanion(cmd,args.timeout)};}
-        catch(e){
-          const msg=e.message||'';
-          const isTimeout=msg.includes('timed out')||msg.includes('Timeout')||msg.includes('AbortError')||msg.includes('The operation was aborted');
-          if(isTimeout){
-            return{output:`[Command timed out after extended limit. The command may still be running on the companion server.]\nError: ${msg}\n\nTip: For package installs (pip, npm, cargo, etc.), the timeout is automatically extended to 300s. If still timing out, the package may be very large or the network slow. Try splitting into smaller installs.`};
-          }
-          const isConnErr=msg.includes('Failed to fetch')||msg.includes('NetworkError')||msg.includes('ECONNREFUSED');
-          if(isConnErr){
-            state.compConnected=false;state.compInfo=null;
-            document.getElementById('comp-dot').className='status-dot off';
-            document.getElementById('comp-text').textContent='Shell';
-            document.getElementById('comp-info').innerHTML='<div style="color:var(--yellow)">Connection lost — reconnect</div>';
-            renderToolList();
-            return{output:`[Companion connection lost: ${msg} — falling back to virtual shell]\n${await execVirtual(cmd)}`};
-          }
-          return{output:`[Companion error: ${msg}]\n${await execVirtual(cmd)}`};
+  let args;
+  try{args=JSON.parse(argsStr);}catch{args={};}
+
+  /* Validate path arguments that are present */
+  if(args.path!=null&&args.path!==''){
+    try{sanitizePath(args.path);}catch(e){return{output:'Security: '+e.message};}
+  }
+  if(args.source!=null&&args.source!==''){
+    try{sanitizePath(args.source);}catch(e){return{output:'Security: '+e.message};}
+  }
+  if(args.destination!=null&&args.destination!==''){
+    try{sanitizePath(args.destination);}catch(e){return{output:'Security: '+e.message};}
+  }
+
+  try{
+    switch(name){
+      case 'read_file':
+        if(!args.path)return{output:'Error: "path" is required for read_file'};
+        return await readFileSafe(args.path);
+      case 'read_file_lines':
+        if(!args.path)return{output:'Error: "path" is required for read_file_lines'};
+        return await readFileLinesSafe(args.path,args.start_line,args.end_line);
+      case 'edit_file':
+        if(!args.path)return{output:'Error: "path" is required for edit_file'};
+        if(!Array.isArray(args.edits)||!args.edits.length)return{output:'Error: "edits" must be a non-empty array of {old_text, new_text} objects'};
+        for(let i=0;i<args.edits.length;i++){
+          if(!args.edits[i].old_text)return{output:'Error: edits['+i+'].old_text is missing or empty'};
         }
+        return await editFileSafe(args.path,args.edits);
+      case 'write_file':
+        if(!args.path)return{output:'Error: "path" is required for write_file'};
+        if(args.content===undefined||args.content===null)return{output:'Error: "content" is required for write_file'};
+        return await writeFileSafe(args.path,args.content);
+      case 'list_directory':
+        return{output:await listDirSafe(args.path||'',args.recursive||false)};
+      case 'search_files':
+        if(!args.pattern)return{output:'Error: "pattern" is required for search_files'};
+        return{output:await searchFilesSafe(args.pattern)};
+      case 'grep':
+        if(!args.pattern)return{output:'Error: "pattern" is required for grep'};
+        return{output:await grepSafe(args.pattern,args.path||'',args.include||'',args.context_lines||0)};
+      case 'delete_file':
+        if(!args.path)return{output:'Error: "path" is required for delete_file'};
+        return{output:await deleteFileSafe(args.path,args.recursive)};
+      case 'move_file':
+        if(!args.source)return{output:'Error: "source" is required for move_file'};
+        if(!args.destination)return{output:'Error: "destination" is required for move_file'};
+        return{output:await moveFileSafe(args.source,args.destination)};
+      case 'execute_command':{
+        const cmd=String(args.command||'').trim();
+        if(!cmd)return{output:'Error: "command" is required for execute_command'};
+        if(state.compConnected&&isDangerous(cmd)){
+          return new Promise(resolve=>{showShellConfirm(cmd,async ok=>{resolve(ok?{output:await execViaCompanion(cmd,args.timeout)}:{output:'Command cancelled by user.'});});});
+        }
+        if(state.compConnected){
+          try{return{output:await execViaCompanion(cmd,args.timeout)};}
+          catch(e){
+            const msg=e.message||'';
+            const isTimeout=msg.includes('timed out')||msg.includes('Timeout')||msg.includes('AbortError')||msg.includes('The operation was aborted');
+            if(isTimeout){
+              return{output:'[Command timed out after extended limit. The command may still be running on the companion server.]\nError: '+msg+'\n\nTip: For package installs (pip, npm, cargo, etc.), the timeout is automatically extended to 300s. If still timing out, the package may be very large or the network slow. Try splitting into smaller installs.'};
+            }
+            const isConnErr=msg.includes('Failed to fetch')||msg.includes('NetworkError')||msg.includes('ECONNREFUSED');
+            if(isConnErr){
+              state.compConnected=false;state.compInfo=null;
+              document.getElementById('comp-dot').className='status-dot off';
+              document.getElementById('comp-text').textContent='Shell';
+              document.getElementById('comp-info').innerHTML='<div style="color:var(--yellow)">Connection lost — reconnect</div>';
+              renderToolList();
+              return{output:'[Companion connection lost: '+msg+' — falling back to virtual shell]\n'+await execVirtual(cmd)};
+            }
+            return{output:'[Companion error: '+msg+']\n'+await execVirtual(cmd)};
+          }
+        }
+        return{output:await execVirtual(cmd)};
       }
-      return{output:await execVirtual(cmd)};
+      case 'screenshot':{
+        if(!state.visionCapable)return{output:'Screenshot requires a vision-capable model. Current model does not support image input.'};
+        try{
+          const reason=args.reason||'agent requested';
+          const dataUrl=navigator.mediaDevices?.getDisplayMedia
+            ?await captureScreenRegion('SlopLobster wants to see your screen',reason)
+            :await captureScreenshotFallback();
+          if(!dataUrl)return{output:'Screenshot cancelled by user.'};
+          const sizeKB=Math.round((dataUrl.length*3/4)/1024);
+          return{output:'Screenshot captured ('+sizeKB+' KB). Image will be included in next context.',_screenshotDataUrl:dataUrl,_screenshotReason:reason,_screenshotPath:'screen-capture'};
+        }catch(e){return{output:'Screenshot failed: '+e.message};}
+      }
+      case 'web_search':
+        if(!state.compConnected)return{output:'web_search requires the companion server. Start SlopLobster-companion.py and connect.',_searchData:null};
+        if(!args.query)return{output:'Error: "query" is required for web_search'};
+        try{
+          const data=await searchViaCompanion(args.query,args.num_results,args.fetch_top);
+          let text='Search: "'+args.query+'"\nFound '+data.count+' results\n\n';
+          data.results.forEach((r,i)=>{
+            text+=(i+1)+'. '+(r.title||'(no title)')+'\n   '+r.url+'\n';
+            if(r.snippet)text+='   '+r.snippet+'\n';
+            if(r.content)text+='\n   --- Fetched content ('+(r.content_chars||r.content.length).toLocaleString()+' chars) ---\n'+r.content.slice(0,8000)+(r.content.length>8000?'\n   ... (truncated)':'')+'\n';
+            if(r.content_error)text+='   [Fetch failed: '+r.content_error+']\n';
+            text+='\n';
+          });
+          return{output:text,_searchData:data};
+        }catch(e){return{output:'Search error: '+e.message,_searchData:null};}
+      case 'fetch_url':
+        if(!state.compConnected)return{output:'fetch_url requires the companion server.'};
+        if(!args.url||typeof args.url!=='string'||!args.url.trim())return{output:'Error: "url" is required for fetch_url and must start with http:// or https://'};
+        if(!args.url.trim().startsWith('http://')&&!args.url.trim().startsWith('https://'))return{output:'Error: URL must start with http:// or https://'};
+        return{output:await fetchViaCompanion(args.url.trim(),args.max_bytes)};
+      case 'git_status':return{output:await gitStatus()};
+      case 'git_diff':return{output:await gitDiff(args.staged,args.file)};
+      case 'git_log':return{output:await gitLog(args.count)};
+      case 'git_add':
+        if(!args.paths)return{output:'Error: "paths" is required for git_add'};
+        return{output:await gitAdd(args.paths)};
+      case 'git_commit':
+        if(!args.message)return{output:'Error: "message" is required for git_commit'};
+        return{output:await gitCommit(args.message)};
+      case 'think':
+        if(!args.thought)return{output:'Error: "thought" is required for think'};
+        return{output:args.thought};
+      default:return{output:'Unknown tool: '+name};
     }
-    case 'screenshot':{
-      if(!state.visionCapable) return {output:'Screenshot requires a vision-capable model. Current model does not support image input.'};
-      try{
-        const reason = args.reason || 'agent requested';
-        const dataUrl = navigator.mediaDevices?.getDisplayMedia
-          ? await captureScreenRegion('SlopLobster wants to see your screen', reason)
-          : await captureScreenshotFallback();
-        if(!dataUrl) return {output:'Screenshot cancelled by user.'};
-        const sizeKB=Math.round((dataUrl.length*3/4)/1024);
-        return {output:`Screenshot captured (${sizeKB} KB). Image will be included in next context.`,_screenshotDataUrl:dataUrl,_screenshotReason:reason,_screenshotPath:'screen-capture'};
-      }catch(e){return {output:'Screenshot failed: '+e.message};}
-    }
-    case 'web_search':
-      if(!state.compConnected) return {output:'web_search requires the companion server. Start SlopLobster-companion.py and connect.',_searchData:null};
-      try{
-        const data=await searchViaCompanion(args.query, args.num_results, args.fetch_top);
-        let text=`Search: "${args.query}"\nFound ${data.count} results\n\n`;
-        data.results.forEach((r,i)=>{
-          text+=`${i+1}. ${r.title||'(no title)'}\n   ${r.url}\n`;
-          if(r.snippet) text+=`   ${r.snippet}\n`;
-          if(r.content) text+=`\n   --- Fetched content (${(r.content_chars||r.content.length).toLocaleString()} chars) ---\n${r.content.slice(0,8000)}${r.content.length>8000?'\n   ... (truncated)':''}\n`;
-          if(r.content_error) text+=`   [Fetch failed: ${r.content_error}]\n`;
-          text+='\n';
-        });
-        return {output:text, _searchData:data};
-      }catch(e){return {output:`Search error: ${e.message}`,_searchData:null};}
-    case 'fetch_url':
-      if(!state.compConnected) return {output:'fetch_url requires the companion server.'};
-      if(!args.url||typeof args.url!=='string'||!args.url.trim()) return {output:'[Error: No URL provided]'};
-      return {output: await fetchViaCompanion(args.url.trim(), args.max_bytes)};
-    case 'git_status':return{output:await gitStatus()};
-    case 'git_diff':return{output:await gitDiff(args.staged,args.file)};
-    case 'git_log':return{output:await gitLog(args.count)};
-    case 'git_add':return{output:await gitAdd(args.paths||'.')};
-    case 'git_commit':return{output:await gitCommit(args.message||'Update')};
-    case 'think':return{output:args.thought||'(empty thought)'};
-    default:return{output:`Unknown tool: ${name}`};
+  }catch(e){
+    return{output:'Error: '+e.message};
   }
 }
 
@@ -2996,17 +3046,26 @@ function saveCurrentConv(){
 function newConversation(){
   if(state.running)return;
   if(state.messages.length>0&&!state._dismissedNewWarning){
-    switchToChat();
-    const el=document.createElement('div');el.className='confirm-bar';
-    el.style.borderColor='rgba(232,160,35,.15)';el.style.background='rgba(232,160,35,.06)';el.style.color='var(--accent)';
-    el.innerHTML=`<i class="fas fa-message"></i><span style="flex:1">Start a new conversation? Current chat will be saved automatically.</span><button class="confirm-yes" style="background:var(--accent);border-color:var(--accent)">New Chat</button><button class="confirm-no">Cancel</button><button class="confirm-no" style="margin-left:-4px;font-size:9px;color:var(--tx-4)" title="Don't ask again this session">Don't ask</button>`;
-    el.querySelectorAll('.confirm-yes')[0].onclick=()=>{el.remove();doNewConversation();};
-    el.querySelectorAll('.confirm-no')[0].onclick=()=>{el.remove();};
-    el.querySelectorAll('.confirm-no')[1].onclick=()=>{el.remove();state._dismissedNewWarning=true;doNewConversation();};
-    $msg().appendChild(el);scrollBottom();return;
+    const overlay=document.createElement('div');
+    overlay.className='modal-overlay open';
+    overlay.style.zIndex='150';
+    const dialog=document.createElement('div');
+    dialog.className='modal';
+    dialog.style.width='400px';
+    dialog.innerHTML=`<div class="modal-hdr"><h2>New Conversation</h2><button class="modal-close" id="nc-close"><i class="fas fa-xmark"></i></button></div><div class="modal-body" style="gap:12px"><p style="font-size:13px;color:var(--tx-1);line-height:1.6;margin:0">Current chat will be saved automatically. Start a new conversation?</p><div style="display:flex;gap:8px;justify-content:flex-end"><button class="sb-btn" id="nc-dont" style="padding:7px 14px;font-size:12px">Don\u2019t ask again</button><button class="sb-btn" id="nc-cancel" style="padding:7px 14px;font-size:12px">Cancel</button><button class="sb-btn primary" id="nc-ok" style="padding:7px 14px;font-size:12px">New Chat</button></div></div>`;
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+    dialog.querySelector('#nc-close').onclick=()=>overlay.remove();
+    dialog.querySelector('#nc-cancel').onclick=()=>overlay.remove();
+    dialog.querySelector('#nc-dont').onclick=()=>{overlay.remove();state._dismissedNewWarning=true;doNewConversation();};
+    dialog.querySelector('#nc-ok').onclick=()=>{overlay.remove();doNewConversation();};
+    overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+    return;
   }
   doNewConversation();
 }
+
+
 async function doNewConversation(){
   saveCurrentConv();
   const id='conv_'+Date.now();
@@ -3338,7 +3397,15 @@ function handleCmd(c){
   }
 }
 
-function prefill(t){document.getElementById('msg-input').value=t;updateSendBtn();document.getElementById('msg-input').focus();}
+function prefill(t){
+  const inp=document.getElementById('msg-input'),wrap=document.getElementById('input-wrap');
+  inp.value=t;
+  inp.style.height='auto';inp.style.height=Math.min(inp.scrollHeight,150)+'px';
+  wrap.classList.remove('input-flash');void wrap.offsetWidth;wrap.classList.add('input-flash');
+  updateSendBtn();inp.focus();
+  showToast('Prompt ready — edit the description and press Enter','info');
+}
+
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('collapsed');}
 
 function showToast(msg,type='info'){
@@ -3355,7 +3422,7 @@ function renderWelcomeGrid(){
   const cards=[
     {icon:'fa-folder-open',label:'Open Workspace',desc:'Select a project directory',cls:'action',action:'openDirectory()'},
     {icon:'fa-terminal',label:'Setup Companion',desc:'Save & start the shell server',cls:'action',action:'saveCompanionScript()'},
-    {icon:'fa-pencil',label:'Custom Task',desc:'Describe anything you need',cls:'action',action:"document.getElementById('msg-input').focus()"},
+    {icon:'fa-code',label:'Iterative Development',desc:'Plan, build, test, refine in small steps',cls:'action',action:"prefill(decodeURIComponent('" + encodeURIComponent('I want to build: [describe what you want \u2014 a feature, tool, app, script, etc.]\n\n## Rules\n- Start by reading existing code to understand what\u2019s already there before writing anything\n- Plan the approach using the think tool before making any changes\n- Work in small, verifiable increments \u2014 make one thing work before adding the next\n- After each change, verify it works (run it, test it, read back the file)\n- If something breaks, read the error carefully and fix the specific issue \u2014 don\u2019t rewrite everything\n- If you\u2019re unsure about the project structure or dependencies, search for existing patterns first\n- When adding new files, consider where they fit in the existing architecture\n- Commit working states with git periodically so we can roll back if needed') + "'))"},
     {icon:'fa-magnifying-glass-chart',label:'Analyze Codebase',desc:'Structure, deps, entry points',cls:'template',color:'var(--cyan)',prompt:TEMPLATES[0].prompt},
     {icon:'fa-bug',label:'Find & Fix Bugs',desc:'Run tests, apply targeted fixes',cls:'template',color:'var(--red)',prompt:TEMPLATES[1].prompt},
     {icon:'fa-arrows-rotate',label:'Refactor Code',desc:'Improve structure, preserve behavior',cls:'template',color:'var(--teal)',prompt:TEMPLATES[2].prompt},
