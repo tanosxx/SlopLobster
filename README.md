@@ -1,5 +1,8 @@
 # SlopLobster
 
+![sloplobster](https://github.com/user-attachments/assets/a8e08863-9e1b-409b-8c02-c410892d816f)
+
+
 > **⚠️ Heads up — this is a vibe-coded personal project, not production software.** It gives an AI agent direct shell access to your machine. That's inherently dangerous. I built it because existing agents were too heavy, too cloud-dependent, or too locked down for my workflow. It works well for me. It might delete your files, run bad commands, or catch fire. Read the security section below, use it in a sandbox or VM if you're smart, and don't blame me.
 
 ---
