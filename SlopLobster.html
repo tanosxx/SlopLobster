@@ -2416,15 +2416,22 @@ function formatTok(n){return n<1000?Math.round(n)+' tok':(n/1000).toFixed(1)+'k 
 /* ═══════════════ SMART SCROLL ═══════════════ */
 function isNearBottom(el, threshold){threshold=threshold||100;return el.scrollHeight-el.scrollTop-el.clientHeight<threshold;}
 
+let programmaticScroll = false;
+let scrollDebounce = null;
+
 function scrollBottom(){
   if(!state.autoScroll)return;
-  $msg().scrollTop=$msg().scrollHeight;
+  programmaticScroll = true;
+  $msg().scrollTop = $msg().scrollHeight;
+  programmaticScroll = false;
   document.getElementById('scroll-bottom-btn').classList.remove('visible');
 }
 
 function scrollToBottomForce(){
   state.autoScroll=true;updateScrollLockBtn();
-  $msg().scrollTop=$msg().scrollHeight;
+  programmaticScroll = true;
+  $msg().scrollTop = $msg().scrollHeight;
+  programmaticScroll = false;
   document.getElementById('scroll-bottom-btn').classList.remove('visible');
 }
 
@@ -2794,7 +2801,7 @@ function finalizeStreamingMsg(t){
 function createMsgEl(role,text,streaming=false){
   const el=document.createElement('div');el.className='msg';el._role=role;el._text=text;el._time=timestamp();
   const isUser=role==='user',isAgent=role==='agent'||role==='assistant';
-  el.innerHTML=`<div class="msg-avatar ${isUser?'user':'agent'}">${isUser?'<i class="fas fa-user" style="font-size:10px"></i>':'N'}</div><div class="msg-body"><div class="msg-header"><span class="msg-name">${isUser?'You':'SlopLobster'}</span><span class="msg-time">${el._time}</span><div class="msg-actions">${isAgent?'<button class="msg-act" onclick="copyMsgText(this)" title="Copy"><i class="fas fa-copy"></i></button><button class="msg-act" onclick="retryMsg(this)" title="Retry from here"><i class="fas fa-rotate-right"></i></button>':''}${isUser?'<button class="msg-act" onclick="editMsg(this)" title="Edit & resend"><i class="fas fa-pen"></i></button><button class="msg-act" onclick="copyMsgText(this)" title="Copy"><i class="fas fa-copy"></i></button>':''}</div></div><div class="msg-content ${streaming?'streaming-cursor':''}">${isUser?esc(text):renderMd(text)}</div></div>`;
+  el.innerHTML=`<div class="msg-avatar ${isUser?'user':'agent'}">${isUser?'<i class="fas fa-user" style="font-size:10px"></i>':'<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:18px;height:18px"><defs><linearGradient id="ag" x1="2" y1="2" x2="26" y2="26" gradientUnits="userSpaceOnUse"><stop stop-color="#f5b742"/><stop offset="1" stop-color="#a06e10"/></linearGradient></defs><rect width="28" height="28" rx="6" fill="url(#ag)"/><ellipse cx="14" cy="18" rx="5.5" ry="4" fill="#08080a" opacity=".9"/><path d="M14 22L12 26M14 22L14 26.5M14 22L16 26" stroke="#08080a" stroke-width="1.2" stroke-linecap="round" opacity=".85"/><circle cx="14" cy="13" r="3.2" fill="#08080a" opacity=".9"/><path d="M8.5 17Q4.5 15 3 11Q2.5 9.5 4 9.5Q5.5 9.5 6.5 11.5Q7.5 13.5 8.5 15" fill="#08080a" opacity=".85"/><path d="M19.5 17Q23.5 15 25 11Q25.5 9.5 24 9.5Q22.5 9.5 21.5 11.5Q20.5 13.5 19.5 15" fill="#08080a" opacity=".85"/><circle cx="12.2" cy="12" r="1" fill="#f5b742"/><circle cx="15.8" cy="12" r="1" fill="#f5b742"/><path d="M12.5 10.2Q10 7 9 5" stroke="#08080a" stroke-width="1" stroke-linecap="round" opacity=".8"/><path d="M15.5 10.2Q18 7 19 5" stroke="#08080a" stroke-width="1" stroke-linecap="round" opacity=".8"/><circle cx="9" cy="5" r=".8" fill="#08080a" opacity=".8"/><circle cx="19" cy="5" r=".8" fill="#08080a" opacity=".8"/><path d="M10 19L8 21.5M11 19.5L9.5 22M13 20L12 22.5M15 20L16 22.5M17 19.5L18.5 22M18 19L20 21.5" stroke="#08080a" stroke-width=".9" stroke-linecap="round" opacity=".7"/></svg>'}</div><div class="msg-body"><div class="msg-header"><span class="msg-name">${isUser?'You':'SlopLobster'}</span><span class="msg-time">${el._time}</span><div class="msg-actions">${isAgent?'<button class="msg-act" onclick="copyMsgText(this)" title="Copy"><i class="fas fa-copy"></i></button><button class="msg-act" onclick="retryMsg(this)" title="Retry from here"><i class="fas fa-rotate-right"></i></button>':''}${isUser?'<button class="msg-act" onclick="editMsg(this)" title="Edit & resend"><i class="fas fa-pen"></i></button><button class="msg-act" onclick="copyMsgText(this)" title="Copy"><i class="fas fa-copy"></i></button>':''}</div></div><div class="msg-content ${streaming?'streaming-cursor':''}">${isUser?esc(text):renderMd(text)}</div></div>`;
   if(isAgent&&!streaming){el.querySelector('.msg-content').querySelectorAll('pre code').forEach(b=>hljs.highlightElement(b));addCopyBtns(el.querySelector('.msg-content'));}
   return el;
 }
@@ -3001,12 +3008,8 @@ function updateSendBtn(){
   if(state.running){btn.className='send-btn stop';btn.innerHTML='<i class="fas fa-stop"></i>';btn.disabled=false;}
   else{btn.className='send-btn send';btn.innerHTML='<i class="fas fa-arrow-up"></i>';btn.disabled=!(state.connected&&state.model&&inp.value.trim());}
 }
-function updateScrollToggle(){
-  const btn=document.getElementById('scroll-toggle');
-  btn.classList.toggle('off',!state.autoScroll);
-  btn.innerHTML=state.autoScroll?'<i class="fas fa-arrow-down"></i> auto-scroll':'<i class="fas fa-arrow-down"></i> paused';
-}
-function toggleAutoScroll(){state.autoScroll=!state.autoScroll;updateScrollToggle();if(state.autoScroll)scrollToBottomForce();}
+
+function toggleAutoScroll(){state.autoScroll=!state.autoScroll;updateScrollLockBtn();if(state.autoScroll)scrollToBottomForce();}
 
 function updateWelcomeStatus(){
   const el=document.getElementById('welcome-status');const parts=[];
