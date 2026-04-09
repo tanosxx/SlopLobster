@@ -222,6 +222,12 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative
 #msg-input::placeholder{color:var(--tx-4)}
 .send-btn{width:28px;height:28px;border-radius:6px;border:none;cursor:pointer;display:grid;place-items:center;transition:.15s;flex-shrink:0;font-size:12px}
 .send-btn.send{background:var(--accent);color:var(--bg-0)}.send-btn.send:hover{background:var(--accent-h);transform:scale(1.05)}.send-btn.send:disabled{opacity:.2;cursor:not-allowed;transform:none}
+.input-left-actions{display:flex;align-items:center;gap:2px;flex-shrink:0}
+.input-action-btn{background:none;border:none;color:var(--tx-4);cursor:pointer;padding:5px 6px;border-radius:6px;font-size:13px;display:flex;align-items:center;gap:4px;transition:.15s;position:relative}
+.input-action-btn:hover:not(:disabled){background:var(--bg-3);color:var(--tx-1)}
+.input-action-btn:disabled{opacity:.2;cursor:not-allowed}
+.input-action-btn .vision-badge{font-size:7px;padding:0 4px;line-height:16px}
+.input-action-btn:active:not(:disabled){transform:scale(.95)}
 .send-btn.stop{background:var(--red);color:white}.send-btn.stop:hover{background:#dc2626}
 .input-hints{display:flex;gap:10px;margin-top:4px;padding-left:2px;justify-content:space-between}
 .input-hints span{font-size:9px;color:var(--tx-4);font-family:'JetBrains Mono',monospace}
@@ -410,8 +416,9 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative
     <div class="hdr-sep"></div>
     <button class="hdr-btn" onclick="newConversation()" title="New conversation (Ctrl+Shift+N)"><i class="fas fa-plus"></i></button>
     <select id="model-sel" class="model-sel" disabled><option>No models</option></select>
-    <span id="vision-badge" class="vision-badge off">text</span>
-    <button class="screenshot-btn" id="screenshot-btn" disabled onclick="userScreenshot()" title="Send screenshot to model"><i class="fas fa-camera"></i></button>
+    <button class="hdr-btn" id="model-refresh-btn" onclick="manualModelRefresh()" title="Refresh model list"><i class="fas fa-rotate"></i></button>
+    <button class="hdr-btn" id="model-load-btn" onclick="manualModelLoad()" title="Load this model in LM Studio (unloads current)" style="display:none"><i class="fas fa-download"></i></button>
+    <span id="model-meta" style="font-size:9px;color:var(--tx-4);font-family:'JetBrains Mono',monospace;white-space:nowrap"></span>
     <div class="hdr-sep"></div>
     <div class="hdr-status"><div class="status-dot off" id="llm-dot"></div><span id="llm-text">LLM</span></div>
     <div class="hdr-status"><div class="status-dot off" id="comp-dot"></div><span id="comp-text">Shell</span></div>
@@ -478,7 +485,12 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative
       <div class="drop-content"><i class="fas fa-file-arrow-up"></i><span>Drop file to attach</span><small>File content will be included in your message</small></div>
     </div>
     <div class="input-wrap" id="input-wrap">
-      <textarea id="msg-input" rows="1" placeholder="Ask SlopLobster to do something..." aria-label="Message input"></textarea>
+      <div class="input-left-actions">
+        <button class="input-action-btn" id="screenshot-btn" disabled onclick="userScreenshot()" title="Send screenshot to model"><i class="fas fa-camera"></i><span id="vision-badge" class="vision-badge off">text</span></button>
+        <button class="input-action-btn" id="attach-btn" onclick="document.getElementById('file-input').click()" title="Attach file or drop here"><i class="fas fa-paperclip"></i></button>
+        <input type="file" id="file-input" multiple style="display:none" onchange="handleFileAttach(this.files)">
+      </div>
+      <textarea id="msg-input" rows="1" placeholder="Ask SlopLobster to do something... (drop files or paste images)" aria-label="Message input"></textarea>
       <button class="send-btn send" id="send-btn" onclick="handleSend()" disabled aria-label="Send message"><i class="fas fa-arrow-up"></i></button>
     </div>
     <div id="img-attachments" style="display:none"></div>
@@ -500,6 +512,51 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative
   <div class="hint">Agent stops and saves progress after this many iterations without user intervention. Set higher for long tasks. Soft warning at ~60%, auto-compact at ~75%.</div>
   </div>
   <div class="field"><label>Max File Read (KB)</label><input type="number" id="s-max-read" value="500" min="10" max="10000"></div>
+    <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px">
+    <div style="font-size:11px;font-weight:700;color:var(--tx-0);margin-bottom:10px;display:flex;align-items:center;gap:6px">
+      <i class="fas fa-microchip" style="color:var(--accent);font-size:12px"></i>
+      Model Load Settings
+      <span style="font-size:9px;color:var(--tx-4);font-weight:400;margin-left:auto">Applied when loading a model in LM Studio</span>
+    </div>
+    <div class="field">
+      <label>Context Length Override</label>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="number" id="s-model-ctx" value="0" min="0" max="200000" style="width:120px">
+        <span class="val" style="min-width:auto;color:var(--tx-4);font-size:10px">0 = model default</span>
+      </div>
+      <div class="hint">Lower saves VRAM. Must be ≤ model's max. Common: 8192, 16384, 32768, 65536</div>
+    </div>
+    <div class="field">
+      <label>Flash Attention</label>
+      <div class="slider-row">
+        <input type="checkbox" id="s-model-flash" checked style="accent-color:var(--accent)">
+        <span class="val" style="min-width:auto">Optimize attention — lower memory, faster generation</span>
+      </div>
+    </div>
+    <div class="field">
+      <label>KV Cache → GPU</label>
+      <div class="slider-row">
+        <input type="checkbox" id="s-model-kv" checked style="accent-color:var(--accent)">
+        <span class="val" style="min-width:auto">Offload KV cache to GPU memory (faster than RAM)</span>
+      </div>
+    </div>
+    <div class="field">
+      <label>MoE Experts</label>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="number" id="s-model-experts" value="0" min="0" max="128" style="width:120px">
+        <span class="val" style="min-width:auto;color:var(--tx-4);font-size:10px">0 = all experts (default)</span>
+      </div>
+      <div class="hint">For MoE models (Mixtral, Qwen-MoE, etc.). Fewer experts = less VRAM, lower quality.</div>
+    </div>
+    <div class="field">
+      <label>Eval Batch Size</label>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="number" id="s-model-eval" value="0" min="0" max="4096" style="width:120px">
+        <span class="val" style="min-width:auto;color:var(--tx-4);font-size:10px">0 = default (usually 512)</span>
+      </div>
+      <div class="hint">Tokens processed per batch during prompt evaluation. Higher = faster prompt processing, more VRAM.</div>
+    </div>
+  </div>
   <div class="field"><label>Command Timeout (s)</label><input type="number" id="s-cmd-timeout" value="60" min="5" max="600"></div>
   <div class="field"><label>Context Window (tokens)</label><input type="number" id="s-ctx-window" value="32768" min="1024" max="200000"><div class="hint">For context meter estimation & auto-compact trigger</div></div>
   <div class="field"><label>Auto-compact threshold (%)</label><input type="number" id="s-auto-compact" value="85" min="50" max="99"><div class="hint">Automatically compact when context usage exceeds this</div></div>
@@ -945,11 +1002,13 @@ def stream_cmd(write_fn, cmd, cwd=None, timeout=DEFAULT_TIMEOUT):
     base_cwd = cwd or os.getcwd()
     stripped = cmd.strip()
     first_word = stripped.split(None, 1)[0] if stripped else ''
+    
     if first_word in ('python', 'python3'):
         if not shutil.which(first_word):
             alt = 'python3' if first_word == 'python' else 'python'
             if shutil.which(alt):
                 cmd = alt + stripped[len(first_word):]
+                
     if WINDOWS_BASH:
         kw = dict(args=[WINDOWS_BASH, "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=base_cwd)
     elif platform.system() == "Windows":
@@ -957,29 +1016,54 @@ def stream_cmd(write_fn, cmd, cwd=None, timeout=DEFAULT_TIMEOUT):
         kw = dict(shell=True, args=translated, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=base_cwd)
     else:
         kw = dict(shell=True, args=cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=base_cwd, start_new_session=True)
+        
     proc = subprocess.Popen(**kw)
     out_buf = []; err_buf = []; lock = threading.Lock()
+    
     def reader(stream, buf, kind):
         try:
             for line in iter(stream.readline, ''):
-                with lock: buf.append(line); write_fn(kind, line)
+                with lock: 
+                    buf.append(line)
+                    write_fn(kind, line)
             stream.close()
-        except: pass
+        except: 
+            pass
+            
     t1 = threading.Thread(target=reader, args=(proc.stdout, out_buf, 'o'))
     t2 = threading.Thread(target=reader, args=(proc.stderr, err_buf, 'e'))
     t1.daemon = True; t2.daemon = True; t1.start(); t2.start()
+    
     start = time.time()
     while t1.is_alive() or t2.is_alive():
         if time.time() - start > timeout:
             kill_tree(proc.pid)
-            with lock: write_fn('e', "\\n[Timed out after " + str(timeout) + "s]\\n")
+            with lock: 
+                # Fixed: use \\n for actual newlines instead of literal \\n text
+                write_fn('e', f"\\n[Timed out after {timeout}s]\\n")
             break
         time.sleep(0.03)
-    t1.join(timeout=2); t2.join(timeout=2); proc.wait(timeout=3)
-    with lock: full = ''.join(out_buf) + ''.join(err_buf)
-    if len(full) > MAX_OUTPUT: full = full[:MAX_OUTPUT] + "\\n[Truncated at " + str(MAX_OUTPUT) + "]"
-    write_fn('d', str(proc.returncode))
-    return full, proc.returncode
+        
+    # Wait for threads to finish reading the closed pipes
+    t1.join(timeout=2)
+    t2.join(timeout=2)
+    
+    # Fixed: Catch TimeoutExpired if the process is a zombie and won't die
+    returncode = -1
+    try:
+        proc.wait(timeout=3)
+        returncode = proc.returncode
+    except subprocess.TimeoutExpired:
+        pass
+        
+    with lock: 
+        full = ''.join(out_buf) + ''.join(err_buf)
+        if len(full) > MAX_OUTPUT: 
+            # Fixed: use \\n for actual newlines instead of literal \\n text
+            full = full[:MAX_OUTPUT] + f"\\n[Truncated at {MAX_OUTPUT}]"
+        write_fn('d', str(returncode))
+        
+    return full, returncode
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -1039,8 +1123,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 wfn('e', "[Error: " + str(e) + "]")
                 wfn('d', "1")
-            return  # ← THIS IS THE FIX
-        elif path == '/search':  # ← THIS IS THE FIX
+            return  
+        elif path == '/search':  
             try:
                 body = self.read_body()
                 query = body.get("query", "").strip()
@@ -1138,16 +1222,25 @@ const TEMPLATES = [
 const modifiedFiles = new Set();
 const state = {
   apiUrl:'http://localhost:1234', compUrl:'http://127.0.0.1:8765',
+  modelInfoMap: new Map(), // modelId -> {vision, contextLength, displayName, trainedForToolUse, architecture, paramsString}
   model:null, connected:false, compConnected:false, compInfo:null,
   messages:[], running:false, abortCtrl:null,
   dirHandle:null, dirName:'', fileTree:[],
   temp:0.3, maxTokens:60000, maxReadKB:500, cmdTimeout:60, ctxWindow:62768,
-  autoCompactPct:85,maxIters: 50, verifyWrites:true,
+  autoCompactPct:85,maxIters: 50,
+  verifyWrites:true,
+  /* ── Model load settings ── */
+  modelCtxOverride: 0,       // 0 = use model default
+  modelFlashAttn: true,
+  modelKvOffload: true,
+  modelNumExperts: 0,        // 0 = use model default
+  modelEvalBatch: 0,         // 0 = use model default
   autoScroll:true,
   conversations:[], activeConvId:null,
   fileCache:new Map(),
   visionCapable: false,
   pendingImages: [],   // [{dataUrl, name, size}]
+  originalTask: null,   
   projectType:null, projectMeta:null,
   convSearchQuery:''
 };
@@ -1390,7 +1483,7 @@ function buildReferenceSection(){
 }
 
 /* ═══════════════ TOKEN ESTIMATION ═══════════════ */
-function estimateTokens(t){if(!t)return 0;return Math.ceil(t.length/3.5);}
+function estimateTokens(t){if(!t)return 0;return Math.ceil(t.length/3.8);} 
 function estimateConvTokens(){let total=0;for(const m of state.messages){if(m.content)total+=estimateTokens(m.content);if(m.tool_calls)for(const tc of m.tool_calls){total+=estimateTokens(tc.function?.arguments||'');total+=5;}total+=4;}return total;}
 function getContextPct(){return Math.min(100,(estimateConvTokens()/state.ctxWindow)*100);}
 function updateContextMeter(){
@@ -1440,6 +1533,10 @@ const VISION_PATTERNS = /(?:vision|vl[/-]|vlm|visual|see|sight|llava|pixtral|qwe
 
 function detectVision(modelId) {
   if (!modelId) return false;
+  /* ── Check LM Studio native API metadata first ── */
+  const info = state.modelInfoMap.get(modelId);
+  if (info !== undefined) return info.vision;
+  /* ── Fallback: regex for non-LM-Studio backends (Ollama, etc.) ── */
   return VISION_PATTERNS.test(modelId);
 }
 
@@ -1908,7 +2005,7 @@ function generateDiffFromStrings(oldText, newText){
     return{lines,stats:{additions:lines.filter(l=>l.type==='add').length,deletions:lines.filter(l=>l.type==='del').length}};
   }
   const dp=new Array(m+1);
-  for(let i=0;i<=m;i++){dp[i]=new Uint16Array(n+1);}
+  for(let i=0;i<=m;i++){dp[i]=new Int32Array(n+1);}
   for(let i=1;i<=m;i++){for(let j=1;j<=n;j++){
     if(ol[i-1]===nl[j-1])dp[i][j]=dp[i-1][j-1]+1;
     else dp[i][j]=Math.max(dp[i-1][j],dp[i][j-1]);
@@ -1993,8 +2090,7 @@ async function listDirSafe(rel,recursive){
   requireWorkspace();const dh=rel?await resolvePath(rel):state.dirHandle;
   if(!dh||dh.kind!=='directory')throw new Error(`"${rel||'/'}" is not a directory`);
   const entries=[];
-  async function walk(h,pfx,d){if(d>8){entries.push(`  ${pfx}/ [depth limit]`);return;}for await(const[name,kh]of h.entries()){if(SKIP.has(name))continue;const full=pfx?pfx+'/'+name:name;entries.push(`${kh.kind==='directory'?'DIR ':'FILE'} ${full}`);if(recursive&&kh.kind==='directory')await walk(kh,full,d+1);}}
-    async function walk(h,pfx,d){
+   async function walk(h,pfx,d){
     if(d>8){entries.push('  '+pfx+'/ [depth limit]');return;}
     for await(const[name,kh]of h.entries()){
       if(SKIP.has(name))continue;
@@ -2010,6 +2106,7 @@ async function listDirSafe(rel,recursive){
       if(recursive&&kh.kind==='directory')await walk(kh,full,d+1);
     }
   }
+  return entries.join('\n');
 }
 
 async function searchFilesSafe(pattern){
@@ -2349,7 +2446,13 @@ async function executeTool(name, argsStr, signal, panel){
         try{
           const data=await searchViaCompanion(args.query,args.num_results,args.fetch_top);
           let text='Search: "'+args.query+'"\nFound '+data.count+' results\n\n';
-          data.results.forEach((r,i)=>{text+=(i+1)+'. '+(r.title||'(no title)')+'\n   '+r.url+'\n';if(r.snippet)text+='   '+r.snippet+'\n';if(r.content)text+='\n   --- Fetched content ('+(r.content_chars||r.content.length).toLocaleString()+' chars) ---\n'+r.content.slice(0,8000)+(r.content.length>8000?'\n   ... (truncated)':'')+'\n';if(r.content_error)text+='   [Fetch failed: '+r.content_error+']\n';text+='\n';});
+          data.results.forEach((r,i)=>{
+          if (r.error) {
+            text += `${i+1}. Error: ${r.error}\n\n`;
+            return; // skip to next result
+          }
+          text+=(i+1)+'. '+(r.title||'(no title)')+'\n   '+r.url+'\n';
+          if(r.snippet)text+='   '+r.snippet+'\n';if(r.content)text+='\n   --- Fetched content ('+(r.content_chars||r.content.length).toLocaleString()+' chars) ---\n'+r.content.slice(0,8000)+(r.content.length>8000?'\n   ... (truncated)':'')+'\n';if(r.content_error)text+='   [Fetch failed: '+r.content_error+']\n';text+='\n';});
           result={output:text,_searchData:data};
         }catch(e){result={output:'Search error: '+e.message,_searchData:null};}
         break;
@@ -2405,26 +2508,38 @@ async function detectProject(){
 }
 
 /* ═══════════════ API CLIENT ═══════════════ */
-async function testConnection(retry=3){
-  const dot=document.getElementById('llm-dot'),txt=document.getElementById('llm-text');
-  dot.className='status-dot loading';txt.textContent='LLM...';
-  try{
-    const res=await fetch(`${state.apiUrl}/v1/models`,{signal:AbortSignal.timeout(5000)});
-    if(!res.ok)throw new Error(res.statusText);const data=await res.json();
-    state.connected=true;dot.className='status-dot on';txt.textContent='LLM';
-    const sel=document.getElementById('model-sel');sel.innerHTML='';
-    if(data.data?.length){data.data.forEach(m=>{const o=document.createElement('option');o.value=m.id;o.textContent=m.id.length>36?m.id.slice(0,33)+'...':m.id;sel.appendChild(o);});state.model=data.data[0].id;
-    state.model=data.data[0].id;sel.disabled=false;
-    updateVisionUI();
-    showToast('Connected — '+data.data.length+' model(s)','ok');
-    sel.disabled=false;showToast(`Connected — ${data.data.length} model(s)`,'ok');}
-    else{sel.innerHTML='<option>No models found</option>';showToast('Connected but no models loaded','warn');}
-    updateWelcomeStatus();updateSendBtn();updateVisionUI();
-  }catch(e){
-    state.connected=false;dot.className='status-dot off';txt.textContent='LLM';
-    document.getElementById('model-sel').innerHTML='<option>No models</option>';document.getElementById('model-sel').disabled=true;
-    if(retry>0){setTimeout(()=>testConnection(retry-1),3000);return;}
-    showToast(`LM Studio: ${e.message}`,'err');updateWelcomeStatus();updateSendBtn();updateVisionUI();
+
+async function fetchModelInfo() {
+  state.modelInfoMap.clear();
+  try {
+    const res = await fetch(`${state.apiUrl}/api/v0/models`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!Array.isArray(data.data)) return;
+    for (const m of data.data) {
+      if (!m.identifier) continue;
+      state.modelInfoMap.set(m.identifier, {
+        vision: !!m.vision,
+        contextLength: m.maxContextLength || m.contextLength || 0,
+        displayName: m.displayName || m.identifier,
+        trainedForToolUse: !!m.trainedForToolUse,
+        architecture: m.architecture || '',
+        paramsString: m.paramsString || '',
+      });
+    }
+  } catch {
+    /* /api/v0/models not available (non-LM-Studio backend) — regex fallback will be used */
+  }
+}
+
+async function testConnection(retry = 3) {
+  try {
+    await refreshModels(false);
+    const count = document.getElementById('model-sel').options.length;
+    showToast(`Connected — ${count} model(s)`, 'ok');
+  } catch (e) {
+    if (retry > 0) { setTimeout(() => testConnection(retry - 1), 3000); return; }
+    showToast(`LM Studio: ${e.message}`, 'err');
   }
   checkCompanion();
 }
@@ -2436,68 +2551,67 @@ function extractThinkText(argsStr){
   return argsStr.replace(/^\s*\{?\s*"thought"\s*:\s*"?/,'').replace(/"?[\s,}]*$/,'');
 }
 
-async function streamChat(messages,onChunk,onToolCall,onThinkStream){
-    /* ── Build dynamic prompt sections ── */
-    const projInfo=state.projectType
-      ?`Type: ${state.projectType}${state.projectMeta?.name?' | Name: '+state.projectMeta.name:''}${state.projectMeta?.deps?' | Key deps: '+Object.entries(state.projectMeta.deps).slice(0,8).map(([k])=>k).join(', '):''}`
-      :'No project type detected';
+async function streamChat(messages, onChunk, onToolCall, onThinkStream) {
+  /* ── Build dynamic prompt sections ── */
+  const projInfo = state.projectType
+    ? `Type: ${state.projectType}${state.projectMeta?.name ? ' | Name: ' + state.projectMeta.name : ''}${state.projectMeta?.deps ? ' | Key deps: ' + Object.entries(state.projectMeta.deps).slice(0, 8).map(([k]) => k).join(', ') : ''}`
+    : 'No project type detected';
 
-    const pythonCmd=(function(){
-      if(state.compConnected&&state.compInfo){
-        const cmd=state.compInfo.python_cmd||'python';
-        const base=cmd.split(' ')[0];
-        return base;
-      }
-      return 'python or python3 (try both)';
-    })();
+  const pythonCmd = (function () {
+    if (state.compConnected && state.compInfo) {
+      const cmd = state.compInfo.python_cmd || 'python';
+      return cmd.split(' ')[0];
+    }
+    return 'python or python3 (try both)';
+  })();
 
-    /* Capability checklist */
-    const caps=[];
-    caps.push(state.visionCapable?'✅ Image understanding (you can see images)':'❌ No image understanding (text-only model)');
-    caps.push(state.dirHandle?'✅ Filesystem access ('+state.dirName+')':'❌ No workspace open');
-    caps.push(state.compConnected?'✅ Full shell + git + web search via companion':'⚠️  Virtual shell only (limited commands, no git/search)');
-    const capabilityChecklist=caps.join('\n');
+  /* Capability checklist */
+  const caps = [];
+  caps.push(state.visionCapable ? '✅ Image understanding (you can see images)' : '❌ No image understanding (text-only model)');
+  caps.push(state.dirHandle ? '✅ Filesystem access (' + state.dirName + ')' : '❌ No workspace open');
+  caps.push(state.compConnected ? '✅ Full shell + git + web search via companion' : '⚠️  Virtual shell only (limited commands, no git/search)');
+  const capabilityChecklist = caps.join('\n');
 
-    /* Vision section */
-    const visionSection=state.visionCapable
-      ?`**You CAN see images.** When you read an image file with read_file (PNG, JPG, GIF, SVG, WebP), the image is sent to you as a visual — you see the actual pixels, not text.
+  /* Vision section */
+  const visionSection = state.visionCapable
+    ? `**You CAN see images.** When you read an image file with read_file (PNG, JPG, GIF, SVG, WebP), the image is sent to you as a visual — you see the actual pixels, not text.
 You can also use the screenshot tool to capture the current UI state — useful for:
 - Seeing error messages exactly as displayed
 - Checking how code changes look in the interface
 - Reviewing tool output that is too long for text context
 When you call read_file on an image, the next message you receive will contain the image. Describe what you see and act on it.
 Image files are marked with [IMAGE] in list_directory output.`
-      :'You are running as a text-only model. Image files will show as binary/encoded data — you cannot interpret them visually.';
+    : 'You are running as a text-only model. Image files will show as binary/encoded data — you cannot interpret them visually.';
 
-    /* Shell section */
-    const shellSection=(function(){
-      if(!state.compConnected){
-        return`**Virtual shell only** — limited to: ls, cat, head, tail, wc, grep, find, echo, mkdir, touch, pwd, tree, file, diff.
+  /* Shell section */
+  const shellSection = (function () {
+    if (!state.compConnected) {
+      return `**Virtual shell only** — limited to: ls, cat, head, tail, wc, grep, find, echo, mkdir, touch, pwd, tree, file, diff.
 These are virtual FSA commands, not OS shell commands. They do NOT run on your system.
 Start the companion for real shell access, git, and web search.`;
-      }
-      const plat=state.compInfo?.platform||'unknown';
-      const shell=state.compInfo?.shell||'default';
-      const isWin=plat==='Windows';
-      let text=`**Full shell** (${shell}) on ${plat} via companion. All OS commands work.`;
-      if(isWin){
-        text+=`\n⚠️ You are on Windows. Use Windows commands: dir (not ls), type (not cat), findstr (not grep), del (not rm), move (not mv), copy (not cp), where (not which). Git bash is available so Unix flags work with git commands.`;
-      }
-      text+=`\nUse \`${pythonCmd}\` for Python. The companion auto-falls back between python/python3.`;
-      text+=`\nTimeout: ${state.cmdTimeout}s default, auto-extended to 300s for package installs (pip, npm, cargo, etc.).`;
-      text+=`\nDangerous commands (rm -rf /, dd, format, etc.) require user confirmation.`;
-      return text;
-    })();
+    }
+    const plat = state.compInfo?.platform || 'unknown';
+    const shell = state.compInfo?.shell || 'default';
+    const isWin = plat === 'Windows';
+    let text = `**Full shell** (${shell}) on ${plat} via companion. All OS commands work.`;
+    if (isWin) {
+      text += `\n⚠️ You are on Windows. Use Windows commands: dir (not ls), type (not cat), findstr (not grep), del (not rm), move (not mv), copy (not cp), where (not which). Git bash is available so Unix flags work with git commands.`;
+    }
+    text += `\nUse \`${pythonCmd}\` for Python. The companion auto-falls back between python/python3.`;
+    text += `\nTimeout: ${state.cmdTimeout}s default, auto-extended to 300s for package installs (pip, npm, cargo, etc.).`;
+    text += `\nDangerous commands (rm -rf /, dd, format, etc.) require user confirmation.`;
+    return text;
+  })();
 
-    /* Search section */
-    const searchSection=(function(){
-      if(!state.compConnected){
-        return`**web_search** searches DuckDuckGo. Returns titles, URLs, and snippets.
+  /* Search section */
+  const searchSection = (function () {
+    if (!state.compConnected) {
+      return `**web_search** searches DuckDuckGo. Returns titles, URLs, and snippets.
 - Set fetch_top=1 to auto-fetch and read the full content of the #1 result. Use fetch_top=2 for top 2.
 - This is essential for: API documentation, library usage, error message lookups, current best practices
 - **fetch_url** retrieves any URL's content (cleaned text by default, or raw HTML with mode="raw")`;
-      }
-      let text=`**web_search** searches DuckDuckGo. Returns titles, URLs, and snippets.
+    }
+    let text = `**web_search** searches DuckDuckGo. Returns titles, URLs, and snippets.
 - Set fetch_top=1 to auto-fetch and read the full content of the #1 result. Use fetch_top=2 for top 2.
 - This is essential for: API documentation, library usage, error message lookups, current best practices
 - **fetch_url** retrieves any URL's content (cleaned text by default, or raw HTML with mode="raw")
@@ -2516,93 +2630,109 @@ fetch_url uses urllib which CANNOT execute JavaScript. Many modern sites (news s
 - API endpoints returning JSON → fetch_url with mode="raw" works fine
 
 **fetch_url** also handles errors gracefully: HTTP errors return the error page content, timeouts return an error message.`;
-      return text;
-    })();
+    return text;
+  })();
 
-    /* Git section */
-    const gitSection=state.compConnected
-      ?`**Git tools available:** git_status, git_diff (staged=true for staged), git_log, git_add, git_commit.
+  /* Git section */
+  const gitSection = state.compConnected
+    ? `**Git tools available:** git_status, git_diff (staged=true for staged), git_log, git_add, git_commit.
 Workflow: make changes → git_status to see what changed → git_add to stage → git_commit with descriptive message.
 Use git_diff to review changes before committing. git_diff without arguments shows unstaged changes.`
-      :'Git tools require the companion server. Not available.';
+    : 'Git tools require the companion server. Not available.';
 
-    /* Context section */
-    const ctxPct=Math.round(getContextPct());
-    const ctxSection=`Context window: ~${(state.ctxWindow/1000).toFixed(0)}k tokens | Current usage: ${ctxPct}% | Auto-compact at: ${state.autoCompactPct}%
+  /* Context section */
+  const ctxPct = Math.round(getContextPct());
+  const ctxSection = `Context window: ~${(state.ctxWindow / 1000).toFixed(0)}k tokens | Current usage: ${ctxPct}% | Auto-compact at: ${state.autoCompactPct}%
 - When context fills up, your conversation is automatically summarized and compacted
 - A detailed progress file (.sloplobster-progress.md) is saved to the workspace before compaction
 - After compaction, you can read_file .sloplobster-progress.md to recover full details of what was done
 - You get a soft warning at iteration 12 and compact at iteration 20 — prioritize finishing critical work
 - You are NEVER truly "stuck" — even after compaction, the progress file preserves all context`;
 
-    const now=new Date();
-    const isoStr=now.toISOString().slice(0,10);
-    const dateStr=new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
-    const sysPrompt=(document.getElementById('s-sys-prompt').value||DEFAULT_SYS)
-      .replace('{{CURRENT_DATE}}',dateStr)
-      .replace('{{CAPABILITY_CHECKLIST}}',capabilityChecklist)
-      .replace('{{VISION_SECTION}}',visionSection)
-      .replace('{{SHELL_SECTION}}',shellSection)
-      .replace('{{SEARCH_SECTION}}',searchSection)
-      .replace('{{REFERENCE_SECTION}}',buildReferenceSection())
-      .replace('{{GIT_SECTION}}',gitSection)
-      .replace('{{CONTEXT_SECTION}}',ctxSection)
-      .replace('{{WORKING_DIR}}',state.dirName||'(none)')
-      .replace('{{PROJECT_INFO}}',projInfo)
-      .replace('{{PYTHON_CMD}}',pythonCmd);(function(){  
-      if(state.compConnected){
-        const plat=state.compInfo?.platform||'unknown';
-        const shell=state.compInfo?.shell||'unknown';
-        const isWin=plat==='Windows';
-        console.log('Resolved prompt starts with:', sysPrompt.slice(0, 200));
-        const cmdHint=isWin
-          ?'IMPORTANT: You are on Windows. Use Windows/PowerShell commands (dir, type, findstr, del, move, copy, where, cd, cls). Avoid Unix commands (ls, cat, grep, rm, cp, mv) when calling execute_command — they will fail. Git bash is available so Unix flags may work with git.'
-          :'You are on '+plat+'. Standard Unix commands work in execute_command.';
-        return `Full shell (${shell}) + git + web search ACTIVE via companion on ${plat}. web_search, fetch_url, execute_command, git_status, git_diff, git_log, git_add, git_commit tools available.\n${cmdHint}`;
-      }
-      const hint=(navigator.platform||'').includes('Win')
-        ?'\nNote: No companion connected. Virtual shell only — use ls/cat/grep etc. (these are virtual, not OS commands). For real Windows commands, start the companion.'
-        :'\nNote: No companion connected. Virtual shell only. Start companion for real shell + git + web search.';
-      return `LIMITED virtual shell only (no OS commands).${hint}`;
-    })();
-  const apiMsgs=[{role:'system',content:sysPrompt},...messages.map(m=>{
-    if(m._images&&m._images.length){
-      const parts=[];
-      if(m.content)parts.push({type:'text',text:m.content});
+  const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const sysPrompt = (document.getElementById('s-sys-prompt').value || DEFAULT_SYS)
+    .replace('{{CURRENT_DATE}}', dateStr)
+    .replace('{{CAPABILITY_CHECKLIST}}', capabilityChecklist)
+    .replace('{{VISION_SECTION}}', visionSection)
+    .replace('{{SHELL_SECTION}}', shellSection)
+    .replace('{{SEARCH_SECTION}}', searchSection)
+    .replace('{{REFERENCE_SECTION}}', buildReferenceSection())
+    .replace('{{GIT_SECTION}}', gitSection)
+    .replace('{{CONTEXT_SECTION}}', ctxSection)
+    .replace('{{WORKING_DIR}}', state.dirName || '(none)')
+    .replace('{{PROJECT_INFO}}', projInfo)
+    .replace('{{PYTHON_CMD}}', pythonCmd);
+
+  const apiMsgs = [{ role: 'system', content: sysPrompt }, ...messages.map(m => {
+    if (m._images && m._images.length) {
+      const parts = [];
+      if (m.content) parts.push({ type: 'text', text: m.content });
       parts.push(...m._images);
-      return{role:m.role,content:parts};
+      return { role: m.role, content: parts };
     }
     return m;
   })];
-  state.abortCtrl=new AbortController();
-  const res=await fetch(`${state.apiUrl}/v1/chat/completions`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:state.model,messages:apiMsgs,tools:getToolDefs(),stream:true,temperature:state.temp,max_tokens:state.maxTokens}),signal:state.abortCtrl.signal});
-  if(!res.ok){const err=await res.text().catch(()=>res.statusText);throw new Error(`API ${res.status}: ${err}`);}
-  const reader=res.body.getReader(),dec=new TextDecoder();
-  let buf='',content='',toolCalls=[];
-  while(true){
-    const{done,value}=await reader.read();if(done)break;
-    buf+=dec.decode(value,{stream:true});const lines=buf.split('\n');buf=lines.pop();
-    for(const line of lines){
-      const t=line.trim();if(!t.startsWith('data:'))continue;const d=t.slice(5).trim();if(d==='[DONE]')continue;
-      try{const chunk=JSON.parse(d);const delta=chunk.choices?.[0]?.delta;if(!delta)continue;
-        if(delta.content){content+=delta.content;onChunk(content);}
-        if(delta.tool_calls){
-          for(const tc of delta.tool_calls){
-            const idx=tc.index??0;
-            if(!toolCalls[idx])toolCalls[idx]={id:tc.id||'',type:'function',function:{name:'',arguments:''}};
-            if(tc.id)toolCalls[idx].id=tc.id;
-            if(tc.function?.name)toolCalls[idx].function.name+=tc.function.name;
-            if(tc.function?.arguments)toolCalls[idx].function.arguments+=tc.function.arguments;
-            if(toolCalls[idx].function.name==='think'&&onThinkStream){
+
+  state.abortCtrl = new AbortController();
+  const res = await fetch(`${state.apiUrl}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: state.model,
+      messages: apiMsgs,
+      tools: getToolDefs(),
+      stream: true,
+      temperature: state.temp,
+      max_tokens: state.maxTokens
+    }),
+    signal: state.abortCtrl.signal
+  });
+
+  if (!res.ok) {
+    const err = await res.text().catch(() => res.statusText);
+    throw new Error(`API ${res.status}: ${err}`);
+  }
+
+  const reader = res.body.getReader(), dec = new TextDecoder();
+  let buf = '', content = '', toolCalls = [];
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      const t = line.trim();
+      if (!t.startsWith('data:')) continue;
+      const d = t.slice(5).trim();
+      if (d === '[DONE]') continue;
+      try {
+        const chunk = JSON.parse(d);
+        const delta = chunk.choices?.[0]?.delta;
+        if (!delta) continue;
+        if (delta.content) {
+          content += delta.content;
+          onChunk(content);
+        }
+        if (delta.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const idx = tc.index ?? 0;
+            if (!toolCalls[idx]) toolCalls[idx] = { id: tc.id || '', type: 'function', function: { name: '', arguments: '' } };
+            if (tc.id) toolCalls[idx].id = tc.id;
+            if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
+            if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
+            if (toolCalls[idx].function.name === 'think' && onThinkStream) {
               onThinkStream(extractThinkText(toolCalls[idx].function.arguments));
             }
             onToolCall(toolCalls);
           }
         }
-      }catch{}
+      } catch { /* skip malformed chunks */ }
     }
   }
-  return{content,toolCalls:toolCalls.filter(Boolean)};
+
+  return { content, toolCalls: toolCalls.filter(Boolean) };
 }
 
 
@@ -2612,6 +2742,314 @@ function showCompactBanner(before,after){
   $msg().appendChild(el);scrollBottom();
 }
 function formatTok(n){return n<1000?Math.round(n)+' tok':(n/1000).toFixed(1)+'k tok';}
+
+
+/* ═══════════════ MODEL SYNC (LM Studio v0.3+) ═══════════════ */
+let activeInstance = null; // { instance_id, identifier, ... }
+
+async function fetchActiveModel() {
+  /* Returns the full activeModel object from LM Studio, or null */
+  try {
+    const res = await fetch(`${state.apiUrl}/api/v0/models`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.activeModel?.state === 'loaded') {
+      activeInstance = data.activeModel;
+      return data.activeModel;
+    }
+    activeInstance = null;
+    return null;
+  } catch {
+    activeInstance = null;
+    return null;
+  }
+}
+
+async function unloadModel(instanceId) {
+  /* Unload a model from LM Studio GPU. Returns true on success. */
+  if (!instanceId) return false;
+  try {
+    const res = await fetch(`${state.apiUrl}/api/v1/models/unload`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ instance_id: instanceId }),
+      signal: AbortSignal.timeout(15000)
+    });
+    if (res.ok) {
+      activeInstance = null;
+      return true;
+    }
+    const err = await res.text().catch(() => res.statusText);
+    console.warn('[model] unload failed:', res.status, err);
+    return false;
+  } catch (e) {
+    console.warn('[model] unload error:', e.message);
+    return false;
+  }
+}
+
+async function refreshModels(forceReload) {
+  const sel = document.getElementById('model-sel');
+  const meta = document.getElementById('model-meta');
+  const dot = document.getElementById('llm-dot');
+  const txt = document.getElementById('llm-text');
+
+  // 1. Get active model info (includes instance_id for unload)
+  const active = await fetchActiveModel();
+
+  // 2. Get full model list
+  try {
+    const res = await fetch(`${state.apiUrl}/v1/models`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+    await fetchModelInfo(); // populates state.modelInfoMap from v0
+
+    const prev = state.model;
+    sel.innerHTML = '';
+
+    if (!data.data?.length) {
+      sel.innerHTML = '<option>No models found</option>';
+      sel.disabled = true;
+      state.connected = false;
+      dot.className = 'status-dot off';
+      txt.textContent = 'LLM';
+      return;
+    }
+
+    state.connected = true;
+    dot.className = 'status-dot on';
+    txt.textContent = 'LLM';
+
+    const activeId = active?.identifier || null;
+
+    // Sort: active model first, then alphabetically
+    const sorted = [...data.data].sort((a, b) => {
+      if (a.id === activeId) return -1;
+      if (b.id === activeId) return 1;
+      return a.id.localeCompare(b.id);
+    });
+
+    sorted.forEach(m => {
+      const o = document.createElement('option');
+      o.value = m.id;
+      const isActive = m.id === activeId;
+      const info = state.modelInfoMap.get(m.id);
+      const tags = [];
+      if (isActive) tags.push('✓ LOADED');
+      else if (info?.contextLength) tags.push((info.contextLength / 1000).toFixed(0) + 'k ctx');
+      if (info?.vision) tags.push('👁');
+      if (info?.trainedForToolUse) tags.push('🔧');
+      const suffix = tags.length ? '  [' + tags.join(' ') + ']' : '';
+      o.textContent = (m.id.length > 50 ? m.id.slice(0, 47) + '...' : m.id) + suffix;
+      if (isActive) o.style.color = 'var(--green)';
+      sel.appendChild(o);
+    });
+
+    // Restore selection
+    if (prev && sorted.find(m => m.id === prev)) {
+      state.model = prev;
+      sel.value = prev;
+    } else if (activeId) {
+      state.model = activeId;
+      sel.value = activeId;
+    } else {
+      state.model = sorted[0].id;
+    }
+
+    sel.disabled = false;
+    updateVisionUI();
+    updateModelMeta();
+    updateWelcomeStatus();
+    updateSendBtn();
+    updateModelLoadBtn();
+
+  } catch (e) {
+    state.connected = false;
+    dot.className = 'status-dot off';
+    txt.textContent = 'LLM';
+    sel.innerHTML = '<option>No models</option>';
+    sel.disabled = true;
+    updateVisionUI();
+    updateSendBtn();
+    updateWelcomeStatus();
+    throw e;
+  }
+}
+
+function updateModelMeta() {
+  const meta = document.getElementById('model-meta');
+  if (!meta) return;
+  const info = state.modelInfoMap.get(state.model);
+  const parts = [];
+  if (info?.paramsString) parts.push(info.paramsString);
+  if (info?.contextLength) parts.push((info.contextLength / 1000).toFixed(0) + 'k');
+  if (info?.trainedForToolUse) parts.push('🔧');
+  if (info?.vision) parts.push('👁');
+  // Show mismatch warning
+  if (activeInstance && activeInstance.identifier && activeInstance.identifier !== state.model) {
+    meta.innerHTML = `<span style="color:var(--yellow)">⚠ loaded: ${esc(truncate(activeInstance.identifier, 28))}</span>`;
+  } else {
+    meta.textContent = parts.length ? parts.join(' · ') : '';
+  }
+}
+
+function updateModelLoadBtn() {
+  const btn = document.getElementById('model-load-btn');
+  if (!btn) return;
+  const needsLoad = activeInstance?.identifier !== state.model;
+  btn.style.display = needsLoad ? '' : 'none';
+}
+
+async function requestModelLoad(modelId) {
+  const dot = document.getElementById('llm-dot');
+  const txt = document.getElementById('llm-text');
+  const meta = document.getElementById('model-meta');
+  const loadBtn = document.getElementById('model-load-btn');
+
+  // Step 1: Unload old model if a different one is loaded
+  if (activeInstance?.identifier && activeInstance.identifier !== modelId && activeInstance.instance_id) {
+    dot.className = 'status-dot loading';
+    txt.textContent = 'Unloading...';
+    meta.innerHTML = `<span style="color:var(--tx-3)">⏳ Unloading ${esc(truncate(activeInstance.identifier, 25))}...</span>`;
+
+    try {
+      const unloadRes = await fetch(`${state.apiUrl}/api/v1/models/unload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instance_id: activeInstance.instance_id }),
+        signal: AbortSignal.timeout(15000)
+      });
+      if (unloadRes.ok) {
+        activeInstance = null;
+      } else {
+        const err = await unloadRes.text().catch(() => '');
+        console.warn('[model] unload warning:', unloadRes.status, err);
+        // Non-fatal — LM Studio may handle this on load anyway
+      }
+    } catch (e) {
+      console.warn('[model] unload error (non-fatal):', e.message);
+    }
+  }
+
+  // Step 2: Build load request body from settings
+  dot.className = 'status-dot loading';
+  txt.textContent = 'Loading...';
+  meta.innerHTML = `<span style="color:var(--yellow)">⏳ Loading ${esc(truncate(modelId, 30))}...</span>`;
+
+  const loadBody = { model: modelId, echo_load_config: true };
+  if (state.modelCtxOverride > 0) loadBody.context_length = state.modelCtxOverride;
+  if (state.modelFlashAttn) loadBody.flash_attention = true;
+  if (!state.modelKvOffload) loadBody.offload_kv_cache_to_gpu = false;
+  if (state.modelNumExperts > 0) loadBody.num_experts = state.modelNumExperts;
+  if (state.modelEvalBatch > 0) loadBody.eval_batch_size = state.modelEvalBatch;
+
+  const loadStart = performance.now();
+
+  try {
+    const res = await fetch(`${state.apiUrl}/api/v1/models/load`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(loadBody),
+      signal: AbortSignal.timeout(300000) // 5 min — large models on slow machines
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => res.statusText);
+      let parsed = '';
+      try { parsed = JSON.parse(errText); parsed = parsed.error || parsed.message || errText; } catch { parsed = errText; }
+      throw new Error(`HTTP ${res.status}: ${String(parsed).slice(0, 200)}`);
+    }
+
+    const data = await res.json();
+    const loadTimeSec = data.load_time_seconds || ((performance.now() - loadStart) / 1000);
+
+    // Step 3: Update activeInstance from load response — no extra fetch needed
+    activeInstance = {
+      instance_id: data.instance_id,
+      identifier: modelId,
+      state: 'loaded',
+      contextLength: data.load_config?.context_length || state.modelCtxOverride || 0,
+    };
+
+    dot.className = 'status-dot on';
+    txt.textContent = 'LLM';
+
+    // Build config summary for the meta badge
+    const cfg = data.load_config || {};
+    const cfgParts = [];
+    if (cfg.context_length) cfgParts.push((cfg.context_length / 1000).toFixed(0) + 'k ctx');
+    if (cfg.flash_attention === true) cfgParts.push('⚡flash');
+    if (cfg.flash_attention === false) cfgParts.push('no-flash');
+    if (cfg.offload_kv_cache_to_gpu === true) cfgParts.push('KV→GPU');
+    if (cfg.offload_kv_cache_to_gpu === false) cfgParts.push('KV→RAM');
+    if (cfg.num_experts) cfgParts.push(cfg.num_experts + 'exp');
+    if (cfg.eval_batch_size) cfgParts.push('batch ' + cfg.eval_batch_size);
+    const cfgStr = cfgParts.length ? cfgParts.join(' · ') : '';
+
+    const timeStr = loadTimeSec < 1 ? (loadTimeSec * 1000).toFixed(0) + 'ms' : loadTimeSec.toFixed(1) + 's';
+    meta.innerHTML = `<span style="color:var(--green)">✓ ${timeStr}</span>${cfgStr ? '<span style="color:var(--tx-4);margin-left:4px">[' + esc(cfgStr) + ']</span>' : ''}`;
+
+    // If context_length came back, use it for our estimation
+    if (cfg.context_length && cfg.context_length > 1024) {
+      state.ctxWindow = cfg.context_length;
+      document.getElementById('s-ctx-window').value = state.ctxWindow;
+      updateContextMeter();
+    }
+
+    // Re-fetch full model info to update vision/tools/etc flags for this loaded model
+    await fetchModelInfo();
+    updateVisionUI();
+    updateModelMeta();
+    updateModelLoadBtn();
+    updateSendBtn();
+
+    showToast(`Loaded in ${timeStr}`, 'ok');
+
+    // Rebuild dropdown to show ✓ LOADED on the now-active model
+    try { await refreshModels(false); } catch { /* best effort */ }
+
+    return true;
+
+  } catch (e) {
+    dot.className = 'status-dot off';
+    txt.textContent = 'LLM';
+    const isTimeout = e.message.includes('timed out') || e.message.includes('Timeout') || e.message.includes('AbortError');
+    meta.innerHTML = `<span style="color:var(--red)">${isTimeout ? '⏰ Load timed out (5 min)' : '✗ Load failed'}</span>`;
+    showToast(`Model load failed: ${e.message.slice(0, 80)}`, 'err');
+
+    // Try to recover — see what LM Studio's actual state is now
+    await fetchActiveModel();
+    updateModelMeta();
+    return false;
+  }
+}
+
+function truncate(s, max) {
+  return s.length > max ? s.slice(0, max - 2) + '..' : s;
+}
+
+async function manualModelRefresh() {
+  const btn = document.getElementById('model-refresh-btn');
+  btn.disabled = true;
+  btn.querySelector('i').classList.add('fa-spin');
+  try {
+    await refreshModels(true);
+    showToast('Model list refreshed', 'ok');
+  } catch (e) {
+    showToast('LM Studio unreachable: ' + e.message.slice(0, 60), 'err');
+  } finally {
+    btn.disabled = false;
+    btn.querySelector('i').classList.remove('fa-spin');
+  }
+}
+
+async function manualModelLoad() {
+  if (!state.model || state.running) return;
+  const btn = document.getElementById('model-load-btn');
+  btn.disabled = true;
+  await requestModelLoad(state.model);
+  btn.disabled = false;
+}
 
 /* ═══════════════ SMART SCROLL ═══════════════ */
 function isNearBottom(el, threshold){threshold=threshold||100;return el.scrollHeight-el.scrollTop-el.clientHeight<threshold;}
@@ -2760,14 +3198,23 @@ async function progressCompact(progressSaved) {
 
   const sysPrompt = 'Summarize this conversation preserving: the core task, key decisions, files modified with brief descriptions, errors and their resolutions, current state. Be concise — under 600 tokens.';
   const convText = state.messages.map(m => {
-    if (m.role === 'user') {
-      let text = '[User]: ' + (m.content || '');
-      if (m._images) text += ' [' + m._images.length + ' image(s)]';
-      return text;
+  if (m.role === 'user') return '[User]: ' + (m.content || '');
+  if (m.role === 'assistant') {
+        let text = '[Agent]: ' + (m.content || '');
+        if (m.tool_calls) {
+        text += '\n[Tools Called]: ' + m.tool_calls.map(tc => {
+            const args = JSON.parse(tc.function.arguments || '{}');
+            return `${tc.function.name}(${Object.values(args).join(', ').slice(0, 50)})`;
+        }).join(', ');
+        }
+        return text;
     }
-    if (m.role === 'assistant' && m.content) return '[Agent]: ' + m.content;
+    if (m.role === 'tool') {
+        // Include a brief snippet of tool results in the summary
+        return `[Tool Result]: ${m.content.slice(0, 150)}...`;
+    }
     return '';
-  }).filter(Boolean).join('\n');
+    }).filter(Boolean).join('\n');
 
 
   try {
@@ -2847,7 +3294,7 @@ async function agentLoop(){
     if(th&&th.parentNode)th.remove();
     const am={role:'assistant',content:cur||null};if(tcs.length)am.tool_calls=tcs;state.messages.push(am);updateContextMeter();
     for(const[,el]of liveThinkEls)finalizeLiveThinkBlock(el);liveThinkEls.clear();
-    if(!tcs.length)if(!tcs.length){
+    if(!tcs.length){
       /* ── Text loop detection ── */
       if(checkTextLoop(cur)){
         const wEl=document.createElement('div');wEl.className='health-warning';
@@ -3037,9 +3484,14 @@ function copyMsgText(btn){
 
 function retryMsg(btn){
   if(state.running)return;const msgEl=btn.closest('.msg');const idx=[...$msg().children].indexOf(msgEl);
-  let msgCount=0;for(let i=0;i<idx;i++){const c=$msg().children[i];if(c._role==='user'||c._role==='agent'||c._role==='assistant')msgCount++;}
-  state.messages=state.messages.slice(0,msgCount);while($msg().children.length>idx)$msg().removeChild($msg().lastChild);
-  streamEl=null;showToast('Retrying from here...','info');agentLoop();
+  let msgCount=0;
+  for(let i=0;i<idx;i++){
+  const c=$msg().children[i];
+  // Only count elements that are actual chat messages
+  if(c.classList.contains('msg') && (c._role==='user'||c._role==='agent'||c._role==='assistant')) {
+    msgCount++;
+  }
+}
 }
 
 function editMsg(btn){
@@ -3101,6 +3553,7 @@ function updateToolResult(w,r){
     w.el._collapsed=!w.el._collapsed;res.style.display=w.el._collapsed?'none':'';
     const ic=w.el.querySelector('.tool-expand-btn i');if(ic)ic.className=w.el._collapsed?'fas fa-compress':'fas fa-expand';
   };
+  res.textContent = text; w.el._resultText = text;
   scrollBottom();
 }
 
@@ -3293,6 +3746,11 @@ const STORAGE_KEY='SlopLobster_conversations',SETTINGS_KEY='SlopLobster_settings
 function loadConversations(){
   try{const r=localStorage.getItem(STORAGE_KEY);if(r)state.conversations=JSON.parse(r);}catch{}
   if(!state.conversations.length)state.conversations=[];
+  // Restore originalTask from active conversation
+  if(state.activeConvId){
+    const c = state.conversations.find(c=>c.id===state.activeConvId);
+    if(c?._originalTask) state.originalTask = c._originalTask;
+  }
   renderConvList();
 }
 function saveConversations(){
@@ -3315,6 +3773,7 @@ function saveCurrentConv(){
   if(!state.activeConvId)return;
   const c=state.conversations.find(c=>c.id===state.activeConvId);if(!c)return;
   c.messages=state.messages;c.updated=Date.now();
+  c._originalTask = state.originalTask; 
   if(!c.title){const f=state.messages.find(m=>m.role==='user');if(f)c.title=f.content.slice(0,60)+(f.content.length>60?'...':'');}
   saveConversations();renderConvList();
 }
@@ -3346,7 +3805,7 @@ async function doNewConversation(){
   saveCurrentConv();
   const id='conv_'+Date.now();
   state.conversations.unshift({id,title:'New conversation',messages:[],created:Date.now(),updated:Date.now()});
-  state.activeConvId=id;state.messages=[];state.fileCache.clear();modifiedFiles.clear();state.pendingImages=[];addImageAttachmentsToInputArea();
+  state.activeConvId=id;state.messages=[];state.fileCache.clear();modifiedFiles.clear();state.pendingImages=[];state.originalTask = null;addImageAttachmentsToInputArea();
   /* Clean up old progress file from previous task */
   if(state.dirHandle){
     try{ await deleteFileSafe(PROGRESS_FILE, false); }catch{}
@@ -3360,6 +3819,8 @@ function switchConv(id){
   if(state.running)return;saveCurrentConv();
   const c=state.conversations.find(c=>c.id===id);if(!c)return;
   state.activeConvId=id;state.messages=c.messages||[];state.fileCache.clear();modifiedFiles.clear();
+  // Restore original task from conversation history
+  state.originalTask = c._originalTask || null;
   $msg().innerHTML='';streamEl=null;
   if(state.messages.length){switchToChat();replayMessages(state.messages);updateContextMeter();}
   else{document.getElementById('welcome').style.display='flex';$msg().style.display='none';}
@@ -3422,7 +3883,7 @@ function replayMessages(msgs){
         el.querySelector('.msg-content').innerHTML+=(m.content?'\n\n':'')+'<div class="msg-img-grid">'+imgHtml+'</div>';
       }
       $msg().appendChild(el);scrollBottom();
-    
+
     } else if(m.role==='assistant'){
       if(pendingThinkText!==null){renderStaticThinkBlock(pendingThinkText);pendingThinkText=null;}
       if(m.content)appendMsg('assistant',m.content);
@@ -3438,21 +3899,16 @@ function replayMessages(msgs){
           const panel=showToolPanel(tc.function.name,tc.function.arguments,'ok');
           const toolMsg=msgs.find((tm,ti)=>ti>mi&&tm.role==='tool'&&tm.tool_call_id===tc.id);
           if(toolMsg){
-            const toolMsg=msgs.find((tm,ti)=>ti>mi&&tm.role==='tool'&&tm.tool_call_id===tc.id);
             updateToolResult(panel,toolMsg.content);
-            if(toolMsg){
-                updateToolResult(panel,toolMsg.content);
-                if(toolMsg._diff)showDiffPanel(toolMsg._diff);
-                /* Replay image previews from file reads */
-                if(toolMsg._imageDataUrl&&!toolMsg._screenshotDataUrl){
-                    panel.el.classList.add('screenshot-tool');
-                    const preview=document.createElement('div');
-                    preview.className='screenshot-preview';
-                    preview.innerHTML='<div style="font-size:10px;color:var(--tx-3);margin-bottom:4px;font-family:\'JetBrains Mono\',monospace"><i class="fas fa-image" style="color:var(--accent)"></i> '+esc(toolMsg._imagePath||'image')+'</div><img src="'+toolMsg._imageDataUrl+'" onclick="openImgViewer(this.src)" alt="image">';
-                    panel.el.appendChild(preview);
-                }
-          }
             if(toolMsg._diff)showDiffPanel(toolMsg._diff);
+            /* Replay image previews from file reads */
+            if(toolMsg._imageDataUrl&&!toolMsg._screenshotDataUrl){
+              panel.el.classList.add('screenshot-tool');
+              const preview=document.createElement('div');
+              preview.className='screenshot-preview';
+              preview.innerHTML='<div style="font-size:10px;color:var(--tx-3);margin-bottom:4px;font-family:\'JetBrains Mono\',monospace"><i class="fas fa-image" style="color:var(--accent)"></i> '+esc(toolMsg._imagePath||'image')+'</div><img src="'+toolMsg._imageDataUrl+'" onclick="openImgViewer(this.src)" alt="image">';
+              panel.el.appendChild(preview);
+            }
           }
         }
       }
@@ -3469,7 +3925,6 @@ function replayMessages(msgs){
 }
 
 
-
 /* ═══════════════ SETTINGS ═══════════════ */
 function loadSettings(){
   try{const r=localStorage.getItem(SETTINGS_KEY);if(!r)return;const s=JSON.parse(r);
@@ -3479,11 +3934,27 @@ function loadSettings(){
     if(s.ctxWindow)state.ctxWindow=s.ctxWindow;if(s.autoCompactPct)state.autoCompactPct=s.autoCompactPct;
     if(s.maxIters) state.maxIters = s.maxIters;
     if(s.verifyWrites!==undefined)state.verifyWrites=s.verifyWrites;
+    if(s.modelCtxOverride!==undefined) state.modelCtxOverride = s.modelCtxOverride;
+    if(s.modelFlashAttn!==undefined) state.modelFlashAttn = s.modelFlashAttn;
+    if(s.modelKvOffload!==undefined) state.modelKvOffload = s.modelKvOffload;
+    if(s.modelNumExperts!==undefined) state.modelNumExperts = s.modelNumExperts;
+    if(s.modelEvalBatch!==undefined) state.modelEvalBatch = s.modelEvalBatch;
     if(s.sysPrompt)document.getElementById('s-sys-prompt').value=s.sysPrompt;
   }catch{}
 }
 function persistSettings(){
-  try{localStorage.setItem(SETTINGS_KEY,JSON.stringify({apiUrl:state.apiUrl,compUrl:state.compUrl,temp:state.temp,maxTokens:state.maxTokens,maxReadKB:state.maxReadKB,cmdTimeout:state.cmdTimeout,ctxWindow:state.ctxWindow,autoCompactPct:state.autoCompactPct,maxIters: state.maxIters,verifyWrites:state.verifyWrites,sysPrompt:document.getElementById('s-sys-prompt').value}));}catch{}
+  try{localStorage.setItem(SETTINGS_KEY,JSON.stringify({
+    apiUrl:state.apiUrl, compUrl:state.compUrl, temp:state.temp,
+    maxTokens:state.maxTokens, maxReadKB:state.maxReadKB,
+    cmdTimeout:state.cmdTimeout, ctxWindow:state.ctxWindow,
+    autoCompactPct:state.autoCompactPct, maxIters:state.maxIters,
+    verifyWrites:state.verifyWrites,
+    modelCtxOverride:state.modelCtxOverride,
+    modelFlashAttn:state.modelFlashAttn,
+    modelKvOffload:state.modelKvOffload,
+    modelNumExperts:state.modelNumExperts,
+    modelEvalBatch:state.modelEvalBatch,
+    sysPrompt:document.getElementById('s-sys-prompt').value}));}catch{}
 }
 
 function openSettings(){
@@ -3492,6 +3963,11 @@ function openSettings(){
   document.getElementById('s-max-tokens').value=state.maxTokens;document.getElementById('s-max-read').value=state.maxReadKB;
   document.getElementById('s-cmd-timeout').value=state.cmdTimeout;document.getElementById('s-ctx-window').value=state.ctxWindow;
   document.getElementById('s-auto-compact').value=state.autoCompactPct;document.getElementById('s-verify-writes').checked=state.verifyWrites;
+  document.getElementById('s-model-ctx').value = state.modelCtxOverride;
+  document.getElementById('s-model-flash').checked = state.modelFlashAttn;
+  document.getElementById('s-model-kv').checked = state.modelKvOffload;
+  document.getElementById('s-model-experts').value = state.modelNumExperts;
+  document.getElementById('s-model-eval').value = state.modelEvalBatch;
   document.getElementById('s-max-iters').value = state.maxIters;
   if(!document.getElementById('s-sys-prompt').value)document.getElementById('s-sys-prompt').value=DEFAULT_SYS;
   
@@ -3566,6 +4042,41 @@ function saveCompanionScript(){
   const blob=new Blob([COMPANION_SCRIPT],{type:'text/x-python'});const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);a.download='SlopLobster-companion.py';a.click();URL.revokeObjectURL(a.href);
   showToast('Saved SlopLobster-companion.py','ok');
+}
+async function handleFileAttach(files) {
+  if (!files || !files.length) return;
+  const inp = document.getElementById('msg-input');
+  let added = [];
+  let imgAdded = [];
+
+  for (const f of files) {
+    if (f.type.startsWith('image/')) {
+      try {
+        const dataUrl = await fileToBase64(f);
+        const sizeKB = Math.round((dataUrl.length * 3 / 4) / 1024);
+        imgAdded.push({ dataUrl, name: f.name, size: sizeKB + ' KB' });
+      } catch { showToast('Cannot read ' + f.name, 'err'); }
+      continue;
+    }
+    if (f.size > 2 * 1024 * 1024) { showToast(f.name + ' too large (max 2MB)', 'warn'); continue; }
+    try { const text = await f.text(); added.push('--- File: ' + f.name + ' (' + (f.size / 1024).toFixed(1) + ' KB) ---\n' + text); }
+    catch { showToast('Cannot read ' + f.name, 'err'); }
+  }
+
+  if (imgAdded.length) {
+    state.pendingImages.push(...imgAdded);
+    addImageAttachmentsToInputArea();
+    showToast(imgAdded.length + ' image(s) attached', 'ok');
+  }
+  if (added.length) {
+    inp.value = inp.value ? inp.value + '\n\n' + added.join('\n\n') : added.join('\n\n');
+    inp.style.height = 'auto';
+    inp.style.height = Math.min(inp.scrollHeight, 150) + 'px';
+    showToast(added.length + ' file(s) attached', 'ok');
+  }
+  updateSendBtn();
+  /* Reset the input so the same file can be re-attached */
+  document.getElementById('file-input').value = '';
 }
 
 /* ═══════════════ FILE DROP ═══════════════ */
@@ -3654,7 +4165,11 @@ function handleSend(){
   }
   $msg().appendChild(el);scrollBottom();
   
-  state.messages.push(msg);updateSendBtn();updateContextMeter();agentLoop();
+  state.messages.push(msg);
+  // Capture original task before any compaction can lose it
+  if (!state.originalTask && t) state.originalTask = t;
+ 
+  updateSendBtn();updateContextMeter();agentLoop();
 }
 
 async function userScreenshot(){
@@ -3755,7 +4270,8 @@ function init(){
     if(c&&c.messages&&c.messages.length){state.messages=c.messages;switchToChat();replayMessages(state.messages);updateContextMeter();}
   }
   renderConvList();renderToolList();renderReferenceSites();setupFileDrop();setupScrollDetection();
-    document.addEventListener('paste',async e=>{
+  
+  document.addEventListener('paste',async e=>{
     if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName))return;
     const items=[...(e.clipboardData?.items||[])];
     for(const item of items){
@@ -3796,9 +4312,34 @@ function init(){
     if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();handleSend();}
   });
 
-  document.getElementById('model-sel').addEventListener('change',e=>{
-    state.model=e.target.value;updateVisionUI();updateSendBtn();updateWelcomeStatus();
+  document.getElementById('model-sel').addEventListener('change', e => {
+    state.model = e.target.value;
+    const info = state.modelInfoMap.get(state.model);
+    if (info?.contextLength > 1024) {
+      state.ctxWindow = info.contextLength;
+      document.getElementById('s-ctx-window').value = state.ctxWindow;
+      updateContextMeter();
+    }
+    updateVisionUI();
+    updateModelMeta();
+    updateModelLoadBtn();
+    updateSendBtn();
+    updateWelcomeStatus();
   });
+
+  /* ── Show model metadata hint ── */
+  const meta=document.getElementById('model-meta');
+  const info = state.modelInfoMap.get(state.model);
+  if(meta&&info){
+    const parts=[];
+    if(info.paramsString) parts.push(info.paramsString);
+    if(info.contextLength) parts.push((info.contextLength/1000).toFixed(0)+'k ctx');
+    if(info.trainedForToolUse) parts.push('tools');
+    if(info.vision) parts.push('👁');
+    meta.textContent=parts.length?'('+parts.join(' · ')+')':'';
+  } else if(meta){ meta.textContent=''; }
+  updateVisionUI();updateSendBtn();updateWelcomeStatus();
+
   document.getElementById('s-temp').addEventListener('input',e=>{document.getElementById('s-temp-val').textContent=e.target.value;});
 
   document.getElementById('settings-modal').addEventListener('click',e=>{if(e.target===e.currentTarget)closeSettings();});
@@ -3821,10 +4362,22 @@ function init(){
   });
 
   if(!document.getElementById('s-sys-prompt').value)document.getElementById('s-sys-prompt').value=DEFAULT_SYS;
-  updateWelcomeStatus();updateScrollLockBtn();setTimeout(() => testConnection(5), 800);
-  setInterval(checkCompanion,20000);
+  updateWelcomeStatus();updateScrollLockBtn();
+  setTimeout(() => testConnection(3), 800);
+  setInterval(checkCompanion, 20000);
+  
+  // Poll LM Studio for model changes (user might switch in LM Studio UI)
+  setInterval(async () => {
+    if (state.connected && !state.running) {
+      try { await refreshModels(false); } catch { /* silent */ }
+    }
+  }, 30000);
+
 }
+
+
 init();
+
 </script>
 </body>
 </html>
