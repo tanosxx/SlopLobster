@@ -831,6 +831,17 @@ def fetch_url_content(url, mode="text", max_bytes=500000):
             content = html_s
         else:
             content = html_to_text(html_s)
+            # ── Detect JavaScript-rendered pages ──
+            if len(content.strip()) < 200 and len(html_s) > 3000:
+                domain = url.split("/")[2] if "/" in url else url
+                content = (
+                    "[This page is JavaScript-rendered — no extractable text in the HTML source. "
+                    "The actual content is loaded by JS in a browser, which urllib cannot execute.]\\n\\n"
+                    "[WORKAROUND: Use web_search with query \\"site:" + domain + " <your topic>\\" "
+                    "and fetch_top=1-2. DuckDuckGo's crawler executes JS when indexing, so search "
+                    "results will contain the actual page content.]\\n\\n"
+                    "[Raw HTML: " + str(len(html_s)) + " bytes → Extracted text: " + str(len(content.strip())) + " chars]"
+                )
         if truncated:
             content += "\\n\\n[Truncated at " + str(max_bytes) + " bytes]"
         return content
@@ -1028,6 +1039,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 wfn('e', "[Error: " + str(e) + "]")
                 wfn('d', "1")
+            return  # ← THIS IS THE FIX
+        elif path == '/search':  # ← THIS IS THE FIX
             try:
                 body = self.read_body()
                 query = body.get("query", "").strip()
@@ -1148,6 +1161,9 @@ function debouncedFileTreeRefresh(){clearTimeout(fileTreeRefreshTimer);fileTreeR
 
 const DEFAULT_SYS = `You are SlopLobster, a local AI coding agent with direct filesystem access, shell execution, web search, and optional image understanding.
 
+═══ CURRENT DATE ═══
+Today is {{CURRENT_DATE}}. Use this for all time references.
+
 ═══ CAPABILITY CHECKLIST ═══
 
 Read this section to know what is available RIGHT NOW:
@@ -1186,7 +1202,37 @@ DO NOT read entire files unless the file is small (<100 lines) or you genuinely 
 
 ═══ WEB SEARCH ═══
 
-{{SEARCH_SECTION}}
+Use the search tool when your local knowledge is insufficient or a library's version has outpaced your training data.
+
+1. The "LLM-First" Strategy
+- Before deep-diving into HTML documentation, always check if the site supports AI-native protocols.
+- Step 1: Search for the library/tool documentation.
+- Step 2: Check for [domain]/llms.txt or [domain]/llms-full.txt. These are markdown-optimized versions of the docs that reduce token waste and hallucination.
+- Step 3: Use fetch_url on the .txt version first. Only fallback to standard HTML if these are missing.
+
+2. Search Query Patterns
+- Don't just search for names; search for intent.
+- Library Updates: [library name] changelog 2025 2026
+- Fixing Errors: "[error message]" site:stackoverflow.com OR site:github.com
+- Comparison: [library A] vs [library B] 2026 reddit (Good for finding "real world" sentiment on bugs).
+- Implementation: [feature] [framework] example llms.txt
+
+3. Reference Site Filtering
+- When searching, you can focus on your {{REFERENCE_SITES}} by appending site:[url] to your queries.
+- Example: useActionState site:react.dev
+
+4. Handling "Slop" & Noise
+- Avoid SEO Spam: If a result looks like a generic "Top 10" listicle with AI-generated text, skip it.
+- Date Check: Technology moves fast. Documentation or tutorials older than 18 months should be treated as "Legacy" unless no other info exists.
+- The GitHub Source: If official docs are vague, search for the source code on GitHub. Reading the README.md or the tests/ folder is often faster than parsing broken documentation.
+
+5. Verification Loop
+After finding a solution online:
+- Cross-reference: Check if the solution is compatible with the current project's package.json or requirements.txt.
+- Verify: Don't just copy. Search for the specific function names in your reference sites to ensure the API signature hasn't changed.
+
+
+{{REFERENCE_SECTION}}
 
 ═══ GIT OPERATIONS ═══
 
@@ -1251,6 +1297,98 @@ function sanitizePath(raw){
   return out;
 }
 
+/* ═══════════════ REFERENCE SITES ═══════════════ */
+const REFERENCE_SITES = [
+  { category: 'Documentation (Core)', sites: [
+    { name: 'MDN Web Docs', url: 'https://developer.mozilla.org/en-US/docs/', use: 'HTML, CSS, JS, Web APIs', fetch: true },
+    { name: 'Python Docs', url: 'https://docs.python.org/3/', use: 'Standard library, PEPs', fetch: true },
+    { name: 'Node.js Docs', url: 'https://nodejs.org/docs/latest/api/', use: 'Built-in modules, streams', fetch: true },
+    { name: 'Rust Book', url: 'https://doc.rust-lang.org/book/', use: 'Ownership, lifetimes, safety', fetch: true },
+    { name: 'Go Docs', url: 'https://go.dev/doc/', use: 'Concurrency, effective Go', fetch: true },
+    { name: 'TypeScript Handbook', url: 'https://www.typescriptlang.org/docs/handbook/', use: 'Type system, utility types', fetch: true },
+  ]},
+  { category: 'Modern Runtimes & Tooling', sites: [
+    { name: 'Bun', url: 'https://bun.sh/docs', use: 'Fast JS runtime, bundler, test runner', fetch: true },
+    { name: 'Deno', url: 'https://docs.deno.com/', use: 'Secure TS runtime, built-in cloud primitives', fetch: true },
+    { name: 'Biome', url: 'https://biomejs.dev/docs/', use: 'Unified linter/formatter (replaces Prettier/ESLint)', fetch: true },
+    { name: 'Vite', url: 'https://vitejs.dev/guide/', use: 'Standard build tool for modern web apps', fetch: true },
+  ]},
+  { category: 'UI & Frontend Frameworks', sites: [
+    { name: 'React', url: 'https://react.dev/reference', use: 'Components, Hooks, Server Components', fetch: true },
+    { name: 'Next.js', url: 'https://nextjs.org/docs', use: 'App Router, Server Actions, Middleware', fetch: true },
+    { name: 'Shadcn/ui', url: 'https://ui.shadcn.com/docs', use: 'AI-native component structures', fetch: true },
+    { name: 'Tailwind CSS', url: 'https://tailwindcss.com/docs', use: 'V4+ utility-first styling', fetch: true },
+    { name: 'Svelte', url: 'https://svelte.dev/docs/llms-full.txt', use: 'Svelte 5+ (LLM-optimized plaintext version)', fetch: true },
+    { name: 'Vue', url: 'https://vuejs.org/guide/', use: 'Composition API, reactivity', fetch: true },
+  ]},
+  { category: 'AI Frameworks & Standards', sites: [
+    { name: 'Model Context Protocol (MCP)', url: 'https://modelcontextprotocol.io/introduction', use: 'Standard for connecting LLMs to data/tools', fetch: true },
+    { name: 'LangChain', url: 'https://python.langchain.com/docs/', use: 'Chain-of-thought, agentic workflows', fetch: true },
+    { name: 'LlamaIndex', url: 'https://docs.llamaindex.ai/', use: 'RAG, data connectors, indexing', fetch: true },
+    { name: 'OpenAI Docs', url: 'https://platform.openai.com/docs/', use: 'GPT-4o/o1 APIs, function calling', fetch: true },
+    { name: 'Anthropic Docs', url: 'https://docs.anthropic.com/en/docs/', use: 'Claude API, prompt engineering', fetch: true },
+    { name: 'Hugging Face', url: 'https://huggingface.co/docs', use: 'Open-source models, transformers', fetch: true },
+  ]},
+  { category: 'Database & Backend', sites: [
+    { name: 'Drizzle ORM', url: 'https://orm.drizzle.team/docs/overview', use: 'Type-safe SQL query builder', fetch: true },
+    { name: 'Supabase', url: 'https://supabase.com/docs', use: 'Auth, Database, Storage (Postgres-based)', fetch: true },
+    { name: 'PostgreSQL', url: 'https://www.postgresql.org/docs/current/', use: 'Advanced SQL, JSONB, indexing', fetch: true },
+    { name: 'Zod', url: 'https://zod.dev/', use: 'Schema validation for JSON & LLM outputs', fetch: true },
+    { name: 'FastAPI', url: 'https://fastapi.tiangolo.com/', use: 'Pydantic-based Python APIs', fetch: true },
+  ]},
+  { category: 'Registries & Quick Lookups', sites: [
+    { name: 'llms.txt Directory', url: 'https://directory.llmstxt.cloud/', use: 'List of AI-readable documentation sites', fetch: true },
+    { name: 'Can I Use', url: 'https://caniuse.com/', use: 'Browser feature compatibility', search: true },
+    { name: 'PyPI', url: 'https://pypi.org/search/?q=', use: 'Python package search', search: true },
+    { name: 'npm', url: 'https://www.npmjs.com/search?q=', use: 'Node package search', search: true },
+    { name: 'Stack Overflow', url: 'https://stackoverflow.com/search?q=', use: 'Error message solutions', search: true },
+  ]},
+];
+
+function buildReferenceSection(){
+  let text = '═══ REFERENCE SITES ═══\n\n';
+  text += 'For accurate, up-to-date information, go directly to these sources instead of relying only on web_search.\n';
+  text += 'For "fetch: yes" sites, use fetch_url to read the specific doc page. For "search" sites, append the query to the URL.\n\n';
+  for(const cat of REFERENCE_SITES){
+    text += `**${cat.category}**\n`;
+    for(const s of cat.sites){
+      const tags = [];
+      if(s.fetch) tags.push('fetch=yes');
+      if(s.search) tags.push('search=yes');
+      const tagStr = tags.length ? ` [${tags.join(', ')}]` : '';
+      text += `- ${s.name}: ${s.url}${tagStr}\n  → ${s.use}\n`;
+    }
+    text += '\n';
+  }
+  text += `**Strategy:**\n`;
+  text += `- "How do I use X?" → fetch_url the relevant doc page directly (faster, more accurate than search)\n`;
+  text += `- "What package does Y?" → web_search first, then fetch_url the top result or the registry page\n`;
+  text += `- "Why is my code failing?" → web_search the exact error message (quote it), check Stack Overflow\n`;
+  text += `- "What\'s the best practice for Z?" → web_search for comparisons, then fetch_url authoritative sources\n`;
+  text += `- When fetching docs, use mode="text" for clean readable output. If text mode misses content, try mode="raw" for the specific section.\n`;
+  text += `**WHEN TO AUTOMATICALLY SEARCH (do this WITHOUT being asked):**\n`;
+  text += `- You get an error you don't immediately recognize → web_search the EXACT error message in quotes FIRST, before guessing at a fix\n`;
+  text += `- You're about to use an API/function you're not 100% certain about → fetch_url the relevant doc page to verify syntax and behavior BEFORE writing the code\n`;
+  text += `- You need to check if a CSS/JS feature works in a browser → fetch_url caniuse.com for that feature\n`;
+  text += `- You're installing a package and unsure which one or what version → web_search "best [language] package for [task] 2024" or fetch_url the registry page\n`;
+  text += `- A test fails with unexpected output → read the test output carefully, then web_search the specific assertion/error if the cause isn't obvious\n`;
+  text += `- You're writing code for a framework you haven't confirmed the version of → fetch_url the framework docs to check if your approach matches the current version\n`;
+  text += `- You get a deprecation warning → fetch_url the docs to find the current replacement\n\n`;
+  text += `**WHEN NOT TO SEARCH (don't waste time):**\n`;
+  text += `- Simple syntax errors you can see from the error message (missing bracket, typo)\n`;
+  text += `- Logic errors where you can trace the issue by reading the code\n`;
+  text += `- Problems you've already solved earlier in this conversation\n`;
+  text += `- Anything where you can just read the relevant file and see the issue\n\n`;
+  text += `**PATTERN — Error → Search → Fix → Verify:**\n`;
+  text += `1. Read the error output carefully — is it obvious? If yes, fix directly.\n`;
+  text += `2. If not obvious, web_search the exact error (quote it). Read top 1-2 results.\n`;
+  text += `3. If the search results point to a doc page, fetch_url that page for the full context.\n`;
+  text += `4. Apply the fix based on what you learned.\n`;
+  text += `5. Re-run to verify. If it still fails, search again with the NEW error.\n`;
+  text += `Do NOT just try random fixes in a loop. Research first, then act.\n`;
+  return text;
+}
+
 /* ═══════════════ TOKEN ESTIMATION ═══════════════ */
 function estimateTokens(t){if(!t)return 0;return Math.ceil(t.length/3.5);}
 function estimateConvTokens(){let total=0;for(const m of state.messages){if(m.content)total+=estimateTokens(m.content);if(m.tool_calls)for(const tc of m.tool_calls){total+=estimateTokens(tc.function?.arguments||'');total+=5;}total+=4;}return total;}
@@ -1262,6 +1400,41 @@ function updateContextMeter(){
   const tok=estimateConvTokens();
   label.textContent=tok<1000?Math.round(tok)+' tok':(tok/1000).toFixed(1)+'k tok';
 }
+
+/* ═══════════════ TEXT LOOP DETECTION ═══════════════ */
+const textLoopBuffer = [];
+const TEXT_LOOP_WINDOW = 4;     /* compare last N assistant messages */
+const TEXT_LOOP_THRESHOLD = 0.7; /* 70% word overlap = loop */
+
+function wordSet(text) {
+  return new Set(text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(Boolean));
+}
+
+function jaccard(a, b) {
+  if (!a.size || !b.size) return 0;
+  let inter = 0;
+  for (const w of a) if (b.has(w)) inter++;
+  return inter / (a.size + b.size - inter);
+}
+
+function checkTextLoop(newText) {
+  if (!newText || newText.length < 30) return false;
+  const words = wordSet(newText);
+  textLoopBuffer.push(words);
+  if (textLoopBuffer.length > TEXT_LOOP_WINDOW) textLoopBuffer.shift();
+  if (textLoopBuffer.length < TEXT_LOOP_WINDOW) return false;
+
+  /* Compare each pair in the window — if most pairs are highly similar, it's a loop */
+  let similarPairs = 0;
+  const totalPairs = textLoopBuffer.length * (textLoopBuffer.length - 1) / 2;
+  for (let i = 0; i < textLoopBuffer.length; i++) {
+    for (let j = i + 1; j < textLoopBuffer.length; j++) {
+      if (jaccard(textLoopBuffer[i], textLoopBuffer[j]) >= TEXT_LOOP_THRESHOLD) similarPairs++;
+    }
+  }
+  return (similarPairs / totalPairs) >= 0.6; /* 60% of all pairs are similar */
+}
+
 /* ═══════════════ VISION / IMAGES ═══════════════ */
 const VISION_PATTERNS = /(?:vision|vl[/-]|vlm|visual|see|sight|llava|pixtral|qwen.*vl|gemma-4*|qwen3.5*|molmo|emu3|cogvlm|idefics|internvl|kosmos|florence|sharegpt4v|phi-3.*vision|minicpm.*v|glm-4v|gemini|gpt-4[.-]?o|o1|o3|o4-mini)/i;
 
@@ -2317,13 +2490,34 @@ Start the companion for real shell access, git, and web search.`;
     })();
 
     /* Search section */
-    const searchSection=state.compConnected
-      ?`**web_search** searches DuckDuckGo. Returns titles, URLs, and snippets.
+    const searchSection=(function(){
+      if(!state.compConnected){
+        return`**web_search** searches DuckDuckGo. Returns titles, URLs, and snippets.
+- Set fetch_top=1 to auto-fetch and read the full content of the #1 result. Use fetch_top=2 for top 2.
+- This is essential for: API documentation, library usage, error message lookups, current best practices
+- **fetch_url** retrieves any URL's content (cleaned text by default, or raw HTML with mode="raw")`;
+      }
+      let text=`**web_search** searches DuckDuckGo. Returns titles, URLs, and snippets.
 - Set fetch_top=1 to auto-fetch and read the full content of the #1 result. Use fetch_top=2 for top 2.
 - This is essential for: API documentation, library usage, error message lookups, current best practices
 - **fetch_url** retrieves any URL's content (cleaned text by default, or raw HTML with mode="raw")
-- Search results are cached for 5 minutes — repeated queries are instant`
-      :'Web search requires the companion server. Not available.';
+
+**⚠️ CRITICAL — JavaScript-rendered sites:**
+fetch_url uses urllib which CANNOT execute JavaScript. Many modern sites (news sites like yle.news/hs.fi/iltalehti.fi, SPAs, React/Next.js apps) return an empty HTML skeleton with <script> tags but no actual content.
+- If fetch_url returns a message about "JavaScript-rendered" → DO NOT retry fetch_url on that domain
+- Instead use: web_search with query "site:domain.com <topic>" fetch_top=1-2
+- DuckDuckGo's crawler runs JavaScript when indexing, so search results contain the real content
+- This is NOT a cookie wall or blocking issue — it's a fundamental limitation of non-browser HTTP clients
+
+**When to use which:**
+- Static docs (MDN, Python docs, GitHub README, Wikipedia) → fetch_url works perfectly
+- News sites, modern web apps, SPAs → web_search with site: filter is the ONLY way to get content
+- Unknown site → try fetch_url first. If it returns JS-rendered warning, switch to web_search
+- API endpoints returning JSON → fetch_url with mode="raw" works fine
+
+**fetch_url** also handles errors gracefully: HTTP errors return the error page content, timeouts return an error message.`;
+      return text;
+    })();
 
     /* Git section */
     const gitSection=state.compConnected
@@ -2341,11 +2535,16 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 - You get a soft warning at iteration 12 and compact at iteration 20 — prioritize finishing critical work
 - You are NEVER truly "stuck" — even after compaction, the progress file preserves all context`;
 
+    const now=new Date();
+    const isoStr=now.toISOString().slice(0,10);
+    const dateStr=new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
     const sysPrompt=(document.getElementById('s-sys-prompt').value||DEFAULT_SYS)
+      .replace('{{CURRENT_DATE}}',dateStr)
       .replace('{{CAPABILITY_CHECKLIST}}',capabilityChecklist)
       .replace('{{VISION_SECTION}}',visionSection)
       .replace('{{SHELL_SECTION}}',shellSection)
       .replace('{{SEARCH_SECTION}}',searchSection)
+      .replace('{{REFERENCE_SECTION}}',buildReferenceSection())
       .replace('{{GIT_SECTION}}',gitSection)
       .replace('{{CONTEXT_SECTION}}',ctxSection)
       .replace('{{WORKING_DIR}}',state.dirName||'(none)')
@@ -2355,6 +2554,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         const plat=state.compInfo?.platform||'unknown';
         const shell=state.compInfo?.shell||'unknown';
         const isWin=plat==='Windows';
+        console.log('Resolved prompt starts with:', sysPrompt.slice(0, 200));
         const cmdHint=isWin
           ?'IMPORTANT: You are on Windows. Use Windows/PowerShell commands (dir, type, findstr, del, move, copy, where, cd, cls). Avoid Unix commands (ls, cat, grep, rm, cp, mv) when calling execute_command — they will fail. Git bash is available so Unix flags may work with git.'
           :'You are on '+plat+'. Standard Unix commands work in execute_command.';
@@ -2622,6 +2822,7 @@ async function agentLoop(){
   const SOFT_WARN=12,COMPACT_AT=20,HARD_STOP=35;
   const sessionChanges={modified:new Set(),created:new Set(),deleted:new Set(),moved:[]};
   toolCallHistory.length=0;
+  textLoopBuffer.length=0;
 
   while(state.running){
     const ctxPct=getContextPct();
@@ -2646,7 +2847,19 @@ async function agentLoop(){
     if(th&&th.parentNode)th.remove();
     const am={role:'assistant',content:cur||null};if(tcs.length)am.tool_calls=tcs;state.messages.push(am);updateContextMeter();
     for(const[,el]of liveThinkEls)finalizeLiveThinkBlock(el);liveThinkEls.clear();
-    if(!tcs.length){finalizeStreamingMsg(cur);break;}
+    if(!tcs.length)if(!tcs.length){
+      /* ── Text loop detection ── */
+      if(checkTextLoop(cur)){
+        const wEl=document.createElement('div');wEl.className='health-warning';
+        wEl.innerHTML='<i class="fas fa-triangle-exclamation"></i><span>Agent stuck in a text loop — repeating similar responses. Intervening...</span>';
+        $msg().appendChild(wEl);scrollBottom();
+        state.messages.push({role:'user',content:'[SYSTEM: Your last '+TEXT_LOOP_WINDOW+' responses were highly repetitive — you are looping. Stop. Either take a DIFFERENT action (use a tool, try a new approach) or clearly tell the user what you are stuck on and ask for guidance. Do NOT repeat what you just said.]'});
+        textLoopBuffer.length = 0;
+        /* Don't break — let it try to recover, but if it loops again the iteration limit will stop it */
+        continue;
+      }
+      finalizeStreamingMsg(cur);break;
+    }
     if(cur)finalizeStreamingMsg(cur);
     const thinkTcs=tcs.filter(tc=>tc.function.name==='think');
     const nonThinkTcs=tcs.filter(tc=>tc.function.name!=='think');
@@ -2683,7 +2896,7 @@ async function agentLoop(){
 
       if(toolCallHistory.length>=3){const r=toolCallHistory.slice(-3);if(r[0].sig===r[1].sig&&r[1].sig===r[2].sig&&!r[0].success&&!r[1].success&&!r[2].success){
         const wEl=document.createElement('div');wEl.className='health-warning';wEl.innerHTML='<i class="fas fa-triangle-exclamation"></i><span>Agent stuck in a loop — same tool call failed 3 times. Intervening...</span>';$msg().appendChild(wEl);scrollBottom();
-        state.messages.push({role:'user',content:'[SYSTEM: Your last 3 tool calls were identical and all failed: "'+r[0].sig+'". Stop repeating this. Try a fundamentally different approach or ask the user for help.]'});
+        state.messages.push({role:'user',content:'[SYSTEM: Your last 3 tool calls were identical and all failed: "'+r[0].sig+'". Stop repeating this. BEFORE trying again, use web_search to look up the error or problem. Research the solution, then try a different approach. If search doesn\'t help, ask the user.]'});
         state.messages.push({role:'assistant',content:'Understood. I was stuck in a failure loop. Let me try a completely different approach.'});toolCallHistory.length=0;
       }}
 
@@ -3021,6 +3234,34 @@ function updateWelcomeStatus(){
   el.innerHTML=parts.join(' &nbsp;·&nbsp; ');
 }
 
+function renderReferenceSites(){
+  const el = document.createElement('div');
+  el.className = 'sb-section';
+  el.innerHTML = '<div class="sb-title">Reference Sites</div>';
+  const list = document.createElement('div');
+  list.style.cssText = 'display:flex;flex-direction:column;gap:1px;max-height:180px;overflow-y:auto;';
+  for(const cat of REFERENCE_SITES){
+    for(const s of cat.sites.slice(0, 6)){ /* limit to prevent overflow */
+      const item = document.createElement('div');
+      item.className = 'ft-item';
+      item.style.cursor = 'pointer';
+      item.title = s.use;
+      item.innerHTML = `<span class="dot default" style="background:${s.fetch ? 'var(--green)' : s.search ? 'var(--cyan)' : 'var(--tx-4)'}"></span>${s.name}`;
+      item.onclick = () => {
+        if(s.search){
+          const q = prompt(`Search ${s.name} for:`);
+          if(q) window.open(s.url + encodeURIComponent(q), '_blank');
+        } else {
+          window.open(s.url, '_blank');
+        }
+      };
+      list.appendChild(item);
+    }
+  }
+  el.appendChild(list);
+  document.getElementById('tools-list').parentNode.appendChild(el);
+}
+
 /* ═══════════════ FILE TREE ═══════════════ */
 function getDotCls(n){const e=n.split('.').pop().toLowerCase();return{js:'js',jsx:'js',ts:'ts',tsx:'ts',py:'py',html:'html',htm:'html',css:'css',scss:'css',json:'json',md:'md',png:'img',jpg:'img',gif:'img',svg:'img',webp:'img',rs:'rs',go:'go',toml:'json',lock:'json',yaml:'json',yml:'json'}[e]||'default';}
 
@@ -3253,6 +3494,20 @@ function openSettings(){
   document.getElementById('s-auto-compact').value=state.autoCompactPct;document.getElementById('s-verify-writes').checked=state.verifyWrites;
   document.getElementById('s-max-iters').value = state.maxIters;
   if(!document.getElementById('s-sys-prompt').value)document.getElementById('s-sys-prompt').value=DEFAULT_SYS;
+  
+  // Add preview of resolved prompt
+  let preview = document.getElementById('sys-prompt-preview');
+  if(!preview){
+    preview = document.createElement('div');
+    preview.id = 'sys-prompt-preview';
+    preview.style.cssText = 'font-size:10px;color:var(--tx-4);font-family:JetBrains Mono,monospace;max-height:80px;overflow-y:auto;margin-top:4px;padding:6px;background:var(--bg-3);border-radius:5px;border:1px solid var(--border);white-space:pre-wrap;word-break:break-word;line-height:1.4';
+    const textarea = document.getElementById('s-sys-prompt');
+    textarea.parentNode.insertBefore(preview, textarea.nextSibling);
+  }
+  const dateStr = new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
+  const resolved = document.getElementById('s-sys-prompt').value.replace('{{CURRENT_DATE}}', dateStr);
+  preview.textContent = 'Preview (first 500 chars): ' + resolved.slice(0, 500) + (resolved.length > 500 ? '...' : '');
+  
   document.getElementById('settings-modal').classList.add('open');
 }
 function closeSettings(){document.getElementById('settings-modal').classList.remove('open');}
@@ -3499,7 +3754,7 @@ function init(){
     const c=state.conversations.find(c=>c.id===state.activeConvId);
     if(c&&c.messages&&c.messages.length){state.messages=c.messages;switchToChat();replayMessages(state.messages);updateContextMeter();}
   }
-  renderConvList();renderToolList();setupFileDrop();setupScrollDetection();
+  renderConvList();renderToolList();renderReferenceSites();setupFileDrop();setupScrollDetection();
     document.addEventListener('paste',async e=>{
     if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName))return;
     const items=[...(e.clipboardData?.items||[])];
