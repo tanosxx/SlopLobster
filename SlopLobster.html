@@ -73,6 +73,8 @@ aside.collapsed{width:0;border-right:none;overflow:hidden}
 .ft-item{display:flex;align-items:center;gap:5px;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px;color:var(--tx-3);font-family:'JetBrains Mono',monospace;transition:.1s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ft-item:hover{background:var(--bg-3);color:var(--tx-0)}
 .ft-item .dot{width:4px;height:4px;border-radius:50%;flex-shrink:0}
+.ft-item .dot.rs { background: #dea64a; }
+.ft-item .dot.go { background: #00add8; }
 .ft-item .dot.dir{background:var(--accent)}.ft-item .dot.js{background:#f7df1e}.ft-item .dot.ts{background:#3178c6}.ft-item .dot.py{background:#3776ab}.ft-item .dot.html{background:#e34f26}.ft-item .dot.css{background:#1572b6}.ft-item .dot.json{background:#a1a1aa}.ft-item .dot.md{background:#519aba}.ft-item .dot.img{background:#a855f7}.ft-item .dot.default{background:var(--tx-4)}
 .tools-list{display:flex;flex-direction:column;gap:1px}
 .tool-tag{display:flex;align-items:center;gap:5px;padding:2px 6px;border-radius:3px;font-size:10px;color:var(--tx-4);font-family:'JetBrains Mono',monospace}
@@ -376,12 +378,90 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative
 .scroll-lock-btn.following{color:var(--accent);border-color:rgba(232,160,35,.2);background:rgba(232,160,35,.06)}
 .scroll-lock-btn.paused{color:var(--red);border-color:rgba(239,68,68,.2);background:rgba(239,68,68,.06)}
 .tool-result-line{white-space:pre-wrap;word-break:break-all}
+.right-panel{width:400px;flex-shrink:0;background:var(--bg-1);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;transition:width .25s ease,border-color .25s ease}
+.right-panel.collapsed{width:0;border-left-color:transparent;overflow:hidden}
+.rp-tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg-0)}
+.rp-tab{flex:1;padding:7px 4px;background:none;border:none;border-bottom:2px solid transparent;color:var(--tx-4);font-size:10px;font-family:'Space Grotesk',sans-serif;cursor:pointer;transition:.15s;display:flex;align-items:center;justify-content:center;gap:4px;position:relative;white-space:nowrap}
+.rp-tab i{font-size:10px}
+.rp-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.rp-tab:hover:not(.active){color:var(--tx-1);background:var(--bg-2)}
+.rp-tab-badge{background:var(--accent);color:var(--bg-0);font-size:8px;font-weight:700;padding:0 5px;border-radius:8px;line-height:16px;font-family:'JetBrains Mono',monospace}
+.rp-content{flex:1;overflow:hidden;position:relative}
+.rp-pane{position:absolute;inset:0;overflow-y:auto;display:none}
+.rp-pane.active{display:flex;flex-direction:column}
+.rp-empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--tx-4);font-size:11px;padding:40px 20px}
+.rp-empty-state i{font-size:24px;opacity:.4}
+.rp-empty-state span{text-align:center;line-height:1.5}
+
+.rp-file-header{display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid var(--border);background:var(--bg-0);flex-shrink:0}
+.rp-file-name{font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--tx-0);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.rp-file-meta{font-size:9px;color:var(--tx-4);font-family:'JetBrains Mono',monospace;white-space:nowrap}
+.rp-file-actions{display:flex;gap:2px}
+.rp-file-act{background:none;border:1px solid transparent;color:var(--tx-4);cursor:pointer;font-size:10px;padding:3px 6px;border-radius:4px;transition:.12s;display:flex;align-items:center;gap:3px}
+.rp-file-act:hover{color:var(--tx-0);background:var(--bg-3);border-color:var(--border)}
+.rp-file-code{flex:1;overflow:auto;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.6}
+.rp-file-line{display:flex;min-height:1.6em;transition:background .1s}
+.rp-file-line:hover{background:var(--bg-3)}
+.rp-file-line.highlight{background:rgba(232,160,35,.08);border-left:2px solid var(--accent)}
+.rp-file-line-num{width:48px;flex-shrink:0;text-align:right;padding-right:12px;color:var(--tx-4);user-select:none;font-size:10px;line-height:1.6;cursor:pointer}
+.rp-file-line-num:hover{color:var(--tx-2)}
+.rp-file-line-text{flex:1;white-space:pre;color:var(--tx-1);padding-right:12px}
+.rp-file-image{flex:1;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--bg-0)}
+.rp-file-image img{max-width:100%;max-height:100%;border-radius:6px;border:1px solid var(--border);object-fit:contain;cursor:pointer}
+.rp-file-truncated{padding:8px 12px;font-size:10px;color:var(--yellow);font-family:'JetBrains Mono',monospace;background:rgba(234,179,8,.05);border-top:1px solid var(--border);flex-shrink:0}
+
+.rp-term-entry{border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:10px}
+.rp-term-header{display:flex;align-items:center;gap:6px;padding:5px 10px;background:var(--bg-0);border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s}
+.rp-term-header:hover{background:var(--bg-2)}
+.rp-term-cmd-icon{color:var(--teal);font-size:9px}
+.rp-term-cmd{flex:1;color:var(--tx-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rp-term-meta{font-size:9px;color:var(--tx-4);display:flex;gap:8px;align-items:center}
+.rp-term-exit{padding:0 4px;border-radius:3px;font-weight:600}
+.rp-term-exit.ok{background:rgba(34,197,94,.1);color:var(--green)}
+.rp-term-exit.err{background:rgba(239,68,68,.1);color:var(--red)}
+.rp-term-exit.running{background:rgba(234,179,8,.1);color:var(--yellow);animation:pulse 1s infinite}
+.rp-term-output{padding:8px 10px;color:var(--tx-2);white-space:pre-wrap;word-break:break-word;line-height:1.45;max-height:300px;overflow-y:auto}
+.rp-term-output.collapsed{display:none}
+.rp-term-chevron{font-size:8px;color:var(--tx-4);transition:transform .2s;width:10px;text-align:center;flex-shrink:0}
+.rp-term-chevron.collapsed{transform:rotate(-90deg)}
+.rp-term-clear{background:none;border:1px solid var(--border);color:var(--tx-4);cursor:pointer;font-size:9px;padding:2px 8px;border-radius:4px;font-family:'JetBrains Mono',monospace;transition:.12s;margin-left:auto}
+.rp-term-clear:hover{color:var(--tx-0);background:var(--bg-3);border-color:var(--border-l)}
+.rp-changes-header{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg-0)}
+.rp-changes-title{font-size:11px;font-weight:600;color:var(--tx-1)}
+.rp-changes-stats{font-size:9px;color:var(--tx-4);font-family:'JetBrains Mono',monospace;display:flex;gap:8px}
+.rp-change-item{display:flex;align-items:center;gap:6px;padding:6px 12px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s}
+.rp-change-item:hover{background:var(--bg-3)}
+.rp-change-op{font-size:8px;padding:1px 5px;border-radius:3px;font-weight:700;font-family:'JetBrains Mono',monospace;flex-shrink:0;width:14px;text-align:center}
+.rp-change-op.modified{background:rgba(234,179,8,.1);color:var(--yellow)}
+.rp-change-op.created{background:rgba(34,197,94,.1);color:var(--green)}
+.rp-change-op.deleted{background:rgba(239,68,68,.1);color:var(--red)}
+.rp-change-op.moved{background:rgba(34,211,238,.1);color:var(--cyan)}
+.rp-change-path{font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--tx-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.rp-change-stat{font-size:9px;color:var(--tx-4);font-family:'JetBrains Mono',monospace;white-space:nowrap}
+.rp-change-diff{padding:0 12px 8px 28px;max-height:200px;overflow-y:auto;display:none}
+.rp-change-diff.open{display:block}
+.diff-line{font-size:10px;font-family:'JetBrains Mono',monospace;line-height:1.5;padding:0 6px;white-space:pre}
+.rp-git-branch{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border);background:var(--bg-0)}
+.rp-git-branch-icon{color:var(--accent);font-size:12px}
+.rp-git-branch-name{font-size:12px;font-weight:600;color:var(--tx-0);font-family:'JetBrains Mono',monospace}
+.rp-git-actions{display:flex;gap:4px;padding:8px 12px;border-bottom:1px solid var(--border);flex-shrink:0}
+.rp-git-btn{padding:4px 10px;border-radius:5px;border:1px solid var(--border);background:var(--bg-2);color:var(--tx-2);font-size:10px;cursor:pointer;font-family:'JetBrains Mono',monospace;transition:.12s;display:flex;align-items:center;gap:4px}
+.rp-git-btn:hover{background:var(--bg-3);color:var(--tx-0);border-color:var(--border-l)}
+.rp-git-status{font-family:'JetBrains Mono',monospace;font-size:10px}
+.rp-git-status-file{display:flex;align-items:center;gap:6px;padding:4px 12px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s}
+.rp-git-status-file:hover{background:var(--bg-3)}
+.rp-git-status-code{width:16px;font-size:10px;font-weight:700;text-align:center}
+.rp-git-status-code.M{color:var(--yellow)}.rp-git-status-code.A{color:var(--green)}.rp-git-status-code.D{color:var(--red)}.rp-git-status-code.R{color:var(--cyan)}.rp-git-status-code\?{color:var(--tx-4)}
+.rp-git-status-path{flex:1;color:var(--tx-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+@media(max-width:1100px){.right-panel:not(.collapsed){position:fixed;right:0;top:44px;bottom:0;z-index:30;box-shadow:-8px 0 32px rgba(0,0,0,.4)}}
 </style>
 </head>
 <body>
 <div class="app">
   <header>
     <button class="hdr-btn" onclick="toggleSidebar()" title="Toggle sidebar (Ctrl+B)"><i class="fas fa-bars"></i></button>
+    <button class="hdr-btn" id="rp-toggle-btn" onclick="toggleRightPanel()" title="Toggle right panel"><i class="fas fa-columns"></i></button>
     <div class="logo">
         <svg class="logo-icon" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
             <defs>
@@ -479,6 +559,31 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative
       <div id="messages" style="display:none"></div>
       <button id="scroll-bottom-btn" onclick="scrollToBottomForce()" title="Scroll to bottom"><i class="fas fa-arrow-down"></i></button>
     </main>
+    <aside id="right-panel" class="right-panel">
+      <div class="rp-tabs">
+        <button class="rp-tab active" data-tab="files" onclick="switchRpTab('files')"><i class="fas fa-file-code"></i> Files</button>
+        <button class="rp-tab" data-tab="changes" onclick="switchRpTab('changes')"><i class="fas fa-code-compare"></i> Changes <span class="rp-tab-badge" id="rp-changes-badge" style="display:none">0</span></button>
+        <button class="rp-tab" data-tab="term" onclick="switchRpTab('term')"><i class="fas fa-terminal"></i> Term</button>
+        <button class="rp-tab" data-tab="git" onclick="switchRpTab('git')"><i class="fas fa-code-branch"></i> Git</button>
+      </div>
+      <div class="rp-content">
+        <div class="rp-pane active" id="rp-files">
+          <div class="rp-empty-state" id="rp-files-empty"><i class="fas fa-file-code"></i><span>Click a file in the sidebar to preview</span></div>
+          <div id="rp-file-preview" style="display:none"></div>
+        </div>
+        <div class="rp-pane" id="rp-changes">
+          <div class="rp-empty-state" id="rp-changes-empty"><i class="fas fa-code-compare"></i><span>No file changes yet</span></div>
+          <div id="rp-changes-list"></div>
+        </div>
+        <div class="rp-pane" id="rp-term">
+          <div class="rp-empty-state" id="rp-term-empty"><i class="fas fa-terminal"></i><span>Command output will appear here</span></div>
+          <div id="rp-term-entries"></div>
+        </div>
+        <div class="rp-pane" id="rp-git">
+          <div id="rp-git-content"><div class="rp-empty-state"><i class="fas fa-code-branch"></i><span>Open the Git tab to see status</span></div></div>
+        </div>
+      </div>
+    </aside>
   </div>
   <div class="input-area" id="input-area">
     <div class="file-drop-overlay" id="file-drop-overlay">
@@ -742,7 +847,7 @@ class TextExtractor(HTMLParser):
         self._blanks = 0
 
     def _in_link(self):
-        return bool(self._href_stack)
+        return bool(self._href_stack) and self._href_stack[-1] is not None
 
     def _emit(self, t):
         if not t: return
@@ -904,8 +1009,9 @@ def fetch_url_content(url, mode="text", max_bytes=500000):
         return content
 
 
+import html
 def clean_html(s):
-    return re.sub(r'<[^>]+>', '', s).replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&quot;', '"').replace('&#39;', "'").strip()
+    return html.unescape(re.sub(r'<[^>]+>', '', s)).strip()
 
 
 def search_ddg(query, num=8):
@@ -1061,7 +1167,7 @@ def stream_cmd(write_fn, cmd, cwd=None, timeout=DEFAULT_TIMEOUT):
         if len(full) > MAX_OUTPUT: 
             # Fixed: use \\n for actual newlines instead of literal \\n text
             full = full[:MAX_OUTPUT] + f"\\n[Truncated at {MAX_OUTPUT}]"
-        write_fn('d', str(returncode))
+        write_fn('d', str(int(returncode)))
         
     return full, returncode
 
@@ -1251,7 +1357,6 @@ let inputDraft = '';
 const toolCallHistory = [];
 let fileTreeRefreshTimer = null;
 function debouncedFileTreeRefresh(){clearTimeout(fileTreeRefreshTimer);fileTreeRefreshTimer=setTimeout(()=>refreshFileTree(),300);}
-
 const DEFAULT_SYS = `You are SlopLobster, a local AI coding agent with direct filesystem access, shell execution, web search, and optional image understanding.
 
 ═══ CURRENT DATE ═══
@@ -1262,6 +1367,7 @@ Today is {{CURRENT_DATE}}. Use this for all time references.
 Read this section to know what is available RIGHT NOW:
 
 {{CAPABILITY_CHECKLIST}}
+{{CAPABILITY_NOTE}}
 
 ═══ IMAGE UNDERSTANDING ═══
 
@@ -1283,6 +1389,7 @@ edit_file uses search/replace blocks. Rules:
 
 DO NOT read entire files unless the file is small (<100 lines) or you genuinely need all of it.
 
+- Image files (marked [IMAGE] in list_directory) — read them with read_file, NOT read_file_lines. You will see the actual image visually.
 - Use read_file_lines with start_line and end_line to read specific sections
 - Use grep to find where something is defined before reading around it
 - Use list_directory and search_files to understand structure before reading anything
@@ -1499,8 +1606,20 @@ const textLoopBuffer = [];
 const TEXT_LOOP_WINDOW = 4;     /* compare last N assistant messages */
 const TEXT_LOOP_THRESHOLD = 0.7; /* 70% word overlap = loop */
 
+/*
 function wordSet(text) {
   return new Set(text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(Boolean));
+}
+*/
+
+function textFingerprint(text) {
+  // Use n-grams of tokens (words + operators) for better discrimination
+  const tokens = text.match(/[\w]+|[{}()\[\];,.<>!?+\-*/=&|]/g) || [];
+  const bigrams = new Set();
+  for (let i = 0; i < tokens.length - 1; i++) {
+    bigrams.add(tokens[i].toLowerCase() + ' ' + tokens[i + 1].toLowerCase());
+  }
+  return bigrams;
 }
 
 function jaccard(a, b) {
@@ -1511,8 +1630,8 @@ function jaccard(a, b) {
 }
 
 function checkTextLoop(newText) {
-  if (!newText || newText.length < 30) return false;
-  const words = wordSet(newText);
+  if (!newText || newText.length < 10) return false;
+  const words = textFingerprint(newText);
   textLoopBuffer.push(words);
   if (textLoopBuffer.length > TEXT_LOOP_WINDOW) textLoopBuffer.shift();
   if (textLoopBuffer.length < TEXT_LOOP_WINDOW) return false;
@@ -1842,7 +1961,7 @@ function addImageAttachmentsToInputArea() {
 function getToolDefs(){
   const tools = [
     {type:'function',function:{name:'think',description:'Think through a problem step by step before acting. Visible to user.',parameters:{type:'object',properties:{thought:{type:'string',description:'Your reasoning and plan'}},required:['thought']}}},
-    {type:'function',function:{name:'read_file',description:'Read a file. For text files, returns content. For image files (PNG, JPG, GIF, SVG, WebP), the image is sent to you so you can see it. Prefer read_file_lines for large text files.',parameters:{type:'object',properties:{path:{type:'string',description:'Relative path to file or image'}},required:['path']}}},
+    {type:'function',function:{name:'read_file',description: 'Read a file. For raster image files (PNG, JPG, GIF, WebP, BMP, ICO marked [IMAGE] in list_directory), the image is sent to you visually. SVG files are XML text — read them normally, you will see the markup.',parameters:{type:'object',properties:{path:{type:'string',description:'Relative path to file or image'}},required:['path']}}},
     {type:'function',function:{name:'read_file_lines',description:'Read specific line ranges from a file. Much more efficient than reading entire files.',parameters:{type:'object',properties:{path:{type:'string',description:'Relative path'},start_line:{type:'number',description:'1-based start line (default: 1)'},end_line:{type:'number',description:'1-based end line (default: end of file)'}},required:['path']}}},
     {type:'function',function:{name:'edit_file',description:'CRITICAL: Use this to modify existing files. Provide search/replace blocks. More reliable and token-efficient than write_file.',parameters:{type:'object',properties:{path:{type:'string',description:'Relative path'},edits:{type:'array',items:{type:'object',properties:{old_text:{type:'string',description:'Exact text to find (must be unique in file)'},new_text:{type:'string',description:'Replacement text'}},required:['old_text','new_text']},description:'Array of search/replace edits to apply sequentially'}},required:['path','edits']}}},
     {type:'function',function:{name:'write_file',description:'Create a new file or completely overwrite. Only use for NEW files — prefer edit_file for existing files.',parameters:{type:'object',properties:{path:{type:'string',description:'Relative path'},content:{type:'string',description:'Full file content'}},required:['path','content']}}},
@@ -1880,6 +1999,125 @@ function renderToolList(){
   }).join('');
 }
 
+
+async function retrySingleTool(panel){
+  if(state.running)return;
+
+  const toolCallId=panel.el._toolCallId;
+  if(!toolCallId){
+    /* Fallback: this panel was replayed before the _toolCallId fix was added.
+       Cannot safely retry without knowing which tool_call_id to match. */
+    showToast('Cannot retry — tool call ID not available (old conversation)','warn');
+    return;
+  }
+
+  /* Find the original tool result in message history */
+  const toolResultIdx=state.messages.findIndex(m=>m.role==='tool'&&m.tool_call_id===toolCallId);
+  if(toolResultIdx<0){
+    showToast('Cannot retry — tool result not found in history','warn');
+    return;
+  }
+
+  /* Truncate everything after the tool result so the LLM re-evaluates from here */
+  state.messages=state.messages.slice(0,toolResultIdx+1);
+
+  /* Remove all DOM after this panel */
+  const panelEl=panel.el;
+  while($msg().lastChild&&$msg().lastChild!==panelEl){
+    $msg().removeChild($msg().lastChild);
+  }
+
+  /* Clear previous result from the panel UI */
+  const resEl=panelEl.querySelector('.tool-result');
+  if(resEl){
+    resEl.textContent='';
+    resEl.className='tool-result';
+    resEl.style.background='';
+    resEl.style.animation='';
+  }
+  updateToolStatus(panel,'run');
+  panel.el._resultText='';
+
+  /* Remove any stale retry/error buttons */
+  const retryBtn=panelEl.querySelector('.tool-retry-btn');
+  if(retryBtn)retryBtn.remove();
+
+  /* Re-execute the tool */
+  const name=panel.el._toolName;
+  const argsStr=panel.el._toolArgs;
+  const signal=new AbortController();
+  let result;
+  try{
+    result=await executeTool(name,argsStr,signal.signal,panel);
+    updateToolStatus(panel,'ok');
+  }catch(e){
+    if(signal.signal.aborted){
+      updateToolStatus(panel,'err');
+      updateToolResult(panel,'Cancelled by user.');
+      return;
+    }
+    result={output:'Error: '+e.message};
+    updateToolStatus(panel,'err');
+  }
+
+  const outText=typeof result==='string'?result:(result?.output||'');
+  const diff=(typeof result==='object'&&result&&result.diff)||null;
+  const searchData=(typeof result==='object'&&result&&result._searchData)||null;
+
+  /* Update the tool result message in-place (same tool_call_id, so API stays happy) */
+  state.messages[toolResultIdx].content=outText;
+  state.messages[toolResultIdx]._diff=diff;
+  state.messages[toolResultIdx]._searchData=searchData;
+
+  /* Handle image results from file reads */
+  if(typeof result==='object'&&result){
+    if(result._screenshotDataUrl){
+      panel.el._screenshotDataUrl=result._screenshotDataUrl;
+      panel.el._imagePath='screenshot';
+      panel.el._imageReason=result._screenshotReason||'agent requested';
+      panel.el._imageType='screenshot';
+    }else if(result._imageDataUrl){
+      panel.el._imageDataUrl=result._imageDataUrl;
+      panel.el._imagePath=result._imagePath||'unknown';
+      panel.el._imageReason=result._imageReason||'file read';
+      panel.el._imageType='file';
+    }
+  }
+
+  updateToolResult(panel,outText);
+  if(diff)showDiffPanel(diff);
+  if(searchData)showSearchPanel(searchData);
+
+  /* Render image preview if this tool returned one */
+  if(panel.el._imageDataUrl&&!panel.el.querySelector('.screenshot-preview')){
+    panel.el.classList.add('screenshot-tool');
+    const preview=document.createElement('div');
+    preview.className='screenshot-preview';
+    const imgPath=panel.el._imagePath||'image';
+    const label=panel.el._imageType==='file'
+      ?'<div style="font-size:10px;color:var(--tx-3);margin-bottom:4px;font-family:\'JetBrains Mono\',monospace"><i class="fas fa-image" style="color:var(--accent)"></i> '+esc(imgPath)+'</div>'
+      :'';
+    const imgUrl=panel.el._screenshotDataUrl||panel.el._imageDataUrl;
+    preview.innerHTML=label+'<img src="'+imgUrl+'" onclick="openImgViewer(this.src)" alt="'+esc(imgPath)+'">';
+    panel.el.appendChild(preview);
+
+    /* Inject as a user-adjacent image message so the LLM sees it */
+    state.messages.push({
+      role:'user',
+      content:'['+(panel.el._imageType||'screenshot')+': '+(panel.el._imageReason||'retry')+' — '+imgPath+']',
+      _images:[{type:'image_url',image_url:{url:imgUrl}}],
+      _isAgentImage:true,
+      _imageType:panel.el._imageType
+    });
+  }
+
+  saveCurrentConv();
+
+  /* Continue the agent loop — it will pick up from the updated tool result */
+  streamEl=null;
+  agentLoop();
+}
+
 /* ═══════════════ FILE SYSTEM ═══════════════ */
 const SKIP=new Set(['node_modules','.git','.svn','__pycache__','.venv','venv','.next','.nuxt','dist','build','.cache','.parcel-cache','coverage','.tox','.DS_Store','Thumbs.db','.mypy_cache','.pytest_cache','.turbo','SlopLobster-companion.py','.hg']);
 const MAX_CACHE_BYTES=50*1024*1024;
@@ -1904,7 +2142,7 @@ async function readFileSafe(rel){
   const f=await h.getFile();
 
   /* ── Image files: return base64 for vision ── */
-  if(f.type&&f.type.startsWith('image/')){
+  if(f.type&&f.type.startsWith('image/')&&!f.type.includes('svg')){
     const maxB=10*1024*1024;
     if(f.size>maxB)return{output:`Image: ${rel}\nType: ${f.type}\nSize: ${(f.size/1024/1024).toFixed(1)} MB\n⚠ Too large to view (max 10 MB). You can try execute_command with a tool like "identify" or "file" to get metadata.`};
     try{
@@ -1926,10 +2164,13 @@ async function readFileLinesSafe(rel, startLine, endLine){
   const f=await h.getFile();
 
   /* Images can't show line ranges */
-  if(f.type&&f.type.startsWith('image/')){
+  if(f.type&&f.type.startsWith('image/')&&!f.type.includes('svg')){
     return{output:`Image: ${rel}\nType: ${f.type}\n⚠ This is a binary image file — line ranges don't apply.\nUse read_file to view the image, or execute_command with a tool like "identify" or "file" for metadata.`};
   }
 
+  const buf = await f.slice(0, 8000).arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  if (bytes.some(b => b === 0)) return { output: 'Binary file — cannot read line ranges' };
   const text=await f.text();cacheSet(rel,text);
   const lines=text.split('\n');
   const s=Math.max(1,startLine||1)-1;
@@ -2100,6 +2341,7 @@ async function listDirSafe(rel,recursive){
         if(kh.kind==='file'){
           const f=await kh.getFile();
           if(f.type&&f.type.startsWith('image/'))suffix=' [IMAGE]';
+          if(f.type&&f.type.startsWith('image/')&&!f.type.includes('svg'))suffix=' [IMAGE]';
         }
       }catch{}
       entries.push((kh.kind==='directory'?'DIR ':'FILE ')+full+suffix);
@@ -2124,8 +2366,11 @@ async function grepSafe(pattern, searchPath, includeGlob, contextLines){
   const results=[];let fileCount=0;const MAX_FILES=50,MAX_MATCHES=200;
   async function searchFile(fileHandle,filePath){
     const f=await fileHandle.getFile();
-    if(f.type&&f.type.startsWith('image/'))return; /* Skip binary images */
+    if(f.type&&f.type.startsWith('image/')&&!f.type.includes('svg'))return;
     if(f.size>5*1024*1024)return;
+    const buf = await f.slice(0, 8000).arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    if (bytes.some(b => b === 0)) return 'Binary file — cannot search';
     const text=await f.text();
     if(!includeGlob||filePath.endsWith(includeGlob.replace(/^\*/,''))){
       const lines=text.split('\n');let matches=0;
@@ -2185,8 +2430,12 @@ async function execVirtual(rawCmd){
       case 'mkdir':{if(!args.length)return'Usage: mkdir <path>';for(const p of args){if(p==='-p')continue;const s=sanitizePath(p);let d=state.dirHandle;for(const seg of s)d=await d.getDirectoryHandle(seg,{create:true});}return'Directory created';}
       case 'touch':{if(!args.length)return'Usage: touch <file>';for(const p of args)await writeFileSafe(p,'');return'Created: '+args.join(', ');}
       case 'rm':return'rm is disabled in virtual shell for safety. Start companion for real shell access.';
-      case 'move_file':return { output: await moveFileSafe(args.source, args.destination) };
-      case 'delete_file':if (!args.path) return { output: 'Error: no path' };return { output: await deleteFileSafe(args.path, args.recursive) };
+      case 'move_file':
+         if (args.length < 2) return 'Usage: move_file <source> <dest>';
+         return await moveFileSafe(args[0], args[1]);  // already returns string
+      case 'delete_file':
+        if (!args[0]) return 'Error: no path';
+        return await deleteFileSafe(args[0], args.includes('-r') || args.includes('--recursive'));
       case 'tree':{let md=3;for(let i=0;i<args.length;i++){if(args[i]==='-L'&&args[i+1])md=Math.min(parseInt(args[++i])||3,8);}const tgt=args.find(a=>!a.startsWith('-')&&!/^\d+$/.test(a))||'';if(tgt)sanitizePath(tgt);const dh=tgt?await resolvePath(tgt):state.dirHandle;if(dh.kind!=='directory')return'"'+tgt+'" is not a directory';const lines=[];async function wt(h,pfx,d){if(d>md){lines.push(pfx+'...');return;}const es=[];for await(const[n,kh]of h.entries()){if(!SKIP.has(n))es.push({n,k:kh.kind,h:kh});}es.sort((a,b)=>a.k===b.k?a.n.localeCompare(b.n):a.k==='directory'?-1:1);for(let i=0;i<es.length;i++){const last=i===es.length-1;lines.push(pfx+(last?'└── ':'├── ')+es[i].n+(es[i].k==='directory'?'/':''));if(es[i].k==='directory')await wt(es[i].h,pfx+(last?'    ':'│   '),d+1);}}lines.push(tgt||'.');await wt(dh,'',0);return lines.join('\n');}
       case 'file':{if(!args.length)return'Usage: file <path>';sanitizePath(args[0]);const h=await resolvePath(args[0]);if(h.kind==='directory')return args[0]+': directory';const f=await h.getFile();return`${args[0]}: ${f.type||'application/octet-stream'} (${f.size} bytes)`;}
       case 'diff':{if(args.length<2)return'Usage: diff <f1> <f2>';sanitizePath(args[0]);sanitizePath(args[1]);const[h1,h2]=await Promise.all([resolvePath(args[0]),resolvePath(args[1])]);if(h1.kind!=='file')return'"'+args[0]+'" is not a file';if(h2.kind!=='file')return'"'+args[1]+'" is not a file';const[c1,c2]=await Promise.all([(await h1.getFile()).text(),(await h2.getFile()).text()]);const d=generateDiffFromStrings(c1,c2);return d.lines.map(l=>l.text).join('\n')||(d.lines.length?'':'Files are identical');}
@@ -2232,7 +2481,7 @@ async function execViaCompanion(command, explicitTimeout, externalSignal, onLine
     const data=await res.json();
     if(externalSignal?.aborted)return'[Cancelled by user]';
     let output=data.output||'(no output)';
-    if(data.exit_code!==0)output+='\n[exit code: '+data.exit_code+']';
+    if (data.exit_code != null && data.exit_code !== 0)output+='\n[exit code: '+data.exit_code+']';
     return output;
   }catch(e){
     if(externalSignal?.aborted)return'[Cancelled by user]';
@@ -2275,7 +2524,7 @@ async function readNdjsonStream(res,signal,onLine){
     try{const m=JSON.parse(buf);if(m.t==='d')exitCode=parseInt(m.d)||0;else{output+=m.d;onLine(m.d,m.t==='e');}}
     catch{output+=buf;onLine(buf,false);}
   }
-  if(exitCode!==0)output+='\n[exit code: '+exitCode+']';
+  if (exitCode != null && exitCode !== 0)output+='\n[exit code: '+exitCode+']';
   return output;
 }
 
@@ -2420,13 +2669,21 @@ async function executeTool(name, argsStr, signal, panel){
         const cmd=String(args.command||'').trim();
         if(!cmd)return{output:'Error: "command" is required for execute_command'};
         if(state.compConnected&&isDangerous(cmd)){
-          return new Promise(resolve=>{showShellConfirm(cmd,async ok=>{resolve(ok?{output:await execViaCompanion(cmd,args.timeout,signal)}:{output:'Command cancelled by user.'});});});
+          return new Promise(resolve=>{showShellConfirm(cmd,async ok=>{
+            if(ok)rpTermStart(cmd);
+            const r=ok?{output:await execViaCompanion(cmd,args.timeout,signal)}:{output:'Command cancelled by user.'};
+            if(ok)rpTermEnd(r.output);
+            resolve(r);
+          });});
         }
         if(state.compConnected){
+          rpTermStart(cmd);
           let streamedOutput='';
-          const onLine=panel?(text)=>{streamedOutput+=text;streamToolResult(panel,text);}:null;
-          const out=await execViaCompanion(cmd,args.timeout,signal,onLine);
-          result={output:onLine?streamedOutput:out};
+          const onLine=(text)=>{streamedOutput+=text;if(panel)streamToolResult(panel,text);rpTermAppend(text);};
+          const out = await execViaCompanion(cmd, args.timeout, signal, onLine);
+          const finalOutput = (typeof out === 'string' && out) ? out : streamedOutput;
+          rpTermEnd(finalOutput);
+          result = { output: finalOutput };
         }else{result={output:await execVirtual(cmd)};}
         break;
       }
@@ -2567,20 +2824,27 @@ async function streamChat(messages, onChunk, onToolCall, onThinkStream) {
 
   /* Capability checklist */
   const caps = [];
-  caps.push(state.visionCapable ? '✅ Image understanding (you can see images)' : '❌ No image understanding (text-only model)');
+  caps.push(state.visionCapable ? '✅ Image understanding — when you see [IMAGE] in list_directory output, call read_file on that path to see the actual image visually' : '❌ No image understanding (text-only model)');
   caps.push(state.dirHandle ? '✅ Filesystem access (' + state.dirName + ')' : '❌ No workspace open');
   caps.push(state.compConnected ? '✅ Full shell + git + web search via companion' : '⚠️  Virtual shell only (limited commands, no git/search)');
   const capabilityChecklist = caps.join('\n');
 
+  // If vision is available, add an explicit reminder right after the checklist
+  const capabilityNote = state.visionCapable
+    ? '\n→ CRITICAL: You are a vision-capable model. Image files are NOT text. Use read_file on any [IMAGE] file to see it. Do NOT skip image files.'
+    : '';
+
   /* Vision section */
   const visionSection = state.visionCapable
-    ? `**You CAN see images.** When you read an image file with read_file (PNG, JPG, GIF, SVG, WebP), the image is sent to you as a visual — you see the actual pixels, not text.
-You can also use the screenshot tool to capture the current UI state — useful for:
-- Seeing error messages exactly as displayed
-- Checking how code changes look in the interface
-- Reviewing tool output that is too long for text context
-When you call read_file on an image, the next message you receive will contain the image. Describe what you see and act on it.
-Image files are marked with [IMAGE] in list_directory output.`
+    ? `**You CAN see images.** When you call read_file on an image file (PNG, JPG, GIF, SVG, WebP, BMP, ICO), the next message you receive will contain the actual image — you see the pixels visually, not as text.
+
+    **How to view images:**
+    - See [IMAGE] tag in list_directory output? → read_file that path
+    - Need to see a screenshot of the current UI? → use the screenshot tool
+    - User attached an image to their message? → it's already in your context, just describe what you see
+    - Want to check how a UI looks after code changes? → screenshot tool
+
+    This works for ANY image file in the workspace. Do NOT skip image files — read them with read_file just like you would read a .py or .js file.`
     : 'You are running as a text-only model. Image files will show as binary/encoded data — you cannot interpret them visually.';
 
   /* Shell section */
@@ -2653,6 +2917,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
   const sysPrompt = (document.getElementById('s-sys-prompt').value || DEFAULT_SYS)
     .replace('{{CURRENT_DATE}}', dateStr)
     .replace('{{CAPABILITY_CHECKLIST}}', capabilityChecklist)
+    .replace('{{CAPABILITY_NOTE}}', capabilityNote)
     .replace('{{VISION_SECTION}}', visionSection)
     .replace('{{SHELL_SECTION}}', shellSection)
     .replace('{{SEARCH_SECTION}}', searchSection)
@@ -2794,15 +3059,15 @@ async function refreshModels(forceReload) {
   const dot = document.getElementById('llm-dot');
   const txt = document.getElementById('llm-text');
 
-  // 1. Get active model info (includes instance_id for unload)
-  const active = await fetchActiveModel();
+  // Fetch actual loaded model first — safe default so we never get ReferenceError
+  let active = null;
+  try { active = await fetchActiveModel(); } catch { activeInstance = null; }
 
-  // 2. Get full model list
   try {
     const res = await fetch(`${state.apiUrl}/v1/models`, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) throw new Error(res.statusText);
     const data = await res.json();
-    await fetchModelInfo(); // populates state.modelInfoMap from v0
+    await fetchModelInfo();
 
     const prev = state.model;
     sel.innerHTML = '';
@@ -2845,18 +3110,26 @@ async function refreshModels(forceReload) {
       sel.appendChild(o);
     });
 
-    // Restore selection
-    if (prev && sorted.find(m => m.id === prev)) {
-      state.model = prev;
-      sel.value = prev;
-    } else if (activeId) {
+    // Priority: actually loaded in LM Studio > localStorage selection > first in list
+    if (activeId) {
       state.model = activeId;
       sel.value = activeId;
+    } else if (prev && sorted.find(m => m.id === prev)) {
+      state.model = prev;
+      sel.value = prev;
     } else {
       state.model = sorted[0].id;
     }
 
     sel.disabled = false;
+
+    // Sync context window to whatever is actually loaded
+    if (activeInstance?.contextLength && activeInstance.contextLength > 1024) {
+      state.ctxWindow = activeInstance.contextLength;
+      document.getElementById('s-ctx-window').value = state.ctxWindow;
+      updateContextMeter();
+    }
+
     updateVisionUI();
     updateModelMeta();
     updateWelcomeStatus();
@@ -2997,7 +3270,6 @@ async function requestModelLoad(modelId) {
     }
 
     // Re-fetch full model info to update vision/tools/etc flags for this loaded model
-    await fetchModelInfo();
     updateVisionUI();
     updateModelMeta();
     updateModelLoadBtn();
@@ -3057,13 +3329,12 @@ function isNearBottom(el, threshold){threshold=threshold||100;return el.scrollHe
 let programmaticScroll = false;
 let scrollDebounce = null;
 
-function scrollBottom(){
-  if(!state.autoScroll)return;
-  programmaticScroll = true;
+let lastProgrammaticScroll = 0;
+function scrollBottom() {
+  lastProgrammaticScroll = Date.now();
   $msg().scrollTop = $msg().scrollHeight;
-  programmaticScroll = false;
-  document.getElementById('scroll-bottom-btn').classList.remove('visible');
 }
+// In handler: if (Date.now() - lastProgrammaticScroll < 100) return;
 
 function scrollToBottomForce(){
   state.autoScroll=true;updateScrollLockBtn();
@@ -3097,7 +3368,11 @@ function setupScrollDetection(){
 }
 
 /* ═══════════════ PROGRESS PERSISTENCE ═══════════════ */
-const PROGRESS_FILE = '.sloplobster-progress.md';
+const PROGRESS_FILE = `.sloplobster-progress-${state.activeConvId}.md`;
+
+function getProgressFile() {
+  return `.sloplobster-progress-${state.activeConvId || 'default'}.md`;
+}
 
 function safeParseArgs(argsStr) {
   try { return JSON.parse(argsStr); } catch { return {}; }
@@ -3118,6 +3393,11 @@ function buildProgressSummary(reason) {
   const lines = ['# SlopLobster Progress', '> ' + new Date().toLocaleString() + ' — ' + reason, ''];
   const firstUser = state.messages.find(m => m.role === 'user' && m.content);
   if (firstUser) lines.push('## Task', '', '> ' + firstUser.content.split('\n')[0], '');
+
+  const tcMap = new Map();
+    for (const m of state.messages) {
+    if (m.tool_calls) m.tool_calls.forEach(tc => tcMap.set(tc.id, tc));
+    }
 
   const actions = [], diffs = [], errors = [];
   for (const m of state.messages) {
@@ -3187,35 +3467,31 @@ function buildProgressSummary(reason) {
 
 async function saveProgressToWorkspace(reason) {
   if (!state.dirHandle) return false;
-  try { await writeFileSafe(PROGRESS_FILE, buildProgressSummary(reason)); return true; }
-  catch { return false; }
+  try { await writeFileSafe(getProgressFile(), buildProgressSummary(reason)); return true; }
+  catch (e) { console.warn('[progress] save failed:', e.message); return false; }
 }
 
 async function progressCompact(progressSaved) {
   appendMsg('system', progressSaved
-    ? 'Compacting context... Progress saved to `' + PROGRESS_FILE + '`'
+    ? 'Compacting context... Progress saved to `' + getProgressFile() + '`'
     : 'Compacting context...');
 
   const sysPrompt = 'Summarize this conversation preserving: the core task, key decisions, files modified with brief descriptions, errors and their resolutions, current state. Be concise — under 600 tokens.';
   const convText = state.messages.map(m => {
-  if (m.role === 'user') return '[User]: ' + (m.content || '');
-  if (m.role === 'assistant') {
-        let text = '[Agent]: ' + (m.content || '');
-        if (m.tool_calls) {
+    if (m.role === 'user') return '[User]: ' + (m.content || '');
+    if (m.role === 'assistant') {
+      let text = '[Agent]: ' + (m.content || '');
+      if (m.tool_calls) {
         text += '\n[Tools Called]: ' + m.tool_calls.map(tc => {
-            const args = JSON.parse(tc.function.arguments || '{}');
-            return `${tc.function.name}(${Object.values(args).join(', ').slice(0, 50)})`;
+          const args = safeParseArgs(tc.function.arguments);
+          return tc.function.name + '(' + Object.entries(args).map(([k, v]) => k + '=' + String(v).slice(0, 60)).join(', ') + ')';
         }).join(', ');
-        }
-        return text;
+      }
+      return text;
     }
-    if (m.role === 'tool') {
-        // Include a brief snippet of tool results in the summary
-        return `[Tool Result]: ${m.content.slice(0, 150)}...`;
-    }
+    if (m.role === 'tool') return '[Tool Result]: ' + m.content.slice(0, 150) + '...';
     return '';
-    }).filter(Boolean).join('\n');
-
+  }).filter(Boolean).join('\n');
 
   try {
     state.abortCtrl = new AbortController();
@@ -3232,14 +3508,19 @@ async function progressCompact(progressSaved) {
     const summary = data.choices?.[0]?.message?.content || 'Summary unavailable';
     const before = estimateConvTokens();
 
-    state.messages = [{ role: 'user', content: '[Previous conversation summary]\n' + summary }];
+    // Re-inject original task so the model knows what to continue doing
+    state.messages = [];
+    if (state.originalTask) {
+      state.messages.push({ role: 'user', content: '[ORIGINAL TASK — keep working on this]\n' + state.originalTask });
+    }
+    state.messages.push({ role: 'user', content: '[Previous conversation summary]\n' + summary });
     if (progressSaved) {
       state.messages.push({ role: 'user', content:
-        'A detailed progress file with all changes, errors, and context was saved to `' + PROGRESS_FILE +
-        '` in the workspace. Read it with read_file if you need specifics about what was done, what failed, and what remains. Continue the task.' });
+        'A detailed progress file was saved to `' + getProgressFile() +
+        '` in the workspace. READ IT NOW with read_file to see exactly what was done, what failed, and what remains. Then CONTINUE WORKING on the task. Do NOT stop, do NOT summarize what was already done, do NOT ask the user what to do next — just keep going.' });
     }
-    state.messages.push({ role: 'assistant', content:
-      'Understood. I have the summary' + (progressSaved ? ' and can read the progress file for full details' : '') + '. Continuing.' });
+    // NO fake assistant message — last message is a user instruction to continue,
+    // so the model MUST respond with tool calls, not a wrap-up
 
     const after = estimateConvTokens();
     $msg().innerHTML = ''; streamEl = null; switchToChat();
@@ -3249,7 +3530,7 @@ async function progressCompact(progressSaved) {
       el.style.background = 'rgba(34,211,238,.06)';
       el.style.borderColor = 'rgba(34,211,238,.15)';
       el.style.color = 'var(--cyan)';
-      el.innerHTML = '<i class="fas fa-file-lines"></i><span>Progress saved to <code style="font-family:JetBrains Mono,monospace;font-size:11px;background:var(--bg-3);padding:1px 4px;border-radius:3px">' + PROGRESS_FILE + '</code> — agent reads it for full context after compact</span>';
+      el.innerHTML = '<i class="fas fa-file-lines"></i><span>Progress saved to <code style="font-family:JetBrains Mono,monospace;font-size:11px;background:var(--bg-3);padding:1px 4px;border-radius:3px">' + getProgressFile() + '</code> — agent reads it for full context after compact</span>';
       $msg().appendChild(el);
     }
     updateContextMeter(); saveCurrentConv();
@@ -3273,14 +3554,18 @@ async function agentLoop(){
 
   while(state.running){
     const ctxPct=getContextPct();
-    if(ctxPct>=state.autoCompactPct){const saved=await saveProgressToWorkspace('context limit ('+Math.round(ctxPct)+'%)');await progressCompact(saved);iters=0;if(!state.running)break;continue;}
+    if(ctxPct>=state.autoCompactPct){
+        
+    const saved=await saveProgressToWorkspace('context limit ('+Math.round(ctxPct)+'%)');
+    if (!saved) appendMsg('system', '⚠ Could not save progress file — workspace may be disconnected');
+    await progressCompact(saved);iters=0;if(!state.running)break;continue;}
     if(iters>=COMPACT_AT){const saved=await saveProgressToWorkspace('iteration limit ('+iters+')');await progressCompact(saved);iters=0;if(!state.running)break;continue;}
     if(iters===SOFT_WARN){
-      state.messages.push({role:'user',content:'[SYSTEM: You have completed '+iters+' iterations. Context will compact at '+COMPACT_AT+' (in '+(COMPACT_AT-iters)+' more). A progress file will be saved to `'+PROGRESS_FILE+'` so you can continue after compaction. Prioritize finishing the most critical remaining work, or clearly document what is left.]'});
-      state.messages.push({role:'assistant',content:'Noted. I will focus on completing the essential remaining work before context compacts.'});
+    state.messages.push({role:'user',content:'[SYSTEM: Context at '+Math.round(getContextPct())+'%. It will auto-compact at '+COMPACT_AT+' iterations if needed. A progress file will be saved so you can continue after compaction. Keep working normally.]'});
+    state.messages.push({role:'assistant',content:'Understood, continuing.'});
     }
     iters++;
-    if(iters>HARD_STOP){await saveProgressToWorkspace('hard stop ('+iters+' iterations)');appendMsg('system','Stopped after '+iters+' iterations. Progress saved to `'+PROGRESS_FILE+'`.');break;}
+    if(iters>HARD_STOP){await saveProgressToWorkspace('hard stop ('+iters+' iterations)');appendMsg('system','Stopped after '+iters+' iterations. Progress saved to `'+getProgressFile()+'`.');break;}
 
     const th=showThinking();let cur='',tcs=[];
     const liveThinkEls=new Map();
@@ -3312,50 +3597,119 @@ async function agentLoop(){
     const nonThinkTcs=tcs.filter(tc=>tc.function.name!=='think');
 
     if(nonThinkTcs.length){
-      const isParallel=nonThinkTcs.length>1;if(isParallel)showParallelBadge(nonThinkTcs.length);
-      const toolAbortCtrls=nonThinkTcs.map(()=>new AbortController());
-      const toolPanels=nonThinkTcs.map((tc,i)=>showToolPanel(tc.function.name,tc.function.arguments,'run',()=>toolAbortCtrls[i].abort()));
+        const isParallel=nonThinkTcs.length>1;if(isParallel)showParallelBadge(nonThinkTcs.length);
+        const toolAbortCtrls=nonThinkTcs.map(()=>new AbortController());
+        const toolPanels=nonThinkTcs.map((tc,i)=>showToolPanel(tc.function.name,tc.function.arguments,'run',()=>toolAbortCtrls[i].abort()));
 
-      const results=await Promise.all(nonThinkTcs.map(async(tc,i)=>{
-        if(toolAbortCtrls[i].signal.aborted){updateToolStatus(toolPanels[i],'err');updateToolResult(toolPanels[i],'Cancelled by user.');return{tc,outText:'Cancelled by user.',cancelled:true};}
-        let result;try{result=await executeTool(tc.function.name,tc.function.arguments,toolAbortCtrls[i].signal,toolPanels[i]);updateToolStatus(toolPanels[i],'ok');}
-        catch(e){if(toolAbortCtrls[i].signal.aborted){updateToolStatus(toolPanels[i],'err');updateToolResult(toolPanels[i],'Cancelled by user.');return{tc,outText:'Cancelled by user.',cancelled:true};}result={output:'Error: '+e.message};updateToolStatus(toolPanels[i],'err');}
-        const outText=(typeof result==='string')?result:(result&&result.output)||'';
-        const diff=(typeof result==='object'&&result&&result.diff)||null;
-        const searchData=(typeof result==='object'&&result&&result._searchData)||null;
-        if(typeof result==='object'&&result){
-          if(result._screenshotDataUrl){toolPanels[i].el._screenshotDataUrl=result._screenshotDataUrl;toolPanels[i].el._imagePath='screenshot';toolPanels[i].el._imageReason=result._screenshotReason||'agent requested';toolPanels[i].el._imageType='screenshot';}
-          else if(result._imageDataUrl){toolPanels[i].el._imageDataUrl=result._imageDataUrl;toolPanels[i].el._imagePath=result._imagePath||'unknown';toolPanels[i].el._imageReason=result._imageReason||'file read';toolPanels[i].el._imageType='file';}
+        const results=await Promise.all(nonThinkTcs.map(async(tc,i)=>{
+          if(toolAbortCtrls[i].signal.aborted){updateToolStatus(toolPanels[i],'err');updateToolResult(toolPanels[i],'Cancelled by user.');return{tc,outText:'Cancelled by user.',cancelled:true};}
+          let result;try{result=await executeTool(tc.function.name,tc.function.arguments,toolAbortCtrls[i].signal,toolPanels[i]);updateToolStatus(toolPanels[i],'ok');}
+          catch(e){if(toolAbortCtrls[i].signal.aborted){updateToolStatus(toolPanels[i],'err');updateToolResult(toolPanels[i],'Cancelled by user.');return{tc,outText:'Cancelled by user.',cancelled:true};}result={output:'Error: '+e.message};updateToolStatus(toolPanels[i],'err');}
+          const outText=(typeof result==='string')?result:(result&&result.output)||'';
+          const diff=(typeof result==='object'&&result&&result.diff)||null;
+          const searchData=(typeof result==='object'&&result&&result._searchData)||null;
+          if(typeof result==='object'&&result){
+            if(result._screenshotDataUrl){toolPanels[i].el._screenshotDataUrl=result._screenshotDataUrl;toolPanels[i].el._imagePath='screenshot';toolPanels[i].el._imageReason=result._screenshotReason||'agent requested';toolPanels[i].el._imageType='screenshot';}
+            else if(result._imageDataUrl){toolPanels[i].el._imageDataUrl=result._imageDataUrl;toolPanels[i].el._imagePath=result._imagePath||'unknown';toolPanels[i].el._imageReason=result._imageReason||'file read';toolPanels[i].el._imageType='file';}
+          }
+          updateToolResult(toolPanels[i],outText);if(diff)showDiffPanel(diff);if(searchData)showSearchPanel(searchData);
+          if(!outText.includes('Error:')&&!outText.includes('ERROR')&&!outText.includes('Cancelled')){
+            const args=safeParseArgs(tc.function.arguments);
+            if(tc.function.name==='write_file')sessionChanges.created.add(args.path);
+            if(tc.function.name==='edit_file')sessionChanges.modified.add(args.path);
+            if(tc.function.name==='delete_file')sessionChanges.deleted.add(args.path);
+            if(tc.function.name==='move_file')sessionChanges.moved.push({from:args.source,to:args.destination});
+          }
+          const sig=tc.function.name+':'+(tc.function.arguments||'').slice(0,100);
+          const success=!outText.includes('Error:')&&!outText.includes('ERROR')&&!outText.includes('Cancelled');
+          toolCallHistory.push({sig,success});if(toolCallHistory.length>20)toolCallHistory.shift();
+          return{tc,outText,diff,searchData};
+        }));
+
+        if(toolCallHistory.length>=3){const r=toolCallHistory.slice(-3);if(r[0].sig===r[1].sig&&r[1].sig===r[2].sig&&!r[0].success&&!r[1].success&&!r[2].success){
+          const wEl=document.createElement('div');wEl.className='health-warning';wEl.innerHTML='<i class="fas fa-triangle-exclamation"></i><span>Agent stuck in a loop — same tool call failed 3 times. Intervening...</span>';$msg().appendChild(wEl);scrollBottom();
+          state.messages.push({role:'user',content:'[SYSTEM: Your last 3 tool calls were identical and all failed: "'+r[0].sig+'". Stop repeating this. BEFORE trying again, use web_search to look up the error or problem. Research the solution, then try a different approach. If search doesn\'t help, ask the user.]'});
+          state.messages.push({role:'assistant',content:'Understood. I was stuck in a failure loop. Let me try a completely different approach.'});toolCallHistory.length=0;
+        }}
+
+        // ── Index results by tool_call_id for ordered retrieval ──
+        const resultMap = new Map();
+        for (const r of results) resultMap.set(r.tc.id, r);
+
+        // ── Push ALL tool results in original tcs order ──
+        // The API requires tool results to appear in the same sequence
+        // as tool_calls in the assistant message.
+        for (const tc of tcs) {
+          if (tc.function.name === 'think') {
+            let thought = '';
+            try { const a = JSON.parse(tc.function.arguments); thought = a.thought || ''; }
+            catch { thought = tc.function.arguments || ''; }
+            state.messages.push({ role: 'tool', tool_call_id: tc.id, content: thought });
+          } else {
+            const r = resultMap.get(tc.id);
+            if (!r) continue;
+            const toolMsg = {
+              role: 'tool',
+              tool_call_id: tc.id,
+              content: r.outText,
+              _diff: r.diff || null,
+              _searchData: r.searchData || null
+            };
+            state.messages.push(toolMsg);
+
+            // ── Right panel: track changes + auto-preview edited files ──
+            const tName = tc.function.name;
+            const tArgs = safeParseArgs(tc.function.arguments);
+            if ((tName === 'edit_file' || tName === 'write_file') && r.diff) {
+              rpState.addChange(r.diff.path, tName === 'write_file' ? 'created' : 'modified', r.diff);
+              if (tArgs.path) previewFile(tArgs.path);
+            }
+            if (tName === 'delete_file' && tArgs.path) rpState.addChange(tArgs.path, 'deleted', null);
+            if (tName === 'move_file' && tArgs.destination) rpState.addChange(tArgs.destination || '?', 'moved', null);
+          }
         }
-        updateToolResult(toolPanels[i],outText);if(diff)showDiffPanel(diff);if(searchData)showSearchPanel(searchData);
-        if(!outText.includes('Error:')&&!outText.includes('ERROR')&&!outText.includes('Cancelled')){
-          const args=safeParseArgs(tc.function.arguments);
-          if(tc.function.name==='write_file')sessionChanges.created.add(args.path);
-          if(tc.function.name==='edit_file')sessionChanges.modified.add(args.path);
-          if(tc.function.name==='delete_file')sessionChanges.deleted.add(args.path);
-          if(tc.function.name==='move_file')sessionChanges.moved.push({from:args.source,to:args.destination});
+
+        /* Refresh git panel if visible */
+        if(rpState.activeTab==='git'&&state.compConnected)setTimeout(updateGitPanel,300);
+
+        // ── Handle image results: show preview + inject as user messages ──
+        for (let ri = 0; ri < results.length; ri++) {
+          const panel = toolPanels[ri];
+          if (!panel.el._imageDataUrl && !panel.el._screenshotDataUrl) continue;
+          const imgUrl = panel.el._screenshotDataUrl || panel.el._imageDataUrl;
+          const imgPath = panel.el._imagePath || 'image';
+          const imgReason = panel.el._imageReason || 'captured';
+          const imgType = panel.el._imageType || 'screenshot';
+
+          if (!panel.el.querySelector('.screenshot-preview')) {
+            panel.el.classList.add('screenshot-tool');
+            const preview = document.createElement('div');
+            preview.className = 'screenshot-preview';
+            const label = imgType === 'file'
+              ? '<div style="font-size:10px;color:var(--tx-3);margin-bottom:4px;font-family:\'JetBrains Mono\',monospace"><i class="fas fa-image" style="color:var(--accent)"></i> ' + esc(imgPath) + '</div>'
+              : '';
+            preview.innerHTML = label + '<img src="' + imgUrl + '" onclick="openImgViewer(this.src)" alt="' + esc(imgPath) + '">';
+            panel.el.appendChild(preview);
+          }
+          state.messages.push({
+            role: 'user',
+            content: '[' + imgType + ': ' + imgReason + ' — ' + imgPath + ']',
+            _images: [{ type: 'image_url', image_url: { url: imgUrl } }],
+            _isAgentImage: true,
+            _imageType: imgType
+          });
         }
-        const sig=tc.function.name+':'+(tc.function.arguments||'').slice(0,100);
-        const success=!outText.includes('Error:')&&!outText.includes('ERROR')&&!outText.includes('Cancelled');
-        toolCallHistory.push({sig,success});if(toolCallHistory.length>20)toolCallHistory.shift();
-        return{tc,outText,diff,searchData};
-      }));
-
-      if(toolCallHistory.length>=3){const r=toolCallHistory.slice(-3);if(r[0].sig===r[1].sig&&r[1].sig===r[2].sig&&!r[0].success&&!r[1].success&&!r[2].success){
-        const wEl=document.createElement('div');wEl.className='health-warning';wEl.innerHTML='<i class="fas fa-triangle-exclamation"></i><span>Agent stuck in a loop — same tool call failed 3 times. Intervening...</span>';$msg().appendChild(wEl);scrollBottom();
-        state.messages.push({role:'user',content:'[SYSTEM: Your last 3 tool calls were identical and all failed: "'+r[0].sig+'". Stop repeating this. BEFORE trying again, use web_search to look up the error or problem. Research the solution, then try a different approach. If search doesn\'t help, ask the user.]'});
-        state.messages.push({role:'assistant',content:'Understood. I was stuck in a failure loop. Let me try a completely different approach.'});toolCallHistory.length=0;
-      }}
-
-      for(const{tc,outText,cancelled}of results){if(cancelled)continue;state.messages.push({role:'tool',tool_call_id:tc.id,content:outText,_diff:null,_searchData:null});}
-      for(let ri=0;ri<results.length;ri++){const msgIdx=state.messages.length-results.filter(r=>!r.cancelled).length+ri;if(results[ri].diff)state.messages[msgIdx]._diff=results[ri].diff;if(results[ri].searchData)state.messages[msgIdx]._searchData=results[ri].searchData;}
-      for(let ri=0;ri<results.length;ri++){const panel=toolPanels[ri];if(!panel.el._imageDataUrl&&!panel.el._screenshotDataUrl)continue;const imgUrl=panel.el._screenshotDataUrl||panel.el._imageDataUrl;const imgPath=panel.el._imagePath||'image';const imgReason=panel.el._imageReason||'captured';const imgType=panel.el._imageType||'screenshot';
-        if(!panel.el.querySelector('.screenshot-preview')){panel.el.classList.add('screenshot-tool');const preview=document.createElement('div');preview.className='screenshot-preview';const label=imgType==='file'?'<div style="font-size:10px;color:var(--tx-3);margin-bottom:4px;font-family:\'JetBrains Mono\',monospace"><i class="fas fa-image" style="color:var(--accent)"></i> '+esc(imgPath)+'</div>':'';preview.innerHTML=label+'<img src="'+imgUrl+'" onclick="openImgViewer(this.src)" alt="'+esc(imgPath)+'">';panel.el.appendChild(preview);}
-        state.messages.push({role:'user',content:'['+imgType+': '+imgReason+' — '+imgPath+']',_images:[{type:'image_url',image_url:{url:imgUrl}}],_isAgentImage:true,_imageType:imgType});
       }
-    }
-    for(const tc of thinkTcs){let thought='';try{const a=JSON.parse(tc.function.arguments);thought=a.thought||'';}catch{thought=tc.function.arguments||'';}state.messages.push({role:'tool',tool_call_id:tc.id,content:thought});}
-    updateContextMeter();
+      // ── Think-only tool calls (no non-think tools) ──
+      else if (thinkTcs.length) {
+        for (const tc of thinkTcs) {
+          let thought = '';
+          try { const a = JSON.parse(tc.function.arguments); thought = a.thought || ''; }
+          catch { thought = tc.function.arguments || ''; }
+          state.messages.push({ role: 'tool', tool_call_id: tc.id, content: thought });
+        }
+      }
+      updateContextMeter();
   }
   state.running=false;state.abortCtrl=null;updateSendBtn();saveCurrentConv();
   if(sessionChanges.modified.size||sessionChanges.created.size||sessionChanges.deleted.size||sessionChanges.moved.length){showChangeSummary(sessionChanges);refreshFileTree();}
@@ -3386,7 +3740,7 @@ function renderStaticThinkBlock(text){
   const el=document.createElement('div');el.className='think-block';
   const charCount=text.length;const shortCount=charCount>1000?(charCount/1000).toFixed(1)+'k':charCount;
   el.innerHTML=`<div class="think-hdr" onclick="toggleThinkContent(this)"><i class="fas fa-chevron-down think-chevron collapsed"></i><div class="think-label"><i class="fas fa-brain think-icon"></i> Thinking</div><span class="think-badge done">done</span><span class="think-badge len">${shortCount} chars</span></div><div class="think-content collapsed">${esc(text)}</div>`;
-  el._collapsed=false;$msg().appendChild(el);
+  el._collapsed=true;$msg().appendChild(el);
 }
 
 function toggleThinkContent(hdrEl){
@@ -3461,6 +3815,7 @@ function finalizeStreamingMsg(t){
 function createMsgEl(role,text,streaming=false){
   const el=document.createElement('div');el.className='msg';el._role=role;el._text=text;el._time=timestamp();
   const isUser=role==='user',isAgent=role==='agent'||role==='assistant';
+  el._msgIndex = state.messages.length;
   el.innerHTML=`<div class="msg-avatar ${isUser?'user':'agent'}">${isUser?'<i class="fas fa-user" style="font-size:10px"></i>':'<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:18px;height:18px"><defs><linearGradient id="ag" x1="2" y1="2" x2="26" y2="26" gradientUnits="userSpaceOnUse"><stop stop-color="#f5b742"/><stop offset="1" stop-color="#a06e10"/></linearGradient></defs><rect width="28" height="28" rx="6" fill="url(#ag)"/><ellipse cx="14" cy="18" rx="5.5" ry="4" fill="#08080a" opacity=".9"/><path d="M14 22L12 26M14 22L14 26.5M14 22L16 26" stroke="#08080a" stroke-width="1.2" stroke-linecap="round" opacity=".85"/><circle cx="14" cy="13" r="3.2" fill="#08080a" opacity=".9"/><path d="M8.5 17Q4.5 15 3 11Q2.5 9.5 4 9.5Q5.5 9.5 6.5 11.5Q7.5 13.5 8.5 15" fill="#08080a" opacity=".85"/><path d="M19.5 17Q23.5 15 25 11Q25.5 9.5 24 9.5Q22.5 9.5 21.5 11.5Q20.5 13.5 19.5 15" fill="#08080a" opacity=".85"/><circle cx="12.2" cy="12" r="1" fill="#f5b742"/><circle cx="15.8" cy="12" r="1" fill="#f5b742"/><path d="M12.5 10.2Q10 7 9 5" stroke="#08080a" stroke-width="1" stroke-linecap="round" opacity=".8"/><path d="M15.5 10.2Q18 7 19 5" stroke="#08080a" stroke-width="1" stroke-linecap="round" opacity=".8"/><circle cx="9" cy="5" r=".8" fill="#08080a" opacity=".8"/><circle cx="19" cy="5" r=".8" fill="#08080a" opacity=".8"/><path d="M10 19L8 21.5M11 19.5L9.5 22M13 20L12 22.5M15 20L16 22.5M17 19.5L18.5 22M18 19L20 21.5" stroke="#08080a" stroke-width=".9" stroke-linecap="round" opacity=".7"/></svg>'}</div><div class="msg-body"><div class="msg-header"><span class="msg-name">${isUser?'You':'SlopLobster'}</span><span class="msg-time">${el._time}</span><div class="msg-actions">${isAgent?'<button class="msg-act" onclick="copyMsgText(this)" title="Copy"><i class="fas fa-copy"></i></button><button class="msg-act" onclick="retryMsg(this)" title="Retry from here"><i class="fas fa-rotate-right"></i></button>':''}${isUser?'<button class="msg-act" onclick="editMsg(this)" title="Edit & resend"><i class="fas fa-pen"></i></button><button class="msg-act" onclick="copyMsgText(this)" title="Copy"><i class="fas fa-copy"></i></button>':''}</div></div><div class="msg-content ${streaming?'streaming-cursor':''}">${isUser?esc(text):renderMd(text)}</div></div>`;
   if(isAgent&&!streaming){el.querySelector('.msg-content').querySelectorAll('pre code').forEach(b=>hljs.highlightElement(b));addCopyBtns(el.querySelector('.msg-content'));}
   return el;
@@ -3483,16 +3838,24 @@ function copyMsgText(btn){
 }
 
 function retryMsg(btn){
-  if(state.running)return;const msgEl=btn.closest('.msg');const idx=[...$msg().children].indexOf(msgEl);
-  let msgCount=0;
-  for(let i=0;i<idx;i++){
-  const c=$msg().children[i];
-  // Only count elements that are actual chat messages
-  if(c.classList.contains('msg') && (c._role==='user'||c._role==='agent'||c._role==='assistant')) {
-    msgCount++;
+  if(state.running)return;
+  const msgEl=btn.closest('.msg');
+  if(!msgEl||msgEl._msgIndex==null)return;
+
+  const cutIndex=msgEl._msgIndex;
+  state.messages=state.messages.slice(0,cutIndex);
+
+  /* Remove all DOM elements after (and including) the target message */
+  const children=[...$msg().children];
+  const targetDomIdx=children.indexOf(msgEl);
+  for(let i=children.length-1;i>=targetDomIdx;i--){
+    children[i].remove();
   }
+
+  streamEl=null;
+  agentLoop();
 }
-}
+
 
 function editMsg(btn){
   if(state.running)return;const msgEl=btn.closest('.msg');const body=msgEl.querySelector('.msg-body');const contentEl=body.querySelector('.msg-content');const origText=msgEl._text||'';
@@ -3543,17 +3906,36 @@ function updateToolStatus(w,s){
   }
 }
 
-function updateToolResult(w,r){
-  if(!w||!w.el)return;const res=w.el.querySelector('.tool-result');if(!res)return;
-  const text=(r!=null)?String(r):'(no output)';
-  if(res.textContent===text&&!res.classList.contains('loading'))return;
-  const isTruncated=text.length>500&&text.includes('[Truncated');
-  if(isTruncated){res.classList.add('truncated');const eb=w.el.querySelector('.tool-expand-btn');if(eb)eb.style.display='';}
-  w.el.querySelector('.tool-hdr').onclick=()=>{
-    w.el._collapsed=!w.el._collapsed;res.style.display=w.el._collapsed?'none':'';
-    const ic=w.el.querySelector('.tool-expand-btn i');if(ic)ic.className=w.el._collapsed?'fas fa-compress':'fas fa-expand';
+function updateToolResult(w, r) {
+  if (!w || !w.el) return;
+  const res = w.el.querySelector('.tool-result');
+  if (!res) return;
+  res.classList.remove('loading'); 
+  res.style.background = '';            
+  res.style.animation = ''; 
+
+  const text = (r != null) ? String(r) : '(no output)';
+
+  /* Always update content — remove the early return that skipped truncation */
+  res.textContent = text;
+  w.el._resultText = text;
+
+  /* Truncation check — always run, not gated behind the old early return */
+  const isTruncated = text.length > 500 && text.includes('[Truncated');
+  if (isTruncated) {
+    res.classList.add('truncated');
+    const eb = w.el.querySelector('.tool-expand-btn');
+    if (eb) eb.style.display = '';
+  }
+
+  /* Collapse toggle — always wire up, not gated behind the old early return */
+  w.el.querySelector('.tool-hdr').onclick = () => {
+    w.el._collapsed = !w.el._collapsed;
+    res.style.display = w.el._collapsed ? 'none' : '';
+    const ic = w.el.querySelector('.tool-expand-btn i');
+    if (ic) ic.className = w.el._collapsed ? 'fas fa-compress' : 'fas fa-expand';
   };
-  res.textContent = text; w.el._resultText = text;
+
   scrollBottom();
 }
 
@@ -3734,8 +4116,9 @@ async function refreshFileTree(){
     const isMod=f.k==='file'&&modifiedFiles.has(f.p);
     const dotStyle=isMod?'background:var(--accent);box-shadow:0 0 5px var(--accent)':'';
     const nameStyle=isMod?'color:var(--accent);font-weight:600':'';
-    return `<div class="ft-item" style="padding-left:${6+f.d*12}px;${nameStyle?'color:var(--accent)':''}" onclick="insertPath('${f.p.replace(/'/g,"\\'")}')" title="${f.p}${isMod?' (modified)':''}"><span class="dot ${f.k==='directory'?'dir':getDotCls(f.n)}" style="${dotStyle}"></span>${esc(f.n)}</div>`;
-  }).join('');
+    const clickFn=f.k==='directory'?`insertPath('${f.p.replace(/'/g,"\\'")}')`:`previewFile('${f.p.replace(/'/g,"\\'")}')`;
+    return `<div class="ft-item" style="padding-left:${6+f.d*12}px;${nameStyle?'color:var(--accent)':''}" onclick="${clickFn}" title="${f.p}${isMod?' (modified)':''}"><span class="dot ${f.k==='directory'?'dir':getDotCls(f.n)}" style="${dotStyle}"></span>${esc(f.n)}</div>`;
+}).join('');
 }
 
 function insertPath(p){const i=document.getElementById('msg-input'),pos=i.selectionStart;i.value=i.value.slice(0,pos)+p+i.value.slice(pos);i.focus();i.selectionStart=i.selectionEnd=pos+p.length;updateSendBtn();}
@@ -3753,22 +4136,43 @@ function loadConversations(){
   }
   renderConvList();
 }
-function saveConversations(){
-  try{
-    localStorage.setItem(STORAGE_KEY,JSON.stringify(state.conversations.map(c=>({...c,messages:c.messages.map(m=>{
-      const clean={...m};if(clean._diff)delete clean._diff;if(clean._searchData)delete clean._searchData;return clean;
-    })}))));
-  }catch(e){
-    if(e.name==='QuotaExceededError'){
-      showToast('Storage full — removing old conversations','warn');
-      while(state.conversations.length>2){
-        const removed=state.conversations.pop();
-        if(removed.id===state.activeConvId)continue;
-        try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state.conversations.map(c=>({...c,messages:c.messages.map(m=>{const cl={...m};delete cl._diff;delete cl._searchData;return cl;})}))));break;}catch{}
-      }
+function saveConversations() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(
+      state.conversations.map(c => ({
+        ...c,
+        messages: c.messages.map(m => {
+          const clean = { ...m };
+          delete clean._diff;
+          delete clean._searchData;
+          delete clean._images;       // ← strip image data
+          // Keep a small marker so replay knows images existed
+          if (m._images?.length) clean._hadImages = m._images.length;
+          return clean;
+        })
+      }))
+    ));
+  } catch (e) {
+    if (e.name === 'QuotaExceededError') {
+      showToast('Storage full — image data excluded from save', 'warn');
+      // Retry without images
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(
+          state.conversations.map(c => ({
+            ...c,
+            messages: c.messages.map(m => {
+              const clean = { ...m };
+              delete clean._diff; delete clean._searchData; delete clean._images;
+              if (m._images?.length) clean._hadImages = m._images.length;
+              return clean;
+            })
+          }))
+        ));
+      } catch { /* truly full */ }
     }
   }
 }
+
 function saveCurrentConv(){
   if(!state.activeConvId)return;
   const c=state.conversations.find(c=>c.id===state.activeConvId);if(!c)return;
@@ -3806,9 +4210,11 @@ async function doNewConversation(){
   const id='conv_'+Date.now();
   state.conversations.unshift({id,title:'New conversation',messages:[],created:Date.now(),updated:Date.now()});
   state.activeConvId=id;state.messages=[];state.fileCache.clear();modifiedFiles.clear();state.pendingImages=[];state.originalTask = null;addImageAttachmentsToInputArea();
+  rpState.clearChanges();rpState.activeFile=null;
+  document.getElementById('rp-files-empty').style.display='';document.getElementById('rp-file-preview').style.display='none';
   /* Clean up old progress file from previous task */
   if(state.dirHandle){
-    try{ await deleteFileSafe(PROGRESS_FILE, false); }catch{}
+    try{ await deleteFileSafe(getProgressFile(), false); }catch{}
   }
   $msg().innerHTML='';streamEl=null;
   document.getElementById('welcome').style.display='flex';$msg().style.display='none';
@@ -3821,6 +4227,18 @@ function switchConv(id){
   state.activeConvId=id;state.messages=c.messages||[];state.fileCache.clear();modifiedFiles.clear();
   // Restore original task from conversation history
   state.originalTask = c._originalTask || null;
+  rpState.clearChanges();rpState.activeFile=null;
+  document.getElementById('rp-files-empty').style.display='';document.getElementById('rp-file-preview').style.display='none';
+  /* Replay changes from conversation history into right panel */
+  for(const m of state.messages){
+    if(m.role!=='tool')continue;
+    const tc=findParentToolCall(m);if(!tc)continue;
+    if((tc.function.name==='edit_file'||tc.function.name==='write_file')&&m._diff){
+      rpState.addChange(m._diff.path,tc.function.name==='write_file'?'created':'modified',m._diff);
+    }
+    if(tc.function.name==='delete_file'){const a=safeParseArgs(tc.function.arguments);if(a.path)rpState.addChange(a.path,'deleted',null);}
+    if(tc.function.name==='move_file'){const a=safeParseArgs(tc.function.arguments);if(a.destination)rpState.addChange(a.destination,'moved',null);}
+  }
   $msg().innerHTML='';streamEl=null;
   if(state.messages.length){switchToChat();replayMessages(state.messages);updateContextMeter();}
   else{document.getElementById('welcome').style.display='flex';$msg().style.display='none';}
@@ -4034,8 +4452,8 @@ function exportConversation(){
 async function smartCompact(){
   if(state.running){showToast('Wait for current response','warn');return;}
   if(state.messages.length<4){showToast('Not enough messages','warn');return;}
-  const saved=saveProgressToWorkspace('manual compact');
-  saved.then(s=>progressCompact(s));
+  const saved = await saveProgressToWorkspace('manual compact');
+  await progressCompact(saved);
 }
 
 function saveCompanionScript(){
@@ -4243,21 +4661,195 @@ function renderWelcomeGrid(){
   }).join('');
 }
 
-/* ═══════════════ SCROLL DETECTION ═══════════════ */
-function setupScrollDetection() {
-  var el = $msg();
-  el.addEventListener('scroll', function() {
-    if (programmaticScroll) return;
-    clearTimeout(scrollDebounce);
-    scrollDebounce = setTimeout(function() {
-      var btn = document.getElementById('scroll-bottom-btn');
-      if (!isNearBottom(el, 120) && el.scrollHeight - el.scrollTop > 200) {
-        btn.classList.add('visible');
-      } else {
-        btn.classList.remove('visible');
+/* ═══════════════ RIGHT PANEL ═══════════════ */
+const rpState={
+  activeTab:'files',
+  activeFile:null,
+  changes:[],
+  terminalEntries:[],
+  _termCurrentId:null,
+  addChange(path,type,diff){
+    const existing=this.changes.find(c=>c.path===path);
+    if(existing){existing.type=type;existing.diff=diff;existing.stats=diff?.stats||existing.stats;existing.timestamp=Date.now();}
+    else this.changes.push({path,type,diff,stats:diff?.stats||null,timestamp:Date.now()});
+    this.renderChanges();this.updateBadge();
+  },
+  updateBadge(){
+    const b=document.getElementById('rp-changes-badge');if(!b)return;
+    const n=this.changes.length;b.style.display=n?'':'none';b.textContent=n;
+  },
+  renderChanges(){
+    const empty=document.getElementById('rp-changes-empty'),list=document.getElementById('rp-changes-list');
+    if(!this.changes.length){empty.style.display='';list.innerHTML='';return;}
+    empty.style.display='none';
+    let adds=0,dels=0;
+    this.changes.forEach(c=>{if(c.stats){adds+=c.stats.additions||0;dels+=c.stats.deletions||0;}});
+    let html=`<div class="rp-changes-header"><span class="rp-changes-title">Session Changes</span><div class="rp-changes-stats"><span style="color:var(--green)">+${adds}</span><span style="color:var(--red)">-${dels}</span><span>${this.changes.length} files</span></div></div>`;
+    this.changes.forEach((c,i)=>{
+      const opIcons={modified:'~',created:'+',deleted:'-',moved:'→'};
+      const statStr=c.stats?`<span class="rp-change-stat" style="color:var(--green)">+${c.stats.additions}</span><span class="rp-change-stat" style="color:var(--red)">-${c.stats.deletions}</span>`:'';
+      html+=`<div class="rp-change-item" onclick="rpToggleChangeDiff(${i})"><span class="rp-change-op ${c.type}">${opIcons[c.type]||'?'}</span><span class="rp-change-path">${esc(c.path)}</span>${statStr}</div>`;
+      if(c.diff){
+        const changed=c.diff.lines.filter(l=>l.type!=='ctx');
+        const {compact:displayLines}=compactDiffLines(c.diff.lines,1,1);
+        html+=`<div class="rp-change-diff" id="rp-cd-${i}">${displayLines.map(l=>`<div class="diff-line ${l.type}">${l.type==='ellipsis'?'···':esc(l.text)}</div>`).join('')}${changed.length>80?'<div class="diff-line ellipsis">··· showing first 80 changed lines</div>':''}</div>`;
       }
-    }, 120);
-  }, { passive: true });
+    });
+    list.innerHTML=html;
+  },
+  clearChanges(){this.changes=[];this.renderChanges();this.updateBadge();}
+};
+
+function toggleRightPanel(){document.getElementById('right-panel').classList.toggle('collapsed');}
+
+function switchRpTab(name){
+  rpState.activeTab=name;
+  document.querySelectorAll('.rp-tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
+  document.querySelectorAll('.rp-pane').forEach(p=>p.classList.toggle('active',p.id==='rp-'+name));
+  if(name==='git')updateGitPanel();
+}
+
+function rpToggleChangeDiff(idx){
+  const el=document.getElementById('rp-cd-'+idx);if(el)el.classList.toggle('open');
+}
+
+async function previewFile(path,highlightLine){
+  if(!state.dirHandle){showToast('Open a workspace first','warn');return;}
+  if(rpState.activeTab!=='files')switchRpTab('files');
+  const emptyEl=document.getElementById('rp-files-empty'),previewEl=document.getElementById('rp-file-preview');
+  try{
+    const result=await readFileSafe(path);
+    const header=result.output.split('\n---\n')[0]||'';
+    const content=result.output.includes('\n---\n')?result.output.split('\n---\n').slice(1).join('\n---\n'):result.output;
+    const lines=content.split('\n');
+    const isImage=!!result._imageDataUrl;
+    rpState.activeFile={path,content,lines,isImage,imageDataUrl:result._imageDataUrl,highlightLine:highlightLine||null,truncated:result.output.includes('TRUNCATED'),meta:header};
+    renderFilePreview();
+    emptyEl.style.display='none';previewEl.style.display='block';
+  }catch(e){
+    previewEl.style.display='block';emptyEl.style.display='none';
+    previewEl.innerHTML=`<div class="rp-empty-state"><i class="fas fa-exclamation-triangle" style="color:var(--red)"></i><span>${esc(e.message)}</span></div>`;
+  }
+}
+
+function renderFilePreview(){
+  const f=rpState.activeFile;if(!f)return;
+  const el=document.getElementById('rp-file-preview');
+  if(f.isImage&&f.imageDataUrl){
+    el.innerHTML=`<div class="rp-file-header"><span class="rp-file-name">${esc(f.path)}</span><button class="rp-file-act" onclick="openImgViewer('${f.imageDataUrl}')" title="Full size"><i class="fas fa-expand"></i></button></div><div class="rp-file-image"><img src="${f.imageDataUrl}" onclick="openImgViewer(this.src)" alt="${esc(f.path)}"></div>`;
+    return;
+  }
+  const lineCount=f.lines.length;
+  const lineHtml=f.lines.map((line,i)=>{
+    const num=i+1;const isHl=f.highlightLine&&num===f.highlightLine;
+    return`<div class="rp-file-line${isHl?' highlight':''}" data-line="${num}"><span class="rp-file-line-num" onclick="rpCopyLine(this,${num})" title="Click to copy">${num}</span><span class="rp-file-line-text">${esc(line)}</span></div>`;
+  }).join('');
+  el.innerHTML=`<div class="rp-file-header"><span class="rp-file-name">${esc(f.path)}</span><span class="rp-file-meta">${lineCount}L</span><div class="rp-file-actions"><button class="rp-file-act" onclick="insertPath('${f.path.replace(/'/g,"\\'")}')" title="Insert path in input"><i class="fas fa-link"></i></button><button class="rp-file-act" onclick="rpCopyFile()" title="Copy all"><i class="fas fa-copy"></i></button></div></div><div class="rp-file-code">${lineHtml}</div>${f.truncated?'<div class="rp-file-truncated">⚠ Truncated — showing partial content</div>':''}`;
+  if(f.highlightLine){const codeEl=el.querySelector('.rp-file-code');const hlEl=codeEl?.querySelector('.highlight');if(hlEl)setTimeout(()=>hlEl.scrollIntoView({block:'center',behavior:'smooth'}),50);}
+}
+
+function rpCopyLine(numEl,lineNum){
+  const f=rpState.activeFile;if(!f)return;
+  navigator.clipboard.writeText(f.lines[lineNum-1]).then(()=>{numEl.style.color='var(--green)';setTimeout(()=>numEl.style.color='',800);});
+}
+function rpCopyFile(){
+  const f=rpState.activeFile;if(!f)return;
+  navigator.clipboard.writeText(f.content).then(()=>showToast('Copied','ok'));
+}
+
+/* ── Terminal panel ── */
+let _rpTermId=0;
+function rpTermStart(command){
+  const id=++_rpTermId;rpState._termCurrentId=id;
+  const entry={id,command:command.slice(0,200),output:'',exitCode:null,startTime:Date.now(),endTime:null,streaming:true,collapsed:false};
+  rpState.terminalEntries.push(entry);
+  if(rpState.terminalEntries.length>50)rpState.terminalEntries=rpState.terminalEntries.slice(-30);
+  document.getElementById('rp-term-empty').style.display='none';
+  rpRenderTermEntry(entry,true);
+  if(rpState.activeTab==='term'){const c=document.getElementById('rp-term-entries');c.scrollTop=c.scrollHeight;}
+}
+function rpTermAppend(text){
+  const entry=rpState.terminalEntries.find(e=>e.id===rpState._termCurrentId&&e.streaming);
+  if(!entry)return;entry.output+=text;
+  if(rpState.activeTab==='term'){
+    const outEl=document.getElementById('rp-term-out-'+entry.id);
+    if(outEl&&!outEl.classList.contains('collapsed')){outEl.textContent=entry.output;outEl.scrollTop=outEl.scrollHeight;}
+  }
+}
+function rpTermEnd(fullOutput){
+  const entry=rpState.terminalEntries.find(e=>e.id===rpState._termCurrentId&&e.streaming);
+  if(!entry)return;entry.streaming=false;entry.endTime=Date.now();
+  entry.output=fullOutput||entry.output;
+  const m=entry.output.match(/\[exit code:\s*(\d+)\]/);entry.exitCode=m?parseInt(m[1]):0;
+  rpRenderTermEntry(entry,false);
+}
+function rpRenderTermEntry(entry,isNew){
+  let el=document.getElementById('rp-term-'+entry.id);
+  const dur=entry.endTime?((entry.endTime-entry.startTime)/1000).toFixed(1)+'s':'...';
+  const exitCls=entry.streaming?'running':entry.exitCode===0?'ok':'err';
+  const exitText=entry.streaming?'running':entry.exitCode===0?'0':' '+entry.exitCode;
+  const html=`<div class="rp-term-header" onclick="rpToggleTermEntry(${entry.id})"><i class="fas fa-chevron-down rp-term-chevron${entry.collapsed?' collapsed':''}"></i><i class="fas fa-terminal rp-term-cmd-icon"></i><span class="rp-term-cmd">${esc(entry.command)}</span><div class="rp-term-meta"><span>${dur}</span><span class="rp-term-exit ${exitCls}">${exitText}</span></div></div><div class="rp-term-output${entry.collapsed?' collapsed':''}" id="rp-term-out-${entry.id}">${esc(entry.output)}</div>`;
+  if(el){el.innerHTML=html;return;}
+  el=document.createElement('div');el.className='rp-term-entry';el.id='rp-term-'+entry.id;el.innerHTML=html;
+  const c=document.getElementById('rp-term-entries');
+  if(isNew)c.appendChild(el);else c.replaceChild(el,c.lastChild);
+}
+function rpToggleTermEntry(id){
+  const el=document.getElementById('rp-term-'+id);if(!el)return;
+  const chev=el.querySelector('.rp-term-chevron'),out=el.querySelector('.rp-term-output');
+  const entry=rpState.terminalEntries.find(e=>e.id===id);if(entry)entry.collapsed=!entry.collapsed;
+  chev?.classList.toggle('collapsed');out?.classList.toggle('collapsed');
+}
+function rpClearTerminal(){
+  rpState.terminalEntries=[];_rpTermId=0;rpState._termCurrentId=null;
+  document.getElementById('rp-term-entries').innerHTML='';document.getElementById('rp-term-empty').style.display='';
+}
+
+/* ── Git panel ── */
+async function updateGitPanel(){
+  const el=document.getElementById('rp-git-content');
+  if(!state.compConnected){el.innerHTML='<div class="rp-empty-state"><i class="fas fa-code-branch"></i><span>Git requires the companion server</span></div>';return;}
+  el.innerHTML='<div class="rp-empty-state"><i class="fas fa-spinner fa-spin"></i><span>Loading...</span></div>';
+  try{
+    const[branchRes,statusRes]=await Promise.all([execViaCompanion('git rev-parse --abbrev-ref HEAD 2>/dev/null',10),execViaCompanion('git status --short 2>/dev/null',10)]);
+    const branch=branchRes.replace(/\n/g,'').trim()||'unknown';
+    const statusLines=statusRes.trim().split('\n').filter(l=>l.trim());
+    if(statusRes.includes('NOT A GIT REPOSITORY')){el.innerHTML='<div class="rp-empty-state"><i class="fas fa-code-branch"></i><span>Not a git repository</span></div>';return;}
+    let html=`<div class="rp-git-branch"><i class="fas fa-code-branch rp-git-branch-icon"></i><span class="rp-git-branch-name">${esc(branch)}</span></div><div class="rp-git-actions"><button class="rp-git-btn" onclick="rpGitQuick('stage')"><i class="fas fa-plus"></i> Stage All</button><button class="rp-git-btn" onclick="rpGitQuick('log')"><i class="fas fa-clock-rotate-left"></i> Log</button><button class="rp-git-btn" onclick="updateGitPanel()"><i class="fas fa-rotate"></i></button></div>`;
+    if(statusLines.length){
+      html+='<div class="rp-git-status">';
+      for(const line of statusLines){const code=line.substring(0,2).trim();const path=line.substring(3).trim();const sc=code.charAt(0)||'?';
+        html+=`<div class="rp-git-status-file" onclick="previewFile('${path.replace(/'/g,"\\'")}')"><span class="rp-git-status-code ${sc}">${sc}</span><span class="rp-git-status-path">${esc(path)}</span></div>`;}
+      html+='</div>';
+    }else{html+='<div class="rp-empty-state" style="padding:20px"><i class="fas fa-check-circle" style="color:var(--green)"></i><span>Working tree clean</span></div>';}
+    el.innerHTML=html;
+  }catch(e){el.innerHTML=`<div class="rp-empty-state"><i class="fas fa-exclamation-triangle" style="color:var(--red)"></i><span>${esc(e.message)}</span></div>`;}
+}
+
+async function rpGitQuick(action){
+  if(!state.compConnected)return;
+  const msgs={stage:'git add -A',log:'git log --oneline -10'};
+  const cmd=msgs[action];if(!cmd)return;
+  rpTermStart(cmd);
+  try{const out=await execViaCompanion(cmd,15);rpTermEnd(out);showToast('Done','ok');}
+  catch(e){rpTermEnd('[Error: '+e.message+']');showToast('Failed','err');}
+  if(action==='stage')setTimeout(updateGitPanel,500);
+  if(action==='log'){
+    const el=document.getElementById('rp-git-content');
+    const logEl=document.createElement('div');logEl.style.cssText='padding:8px 12px;font-family:JetBrains Mono,monospace;font-size:10px;color:var(--tx-2);white-space:pre-wrap;border-top:1px solid var(--border)';
+    const out=rpState.terminalEntries[rpState.terminalEntries.length-1]?.output||'';
+    logEl.textContent=out;el.appendChild(logEl);
+  }
+}
+
+function initRightPanel(){
+  rpState.renderChanges();rpState.updateBadge();
+  /* Add clear button to terminal tab header */
+  const termTab=document.querySelector('.rp-tab[data-tab="term"]');
+  if(termTab&&!termTab.querySelector('.rp-term-clear')){
+    const btn=document.createElement('button');btn.className='rp-term-clear';btn.textContent='Clear';btn.onclick=e=>{e.stopPropagation();rpClearTerminal();};
+    termTab.appendChild(btn);
+  }
 }
 
 /* ═══════════════ INIT ═══════════════ */
@@ -4363,6 +4955,7 @@ function init(){
 
   if(!document.getElementById('s-sys-prompt').value)document.getElementById('s-sys-prompt').value=DEFAULT_SYS;
   updateWelcomeStatus();updateScrollLockBtn();
+  initRightPanel();
   setTimeout(() => testConnection(3), 800);
   setInterval(checkCompanion, 20000);
   
@@ -4374,7 +4967,6 @@ function init(){
   }, 30000);
 
 }
-
 
 init();
 
