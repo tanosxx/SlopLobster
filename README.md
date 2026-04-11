@@ -1,6 +1,9 @@
 # SlopLobster
 
-![sloplobster](https://github.com/user-attachments/assets/a8e08863-9e1b-409b-8c02-c410892d816f)
+
+
+https://github.com/user-attachments/assets/0bc3c230-282a-4efb-a58e-365e82af710b
+
 
 
 # SlopLobster
