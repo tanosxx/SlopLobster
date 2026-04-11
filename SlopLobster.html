@@ -343,6 +343,17 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative
 .tool-panel.screenshot-tool .tool-result{display:none}
 .screenshot-tool .screenshot-preview{padding:8px 10px;border-top:1px solid var(--border)}
 .screenshot-tool .screenshot-preview img{max-width:100%;max-height:200px;border-radius:4px;border:1px solid var(--border)}
+.svg-preview{padding:8px 10px;border-top:1px solid var(--border);background:var(--bg-1)}
+.svg-preview-img{max-width:100%;max-height:280px;border-radius:6px;border:1px solid var(--border);background:var(--bg-0);padding:8px;object-fit:contain;display:block;cursor:pointer;transition:opacity .15s}
+.svg-preview-img:hover{opacity:.9}
+.svg-code-view{display:none;max-height:260px;overflow:auto}
+.svg-code-view pre{margin:0;padding:0}
+.svg-code-view code{font-family:'JetBrains Mono',monospace;font-size:10px;line-height:1.5;white-space:pre;display:block;padding:8px;background:#0d1117;border-radius:6px;border:1px solid var(--border);color:var(--tx-2)}
+.svg-toggle-row{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.svg-toggle-row span{font-size:10px;color:var(--tx-3);font-family:'JetBrains Mono',monospace;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.svg-toggle-btn{background:var(--bg-3);border:1px solid var(--border);color:var(--tx-2);cursor:pointer;font-size:9px;padding:2px 8px;border-radius:4px;font-family:'JetBrains Mono',monospace;transition:.12s;white-space:nowrap;flex-shrink:0}
+.svg-toggle-btn:hover{background:var(--bg-4);color:var(--tx-0);border-color:var(--border-l)}
+.svg-toggle-btn.active{background:rgba(34,211,238,.1);color:var(--cyan);border-color:rgba(34,211,238,.2)}
 
 .kbd{background:var(--bg-3);border:1px solid var(--border);padding:1px 6px;border-radius:3px;font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--tx-2);font-weight:500}
 .shortcut-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:12px;color:var(--tx-2)}
@@ -664,7 +675,7 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative
     </div>
   </div>
   <div class="field"><label>Command Timeout (s)</label><input type="number" id="s-cmd-timeout" value="60" min="5" max="600"></div>
-  <div class="field"><label>Context Window (tokens)</label><input type="number" id="s-ctx-window" value="32768" min="1024" max="200000"><div class="hint">For context meter estimation & auto-compact trigger</div></div>
+  <div class="field"><label>Context Window (tokens)</label><input type="number" id="s-ctx-window" value="62768" min="1024" max="200000"><div class="hint">For context meter estimation & auto-compact trigger</div></div>
   <div class="field"><label>Auto-compact threshold (%)</label><input type="number" id="s-auto-compact" value="85" min="50" max="99"><div class="hint">Automatically compact when context usage exceeds this</div></div>
   <div class="field"><label>Verify file writes</label><div class="slider-row"><input type="checkbox" id="s-verify-writes" checked style="accent-color:var(--accent)"><span class="val" style="min-width:auto">Read back after write to confirm</span></div></div>
   <div class="field"><label>System Prompt</label><textarea id="s-sys-prompt" rows="5"></textarea></div>
@@ -1698,6 +1709,28 @@ function closeImgViewer() {
   document.getElementById('img-viewer').classList.remove('open');
 }
 
+function toggleSvgView(btn){
+  const preview=btn.closest('.svg-preview');
+  const imgEl=preview.querySelector('.svg-preview-img');
+  const codeEl=preview.querySelector('.svg-code-view');
+  if(!imgEl||!codeEl)return;
+  const showingCode=codeEl.style.display!=='none';
+  if(showingCode){
+    codeEl.style.display='none';
+    imgEl.style.display='block';
+    btn.textContent='View Code';
+    btn.classList.remove('active');
+  }else{
+    imgEl.style.display='none';
+    codeEl.style.display='block';
+    btn.textContent='View Image';
+    btn.classList.add('active');
+    // Highlight on first open
+    const codeBlock=codeEl.querySelector('code');
+    if(codeBlock&&!codeBlock.dataset.hljs){hljs.highlightElement(codeBlock);codeBlock.dataset.hljs='1';}
+  }
+}
+
 function compressImageToBase64(canvas, maxPx) {
   maxPx = maxPx || 1280;
   let w = canvas.width, h = canvas.height;
@@ -2011,21 +2044,19 @@ function renderToolList(){
 
 async function retrySingleTool(panel) {
   if (state.running) return;
-
   const toolCallId = panel.el._toolCallId;
   if (!toolCallId) {
-    showToast('Cannot retry — tool call ID not available (old conversation)', 'warn');
+    showToast('Cannot retry — tool call ID not available', 'warn');
     return;
   }
 
-  /* ── Find the tool result in message history ── */
   const toolResultIdx = state.messages.findIndex(m => m.role === 'tool' && m.tool_call_id === toolCallId);
   if (toolResultIdx < 0) {
     showToast('Cannot retry — tool result not found in history', 'warn');
     return;
   }
 
-  /* ── Walk backward to find the parent assistant message ── */
+  // Find the parent assistant message
   let assistantIdx = -1;
   let targetToolCall = null;
   for (let i = toolResultIdx - 1; i >= 0; i--) {
@@ -2043,29 +2074,40 @@ async function retrySingleTool(panel) {
   const parentMsg = state.messages[assistantIdx];
   const isParallel = parentMsg.tool_calls.length > 1;
 
-  /* ── Rebuild message history to isolate this single tool call ── */
   if (isParallel) {
-        // Keep think calls + the retried call in the assistant message
-        const thinkTcs = parentMsg.tool_calls.filter(tc => tc.function.name === 'think');
-        state.messages[assistantIdx] = { ...parentMsg, tool_calls: [...thinkTcs, targetToolCall] };
+    // Calculate sliceEnd: find where this batch of tool results ends
+    // by scanning forward from the assistant message for tool results
+    let sliceEnd = assistantIdx + 1;
+    const toolCallIds = new Set(parentMsg.tool_calls.map(tc => tc.id));
+    for (let i = assistantIdx + 1; i < state.messages.length; i++) {
+      const m = state.messages[i];
+      if (m.role === 'tool' && toolCallIds.has(m.tool_call_id)) {
+        sliceEnd = i + 1;
+      } else if (m.role === 'user' && m._isAgentImage) {
+        // Agent-injected image messages belong to the batch
+        sliceEnd = i + 1;
+      } else {
+        break; // End of batch
+      }
+    }
 
-        // Identify which tool results produce images, so we can map image messages to tools
-        const nonThinkTcs = parentMsg.tool_calls.filter(tc => tc.function.name !== 'think');
-        const retriedIdxInBatch = nonThinkTcs.findIndex(tc => tc.id === toolCallId);
+    // Keep think calls + the retried call
+    const thinkTcs = parentMsg.tool_calls.filter(tc => tc.function.name === 'think');
+    state.messages[assistantIdx] = { ...parentMsg, tool_calls: [...thinkTcs, targetToolCall] };
 
-        // Scan tool results in the slice to build a positional map:
-        //   imageProducingToolIndices[i] = index into nonThinkTcs for the i-th image-producing result
-        const imageProducingToolIndices = [];
-        for (let i = assistantIdx + 1; i < sliceEnd; i++) {
-            const m = state.messages[i];
-            if (m.role !== 'tool') continue;
-            // Find this result's position among non-think tool calls
-            const tcIdx = nonThinkTcs.findIndex(tc => tc.id === m.tool_call_id);
-            if (tcIdx === -1) continue; // think result or unknown — skip
-            if (m._imageDataUrl || m._screenshotDataUrl) {
-                imageProducingToolIndices.push(tcIdx);
-            }
-        }
+    const nonThinkTcs = parentMsg.tool_calls.filter(tc => tc.function.name !== 'think');
+    const retriedIdxInBatch = nonThinkTcs.findIndex(tc => tc.id === toolCallId);
+
+    const imageProducingToolIndices = [];
+    for (let i = assistantIdx + 1; i < sliceEnd; i++) {
+      const m = state.messages[i];
+      if (m.role !== 'tool') continue;
+      const tcIdx = nonThinkTcs.findIndex(tc => tc.id === m.tool_call_id);
+      if (tcIdx === -1) continue;
+      if (m._imageDataUrl || m._screenshotDataUrl) {
+        imageProducingToolIndices.push(tcIdx);
+      }
+    }
 
         // Determine which image messages (by ordinal) to skip
         const imageOrdinalsToSkip = new Set();
@@ -2200,9 +2242,29 @@ async function retrySingleTool(panel) {
   if (diff) showDiffPanel(diff);
   if (searchData) showSearchPanel(searchData);
 
-  /* Render image preview if this tool returned one */
+  /* ── SVG preview from retry ── */
+  if (typeof result === 'object' && result && result._svgPreviewUrl && !panel.el.querySelector('.svg-preview')) {
+    panel.el.classList.add('screenshot-tool');
+    panel.el._svgPreviewUrl = result._svgPreviewUrl;
+    panel.el._svgText = result._svgText;
+    panel.el._svgPath = result._svgPath;
+    const prev = document.createElement('div');
+    prev.className = 'svg-preview';
+    const path = esc(result._svgPath || 'file.svg');
+    prev.innerHTML =
+      '<div class="svg-toggle-row">'+
+        '<span><i class="fas fa-bezier-curve" style="color:var(--accent);margin-right:4px"></i>'+path+'</span>'+
+        '<button class="svg-toggle-btn" onclick="toggleSvgView(this)">View Code</button>'+
+      '</div>'+
+      '<img class="svg-preview-img" src="'+result._svgPreviewUrl+'" onclick="openImgViewer(this.src)" alt="'+path+'">'+
+      '<div class="svg-code-view"><pre><code class="language-xml">'+esc(result._svgText||'')+'</code></pre></div>';
+    panel.el.appendChild(prev);
+  }
+
+  /* ── Raster image from retry ── */
   const imgUrl = panel.el._screenshotDataUrl || panel.el._imageDataUrl;
   if (imgUrl && !panel.el.querySelector('.screenshot-preview')) {
+
     panel.el.classList.add('screenshot-tool');
     const preview = document.createElement('div');
     preview.className = 'screenshot-preview';
@@ -2254,9 +2316,26 @@ async function readFileSafe(rel){
   const f=await h.getFile();
 
   /* ── Image files: return base64 for vision ── */
-  if(f.type&&f.type.startsWith('image/')&&!f.type.includes('svg')){
+  if(f.type&&f.type.includes('svg')){
+    const maxB=5*1024*1024;
+    if(f.size>maxB)return{output:`SVG: ${rel}\nSize: ${(f.size/1024).toFixed(1)} KB\n⚠ Too large to preview (max 5 MB). Use read_file_lines to read sections.`};
+    const text=await f.text();
+    cacheSet(rel,text);
+    let previewUrl=null;
+    try{previewUrl='data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(text)));}
+    catch{previewUrl='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(text);}
+    return{
+      output:`SVG: ${rel}\nSize: ${text.length} chars, ${text.split('\n').length} lines\n---\n${text}`,
+      _svgPreviewUrl:previewUrl,
+      _svgText:text,
+      _svgPath:rel
+    };
+  }
+
+  /* ── Raster image files: return base64 for vision ── */
+  if(f.type&&f.type.startsWith('image/')){
     const maxB=10*1024*1024;
-    if(f.size>maxB)return{output:`Image: ${rel}\nType: ${f.type}\nSize: ${(f.size/1024/1024).toFixed(1)} MB\n⚠ Too large to view (max 10 MB). You can try execute_command with a tool like "identify" or "file" to get metadata.`};
+    if(f.size>maxB)return{output:`Image: ${rel}\nType: ${f.type}\nSize: ${(f.size/1024/1024).toFixed(1)} MB\n⚠ Too large to view (max 10 MB)...`};
     try{
       const dataUrl=await fileToBase64FromFile(f);
       const sizeKB=Math.round((dataUrl.length*3/4)/1024);
@@ -3764,7 +3843,27 @@ async function agentLoop(){
             if(result._screenshotDataUrl){toolPanels[i].el._screenshotDataUrl=result._screenshotDataUrl;toolPanels[i].el._imagePath='screenshot';toolPanels[i].el._imageReason=result._screenshotReason||'agent requested';toolPanels[i].el._imageType='screenshot';}
             else if(result._imageDataUrl){toolPanels[i].el._imageDataUrl=result._imageDataUrl;toolPanels[i].el._imagePath=result._imagePath||'unknown';toolPanels[i].el._imageReason=result._imageReason||'file read';toolPanels[i].el._imageType='file';}
           }
-          updateToolResult(toolPanels[i],outText);if(diff)showDiffPanel(diff);if(searchData)showSearchPanel(searchData);
+
+          updateToolResult(toolPanels[i],outText);
+          if(diff)showDiffPanel(diff);
+          if(searchData)showSearchPanel(searchData);
+
+          /* ── SVG preview: show rendered image with code toggle ── */
+          if(typeof result==='object'&&result&&result._svgPreviewUrl&&!toolPanels[i].el.querySelector('.svg-preview')){
+            toolPanels[i].el.classList.add('screenshot-tool');
+            const prev=document.createElement('div');
+            prev.className='svg-preview';
+            const path=esc(result._svgPath||'file.svg');
+            prev.innerHTML=
+              '<div class="svg-toggle-row">'+
+                '<span><i class="fas fa-bezier-curve" style="color:var(--accent);margin-right:4px"></i>'+path+'</span>'+
+                '<button class="svg-toggle-btn" onclick="toggleSvgView(this)">View Code</button>'+
+              '</div>'+
+              '<img class="svg-preview-img" src="'+result._svgPreviewUrl+'" onclick="openImgViewer(this.src)" alt="'+path+'">'+
+              '<div class="svg-code-view"><pre><code class="language-xml">'+esc(result._svgText||'')+'</code></pre></div>';
+            toolPanels[i].el.appendChild(prev);
+          }
+
           if(!outText.includes('Error:')&&!outText.includes('ERROR')&&!outText.includes('Cancelled')){
             const args=safeParseArgs(tc.function.arguments);
             if(tc.function.name==='write_file')sessionChanges.created.add(args.path);
@@ -4507,41 +4606,62 @@ function replayMessages(msgs){
       $msg().appendChild(el);scrollBottom();
 
     } else if(m.role==='assistant'){
-      if(pendingThinkText!==null){renderStaticThinkBlock(pendingThinkText);pendingThinkText=null;}
-      if(m.content)appendMsg('assistant',m.content);
-      if (toolMsg._hadImagePreview && !toolMsg._imageDataUrl) {
-        // Show "image preview not available after reload" placeholder
-        panel.el.classList.add('screenshot-tool');
-        const preview = document.createElement('div');
-        preview.className = 'screenshot-preview';
-        preview.innerHTML = '<div style="font-size:10px;color:var(--tx-4);padding:12px;text-align:center"><i class="fas fa-image" style="margin-right:4px"></i>Image preview not available (page was reloaded)</div>';
-        panel.el.appendChild(preview);
-      }
-      if(m.tool_calls){
+    if(pendingThinkText!==null){renderStaticThinkBlock(pendingThinkText);pendingThinkText=null;}
+    if(m.content)appendMsg('assistant',m.content);
+    if(m.tool_calls){
         for(const tc of m.tool_calls){
-          if(tc.function.name==='think')continue;
-          if(tc.function.name==='web_search'){
+        if(tc.function.name==='think')continue;
+        if(tc.function.name==='web_search'){
             const toolMsg=msgs.find((tm,ti)=>ti>mi&&tm.role==='tool'&&tm.tool_call_id===tc.id);
             if(toolMsg&&toolMsg._searchData){showSearchPanel(toolMsg._searchData);}
-            else{const panel=showToolPanel(tc.function.name,tc.function.arguments,'ok');const tm2=msgs.find((tm,ti)=>ti>mi&&tm.role==='tool'&&tm.tool_call_id===tc.id);if(tm2)updateToolResult(panel,tm2.content);}
+            else{const panel=showToolPanel(tc.function.name,tc.function.arguments,'ok');
+                const tm2=msgs.find((tm,ti)=>ti>mi&&tm.role==='tool'&&tm.tool_call_id===tc.id);
+                if(tm2)updateToolResult(panel,tm2.content);}
             continue;
-          }
-          const panel=showToolPanel(tc.function.name,tc.function.arguments,'ok');
-          const toolMsg=msgs.find((tm,ti)=>ti>mi&&tm.role==='tool'&&tm.tool_call_id===tc.id);
-          if(toolMsg){
+        }
+        const panel=showToolPanel(tc.function.name,tc.function.arguments,'ok');
+        const toolMsg=msgs.find((tm,ti)=>ti>mi&&tm.role==='tool'&&tm.tool_call_id===tc.id);
+        if(toolMsg){
             updateToolResult(panel,toolMsg.content);
             if(toolMsg._diff)showDiffPanel(toolMsg._diff);
-            /* Replay image previews from file reads */
+            
+            // Replay image previews from file reads
             if(toolMsg._imageDataUrl&&!toolMsg._screenshotDataUrl){
-              panel.el.classList.add('screenshot-tool');
-              const preview=document.createElement('div');
-              preview.className='screenshot-preview';
-              preview.innerHTML='<div style="font-size:10px;color:var(--tx-3);margin-bottom:4px;font-family:\'JetBrains Mono\',monospace"><i class="fas fa-image" style="color:var(--accent)"></i> '+esc(toolMsg._imagePath||'image')+'</div><img src="'+toolMsg._imageDataUrl+'" onclick="openImgViewer(this.src)" alt="image">';
-              panel.el.appendChild(preview);
+            panel.el.classList.add('screenshot-tool');
+            const preview=document.createElement('div');
+            preview.className='screenshot-preview';
+            preview.innerHTML='<div style="font-size:10px;color:var(--tx-3);margin-bottom:4px;font-family:\'JetBrains Mono\',monospace"><i class="fas fa-image" style="color:var(--accent)"></i> '+esc(toolMsg._imagePath||'image')+'</div><img src="'+toolMsg._imageDataUrl+'" onclick="openImgViewer(this.src)" alt="image">';
+            panel.el.appendChild(preview);
             }
-          }
+
+            /* ── SVG preview replay ── */
+            if(toolMsg._svgPreviewUrl&&!panel.el.querySelector('.svg-preview')){
+              panel.el.classList.add('screenshot-tool');
+              const prev=document.createElement('div');
+              prev.className='svg-preview';
+              const path=esc(toolMsg._svgPath||'file.svg');
+              prev.innerHTML=
+                '<div class="svg-toggle-row">'+
+                  '<span><i class="fas fa-bezier-curve" style="color:var(--accent);margin-right:4px"></i>'+path+'</span>'+
+                  '<button class="svg-toggle-btn" onclick="toggleSvgView(this)">View Code</button>'+
+                '</div>'+
+                '<img class="svg-preview-img" src="'+toolMsg._svgPreviewUrl+'" onclick="openImgViewer(this.src)" alt="'+path+'">'+
+                '<div class="svg-code-view"><pre><code class="language-xml">'+esc(toolMsg._svgText||'')+'</code></pre></div>';
+              panel.el.appendChild(prev);
+            }            
+            
+            // Handle reloaded conversations that had image previews
+            if(toolMsg._hadImagePreview && !toolMsg._imageDataUrl){
+            panel.el.classList.add('screenshot-tool');
+            const preview=document.createElement('div');
+            preview.className='screenshot-preview';
+            preview.innerHTML='<div style="font-size:10px;color:var(--tx-4);padding:12px;text-align:center"><i class="fas fa-image" style="margin-right:4px"></i>Image preview not available (page was reloaded)</div>';
+            panel.el.appendChild(preview);
+            }
         }
-      }
+        }
+    }
+    
     } else if(m.role==='tool'){
       const parentMsg=msgs[mi-1];
       if(parentMsg?.tool_calls){
