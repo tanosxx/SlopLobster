@@ -3,195 +3,175 @@
 ![sloplobster](https://github.com/user-attachments/assets/a8e08863-9e1b-409b-8c02-c410892d816f)
 
 
-> **⚠️ Heads up — this is a vibe-coded personal project, not production software.** It gives an AI agent direct shell access to your machine. That's inherently dangerous. I built it because existing agents were too heavy, too cloud-dependent, or too locked down for my workflow. It works well for me. It might delete your files, run bad commands, or catch fire. Read the security section below, use it in a sandbox or VM if you're smart, and don't blame me.
+# SlopLobster
 
----
+A local AI coding agent that runs entirely in your browser and talks to LM Studio. It can read/write files, run shell commands, search the web, and do iterative development — all on your machine, nothing leaves localhost.
 
-SlopLobster is a local AI coding agent that runs entirely in your browser. It connects to [LM Studio](https://lmstudio.ai/) for LLM inference and an optional Python companion server for real shell access, git operations, and web search. No cloud APIs, no accounts, no telemetry — everything stays on your machine.
-
-```
-┌─────────────────────────────────────────────┐
-│              Your Browser                    │
-│  ┌─────────────────────────────────────┐    │
-│  │         SlopLobster UI              │    │
-│  │   (single HTML file, no build)      │    │
-│  └──────┬──────────┬──────────┬────────┘    │
-│         │          │          │              │
-│    File System   Tool       Screenshot      │
-│    Access API   Dispatch    (html2canvas)   │
-│         │          │                         │
-├─────────┼──────────┼─────────────────────────┤
-│         │          │       Your Machine      │
-│  ┌──────▼──────┐   │   ┌──────────────────┐ │
-│  │  Workspace   │   │   │  LM Studio       │ │
-│  │  (direct     │   │   │  localhost:1234  │ │
-│  │   read/write)│   │   │  (OpenAI-compat) │ │
-│  └─────────────┘   │   └──────────────────┘ │
-│                    │   ┌──────────────────┐ │
-│                    └──▶│  Companion       │ │
-│                        │  localhost:8765  │ │
-│                        │  (shell/git/web) │ │
-│                        └──────────────────┘ │
-└─────────────────────────────────────────────┘
-```
-
-## Features
-
-**Agent Loop** — The model thinks, uses tools, observes results, and iterates autonomously until the task is done. No manual step-by-step prompting needed.
-
-**File Operations** — Read, write, and edit files directly through the browser's File System Access API. The edit tool uses exact search/replace blocks with whitespace-tolerant fallback matching and LCS-based diff generation for review.
-
-**Shell Execution** — Two tiers:
-- *Virtual shell* (always available): `ls`, `cat`, `head`, `tail`, `grep`, `find`, `tree`, `wc`, `file`, `diff`, `mkdir`, `touch` — operates directly on the workspace without any server
-- *Full shell* (companion): any OS command, with auto-extended timeouts for package installs (pip, npm, cargo, etc.)
-
-**Web Search** — DuckDuckGo search via the companion, with optional auto-fetch of top result content for deeper reading. Results are cached for 5 minutes.
-
-**Git Integration** — `git_status`, `git_diff`, `git_log`, `git_add`, `git_commit` tools when the companion is running.
-
-**Image Understanding** — If your model supports vision (Gemma 4, Qwen-VL, Pixtral, etc.), the agent can view image files and take screenshots of the current UI state to inspect error messages, tool output, or code changes visually.
-
-**Context Management** — Tracks estimated token usage, auto-compacts when the context window fills up, and saves a detailed progress file (`.sloplobster-progress.md`) to the workspace so the agent can recover full context after compaction.
-
-**Conversation Management** — Save, search, fork, and delete conversations. All stored in localStorage. Export any conversation as Markdown.
-
-## Quick Start
-
-### 1. LM Studio
-
-[Download LM Studio](https://lmstudio.ai/), load a model that supports tool/function calling (recommended: Qwen 3.5, Gemma 4, or similar), and start the local server on `localhost:1234`.
-
-### 2. SlopLobster
-
-Open `index.html` in Chrome or Edge. That's it — no install, no build step. The app will auto-detect LM Studio on startup.
-
-### 3. Companion Server (optional but recommended)
-
-Click **Save** in the sidebar to download `SlopLobster-companion.py`, then run it:
-
-```bash
-python SlopLobster-companion.py
-```
-
-Click **Connect** in the sidebar. This enables real shell execution, git, and web search. Without it, you get a sandboxed virtual shell with basic file commands only.
-
-## Requirements
-
-| Component | Requirement |
-|-----------|-------------|
-| Browser | Chrome or Edge (File System Access API) |
-| LLM | LM Studio with a function-calling model |
-| Companion | Python 3.7+ (standard library only, no pip installs) |
-| Vision | A vision-capable model in LM Studio (optional) |
-
-## Security
-
-This is the part you should actually read.
-
-**What's dangerous:**
-- The companion server executes arbitrary shell commands on your machine. If the model decides to run `rm -rf /`, that's a real problem.
-- The agent can write to any file in your workspace directory.
-- The agent can delete files in your workspace.
-- LLMs hallucinate. A model might misinterpret your intent and do something destructive.
-
-**What's protected:**
-- **Path traversal blocking** — All file paths are sanitized. `../` segments are rejected. The agent cannot escape your workspace directory through path manipulation.
-- **Dangerous command detection** — Patterns like `rm -rf /`, `dd of=/dev/`, `mkfs`, `chmod 777 /`, `git push --force`, `shutdown`, and others trigger a confirmation dialog before execution. This is regex-based and not exhaustive — it's a speed bump, not a guarantee.
-- **Localhost only** — The companion server binds to `127.0.0.1` exclusively. Nothing is exposed to the network.
-- **No data leaves your machine** — No telemetry, no analytics, no cloud calls. The only network traffic is to `localhost:1234` (LM Studio) and `localhost:8765` (companion).
-- **Command timeouts** — Shell commands time out after a configurable duration (default 60s, auto-extended to 300s for package installs). Processes are killed on timeout.
-- **Write verification** — After writing a file, the content is read back and compared to confirm the write was successful.
-- **No `sudo` passthrough** — The companion doesn't elevate privileges. If you need sudo, that's on you.
-
-**What's NOT protected:**
-- The dangerous command detection is regex-based and can be bypassed with creative command construction
-- If you give the agent a workspace that contains sensitive files (SSH keys, credentials, `~/.bashrc` symlinks), it can read them
-- The model could construct a command that passes the regex filters but is still destructive
-- There's no sandboxing beyond the workspace directory boundary
-
-**Recommendations:**
-- Use a dedicated project directory, not your home folder
-- Don't point it at anything you can't afford to lose
-- Consider running in a VM or container for untrusted models
-- Keep an eye on what it's doing — tool calls are displayed in real time
-- Use a smaller, less capable model if you're worried about agent autonomy
+This is a personal project. No guarantees about safety, correctness, or fitness for any purpose. It works well enough for me, but your mileage will vary.
 
 ## How It Works
 
-The agent loop follows a think → act → observe cycle:
+```
+┌─────────────────────────────────────────────────┐
+│  Browser (single HTML file, no build step)       │
+│                                                  │
+│  ┌──────────┐  ┌──────────┐  ┌───────────────┐  │
+│  │ Agent    │──│ Tool     │──│ File System   │  │
+│  │ Loop     │  │ Dispatch │  │ Access API    │  │
+│  │ (stream) │  │          │  │ (read/write)  │  │
+│  └────┬─────┘  └────┬─────┘  └───────────────┘  │
+│       │              │                           │
+│       │         ┌────┴─────┐                     │
+│       │         │Companion │── Shell / Git /     │
+│       │         │Server    │   Web Search        │
+│       │         └──────────┘                     │
+│       │                                          │
+│       ▼                                          │
+│  ┌──────────┐                                    │
+│  │ LM Studio│  Local LLM inference               │
+│  │ API      │  (OpenAI-compatible)               │
+│  └──────────┘                                    │
+└─────────────────────────────────────────────────┘
+```
 
-1. **Think** — The model uses the `think` tool to reason about the task (visible to you as a collapsible block)
-2. **Act** — The model calls tools (read files, edit code, run commands, search the web). Multiple independent tools can run in parallel.
-3. **Observe** — Tool results are fed back to the model as `tool` messages
-4. **Repeat** — The cycle continues until the model stops calling tools and responds with text
+- **LM Studio** runs the LLM. SlopLobster streams tool calls from it in a loop.
+- **File System Access API** (Chrome/Edge) gives direct read/write to a workspace directory — no server needed for file ops.
+- **Companion server** (a small Python script) handles shell execution, git, and web search. Everything stays on 127.0.0.1.
 
-The system prompt is dynamically constructed based on current state:
-- What tools are available (depends on companion connection)
-- Whether the model supports vision
-- What OS/shell the companion is running on
-- Project type detection (Python, Node, Rust, Go)
-- Current context usage percentage
+## Setup
 
-## Configuration
+1. **Install [LM Studio](https://lmstudio.ai/)** and load a model. Tool-calling models work best (Qwen3.5 etc.).
+2. **Open `index.html`** in Chrome or Edge (File System Access API required).
+3. **Optional: Set up the companion** for shell/git/web search:
+   - Click "Save" in the sidebar to download `SlopLobster-companion.py`
+   - Run it: `python SlopLobster-companion.py`
+   - Click "Connect" in the sidebar
 
-Open Settings (gear icon) to configure:
+That's it. No npm, no build, no API keys, no cloud.
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| API URL | `http://localhost:1234` | LM Studio endpoint |
-| Companion URL | `http://127.0.0.1:8765` | Companion server endpoint |
-| Temperature | 0.3 | Lower = more deterministic |
-| Max Tokens | 60000 | Per-response token limit |
-| Max Iterations | 50 | Agent loop limit before auto-stop |
-| Max File Read | 500 KB | Truncation threshold for file reads |
-| Command Timeout | 60s | Shell command timeout |
-| Context Window | 62768 | For context meter estimation |
-| Auto-compact | 85% | Context usage % that triggers compaction |
-| Verify Writes | on | Read-back verification after file writes |
+## Features
 
-## Keyboard Shortcuts
+### Agent Loop
+- Streams responses with tool calling in a loop until the agent finishes
+- `think` tool for visible chain-of-thought (collapsible)
+- Parallel tool execution when tools don't depend on each other
+- Automatic retry with web search when stuck in failure loops
+- Text loop detection (Jaccard similarity on recent responses)
+- Configurable iteration limits with auto-compaction
 
-| Shortcut | Action |
-|----------|--------|
-| `Enter` | Send message |
-| `Shift+Enter` | New line |
-| `Esc` | Stop generation / close modal |
-| `Ctrl+Shift+N` | New conversation |
-| `Ctrl+B` | Toggle sidebar |
-| `Ctrl+K` | Search conversations |
-| `/` | Focus input |
-| `Ctrl+,` | Open settings |
-| `Ctrl+Shift+E` | Export conversation |
-| `Ctrl+Shift+M` | Compact context |
+### File Operations
+- `read_file` / `read_file_lines` — with image detection (sends to vision models visually)
+- `edit_file` — search/replace with whitespace-normalized fallback and diff preview
+- `write_file` — for new files only
+- `list_directory` / `search_files` / `grep` — with recursive search
+- `view_image` — SVG preview with rendered/code toggle, raster preview
+- `delete_file` / `move_file`
+- Write verification (reads back after write)
 
-## Slash Commands
+### Right Panel
+- **Files** — click any file to preview with line numbers and copy-on-click
+- **Changes** — tracks all modifications with compact diffs
+- **Term** — live streaming terminal output from shell commands
+- **Git** — branch, status, quick stage/log
 
-| Command | Description |
-|---------|-------------|
-| `/help` | Show available commands |
-| `/new` | New conversation |
-| `/compact` | Manually compact context |
-| `/dir` | Open workspace directory |
-| `/model` | List available models |
-| `/tools` | List available tools |
-| `/shell` | Check companion status |
-| `/status` | Show full status |
-| `/export` | Export as Markdown |
+### Context Management
+- Token estimation with live meter
+- Auto-compact at configurable threshold (default 85%)
+- Progress persistence: saves `.sloplobster-progress.md` to workspace before compaction
+- Agent reads progress file after compact to recover full context
+- Configurable max iterations with soft warning and auto-stop
 
-## Limitations
+### Vision
+- Screenshot capture with region selection (screen share → crop)
+- Image paste from clipboard
+- File drag-and-drop for images
+- Image attachments in messages
+- Vision capability auto-detected from model name/metadata
 
-- **Single HTML file** — The entire app is one file. It's ~70KB of HTML/CSS/JS. This means no bundler, no hot reload, no component framework. It also means you can just open it.
-- **No streaming tool calls** — Tool call arguments are buffered until complete. You see the thinking in real time, but tool execution starts after the full response chunk.
-- **localStorage only** — Conversations are stored in localStorage (typically 5-10MB limit). Large conversations will hit the quota. The app handles this by removing old conversations.
-- **No multi-file editing atomically** — Each `edit_file` call is a separate write. Parallel edits to the same file would conflict.
-- **Virtual shell is limited** — Without the companion, you get basic file commands but no real OS shell, no git, no web search.
-- **DuckDuckGo scraping** — Web search works by parsing DDG's HTML. It can break if DDG changes their markup or starts blocking more aggressively.
+### Model Loading
+- Load/unload models in LM Studio directly from SlopLobster
+- Configure: context length override, flash attention, KV cache offload, MoE experts, eval batch size
+- Shows loaded model status, load time, and config summary
+
+### Other
+- Conversation save/fork/delete with localStorage
+- Export as Markdown
+- Input history (arrow keys)
+- Keyboard shortcuts (Ctrl+B, Ctrl+K, /help, etc.)
+- Reference sites list for directing the agent to authoritative docs
+
+## Safety Layers
+
+This project has several safety mechanisms. They are **not guarantees** — they are reasonable precautions for a personal tool.
+
+### Path Traversal Blocking
+```
+sanitizePath("../../etc/passwd")  → Error: ".." segment detected
+sanitizePath("....\\\\passwd")    → Error: "...." segment detected
+```
+All file paths go through `sanitizePath()` which rejects `..` segments, null bytes, and suspicious dot-prefixed segments. File operations are additionally sandboxed to the workspace directory via the File System Access API handle.
+
+### Dangerous Command Detection
+Commands matching patterns like `rm -rf /`, `dd of=/dev/`, `mkfs`, `chmod 777 /`, `git push --force`, `curl | sh`, etc. require explicit user confirmation before execution.
+
+### Localhost Only
+- The companion server binds to `127.0.0.1` only
+- LM Studio API is typically `localhost:1234`
+- No external network calls from the HTML file itself
+- Web search goes through the companion's DuckDuckGo scraping (no API key)
+
+### Output Sanitization
+- DOMPurify sanitizes all markdown output (no XSS from LLM responses)
+- Binary file detection prevents reading non-text files as text
+- Truncation limits on file reads, command output, and search results
+
+### Resource Limits
+- Configurable max file read size (default 500 KB)
+- Command timeout (default 60s, auto-extended to 300s for package installs)
+- Max output truncation (100 KB from companion)
+- Max iterations before auto-stop (default 50)
+- Context auto-compact prevents unbounded memory growth
+
+### Sandboxed File System
+The File System Access API only grants access to the directory the user explicitly picks. The companion server's file operations don't exist — all file I/O goes through the browser API, which is scoped to the chosen workspace.
+
+### What It Doesn't Protect Against
+- A sufficiently determined LLM could potentially social-engineer the user into approving a dangerous command
+- If the companion server has bugs, shell commands could theoretically escape normal boundaries
+- The LLM itself could produce misleading code that does something unexpected when run
+- No sandboxing of the LLM's output code — if you run it, it runs with your user permissions
+
+## Companion Server
+
+The companion is a single Python file with no dependencies beyond the standard library. It provides:
+
+- **Shell execution** with streaming output (NDJSON), process group killing on timeout, auto-fallback between `python`/`python3`
+- **Web search** via DuckDuckGo HTML scraping (no API key needed)
+- **URL fetching** with HTML-to-text extraction (strips nav, scripts, styles; detects JS-rendered pages)
+- **Git operations** proxied through shell commands
+- Windows support (auto-detects Git Bash, translates cmd.exe commands)
+
+## Requirements
+
+- **Browser**: Chrome 86+ or Edge 86+ (File System Access API + `getDisplayMedia`)
+- **LM Studio**: [lmstudio.ai](https://lmstudio.ai/) with a loaded model
+- **Companion** (optional): Python 3.8+ with no pip dependencies
+- **Models**: Tool-calling models work best. Vision models (Qwen-3.5 etc.) enable image understanding. Non-tool-calling models will work but with degraded agent behavior.
 
 ## Tech
 
-- **UI**: Tailwind CSS, Space Grotesk + JetBrains Mono fonts
-- **Markdown**: marked.js with highlight.js for code blocks
-- **Screenshots**: html2canvas
-- **Icons**: Font Awesome
-- **Companion**: Python standard library only (http.server, subprocess, urllib)
+Single HTML file. No build step. No bundler. Dependencies loaded from CDN:
 
+- Tailwind CSS
+- JetBrains Mono + Space Grotesk fonts
+- highlight.js
+- marked
+- DOMPurify
+- html2canvas (screenshot fallback)
+- Font Awesome icons
+
+The companion server is pure stdlib Python.
+
+## License
+
+This is a personal project. Use it if it's useful to you, don't if it's not. No warranty, no liability, no support guarantees. The code is here for reference.
