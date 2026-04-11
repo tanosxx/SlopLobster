@@ -1346,6 +1346,7 @@ const TEMPLATES = [
 const modifiedFiles = new Set();
 const state = {
   apiUrl:'http://localhost:1234', compUrl:'http://127.0.0.1:8765',
+  isGitRepo: false,
   modelInfoMap: new Map(), // modelId -> {vision, contextLength, displayName, trainedForToolUse, architecture, paramsString}
   model:null, connected:false, compConnected:false, compInfo:null,
   messages:[], running:false, abortCtrl:null,
@@ -1494,7 +1495,7 @@ Do NOT parallelize when:
 
 ═══ WORKSPACE ═══
 
-Working directory: {{WORKING_DIR}}
+Working directory: {{WORKING_DIR}} — you are already inside this directory. Use relative paths directly (e.g. "src/main.py", NOT "{{WORKING_DIR}}/src/main.py"). Do NOT prefix paths with the directory name.
 Project info: {{PROJECT_INFO}}
 Python command: {{PYTHON_CMD}}`;
 
@@ -2001,12 +2002,16 @@ function getToolDefs(){
   if(state.compConnected){
     tools.push({type:'function',function:{name:'web_search',description:'Search the web via DuckDuckGo. Returns titles, URLs, and snippets. Set fetch_top=1-2 to auto-fetch full page content of top results for deeper reading. Essential for finding up-to-date docs, APIs, solutions.',parameters:{type:'object',properties:{query:{type:'string',description:'Search query'},num_results:{type:'number',description:'Number of results (1-20, default 8)'},fetch_top:{type:'number',description:'Fetch full content of top N results (0-3, default 0). Use 1-2 for quick lookups.'}},required:['query']}}});
     tools.push({type:'function',function:{name:'fetch_url',description:'Fetch and extract content from a URL. Modes: "text" (default, clean readable text), "raw" (full source).',parameters:{type:'object',properties:{url:{type:'string',description:'Full URL to fetch'},mode:{type:'string',enum:['text','raw'],description:'Extraction mode (default: text)'},max_bytes:{type:'number',description:'Max response bytes (default 500000)'}},required:['url']}}});
-    tools.push({type:'function',function:{name:'execute_command',description:'Execute ANY shell command via companion server. Use for: running tests, builds, installs, git operations. Package installs (pip, npm, cargo, etc.) automatically get a 300s timeout. For other long-running commands, set the timeout parameter.',parameters:{type:'object',properties:{command:{type:'string',description:'Complete shell command'},timeout:{type:'number',description:'Timeout in seconds (default: from settings, auto-extended for installs)'}},required:['command']}}}),
-    tools.push({type:'function',function:{name:'git_status',description:'Show git working tree status.',parameters:{type:'object',properties:{},required:[]}}});
-    tools.push({type:'function',function:{name:'git_diff',description:'Show git diff. Use staged=true for staged changes.',parameters:{type:'object',properties:{staged:{type:'boolean',description:'Show staged changes only'},file:{type:'string',description:'Specific file to diff'}},required:[]}}});
-    tools.push({type:'function',function:{name:'git_log',description:'Show recent git commit history.',parameters:{type:'object',properties:{count:{type:'number',description:'Number of commits (default: 10)'}},required:[]}}});
-    tools.push({type:'function',function:{name:'git_add',description:'Stage files for commit. Use "." to stage all changes.',parameters:{type:'object',properties:{paths:{type:'string',description:'File paths to stage (space-separated, or "." for all)'}},required:['paths']}}});
-    tools.push({type:'function',function:{name:'git_commit',description:'Commit staged changes with a descriptive message.',parameters:{type:'object',properties:{message:{type:'string',description:'Commit message'}},required:['message']}}});
+    tools.push({type:'function',function:{name:'execute_command',description:'Execute ANY shell command via companion server. Use for: running tests, builds, installs, git operations. Package installs (pip, npm, cargo, etc.) automatically get a 300s timeout. For other long-running commands, set the timeout parameter.',parameters:{type:'object',properties:{command:{type:'string',description:'Complete shell command'},timeout:{type:'number',description:'Timeout in seconds (default: from settings, auto-extended for installs)'}},required:['command']}}});
+
+  if(state.compConnected && state.isGitRepo){
+      tools.push({type:'function',function:{name:'git_status',description:'Show git working tree status.',parameters:{type:'object',properties:{},required:[]}}});
+      tools.push({type:'function',function:{name:'git_diff',description:'Show git diff. Use staged=true for staged changes.',parameters:{type:'object',properties:{staged:{type:'boolean',description:'Show staged changes only'},file:{type:'string',description:'Specific file to diff'}},required:[]}}});
+      tools.push({type:'function',function:{name:'git_log',description:'Show recent git commit history.',parameters:{type:'object',properties:{count:{type:'number',description:'Number of commits (default: 10)'}},required:[]}}});
+      tools.push({type:'function',function:{name:'git_add',description:'Stage files for commit. Use "." to stage all changes.',parameters:{type:'object',properties:{paths:{type:'string',description:'File paths to stage (space-separated, or "." for all)'}},required:['paths']}}});
+      tools.push({type:'function',function:{name:'git_commit',description:'Commit staged changes with a descriptive message.',parameters:{type:'object',properties:{message:{type:'string',description:'Commit message'}},required:['message']}}});
+    }
+
   } else {
     tools.push({type:'function',function:{name:'execute_command',description:'Limited virtual shell: ls, cat, head, tail, wc, grep, find, echo, mkdir, touch, pwd, tree, file, diff. Start companion for real shell + web search.',parameters:{type:'object',properties:{command:{type:'string',description:'Virtual shell command'}},required:['command']}}});
   }
@@ -2548,18 +2553,14 @@ async function execViaCompanion(command, explicitTimeout, externalSignal, onLine
       body:JSON.stringify({command,timeout}),
       signal:AbortSignal.timeout(httpTimeout)
     });
-    if(externalSignal?.aborted)return'[Cancelled by user]';
-    const ct=res.headers.get('Content-Type')||'';
-    if(ct.includes('ndjson')&&onLine){
-      return await readNdjsonStream(res,externalSignal,onLine);
-    }
-    if(!res.ok){const t=await res.text().catch(()=>res.statusText);throw new Error(`Companion HTTP ${res.status}: ${t}`);}
-    const data=await res.json();
+    if (externalSignal?.aborted) return '[Cancelled by user]';
+    // /execute always returns NDJSON — don't check Content-Type
+    return await readNdjsonStream(res, externalSignal, onLine);
     if(externalSignal?.aborted)return'[Cancelled by user]';
     let output=data.output||'(no output)';
     if (data.exit_code != null && data.exit_code !== 0)output+='\n[exit code: '+data.exit_code+']';
     return output;
-  }catch(e){
+    }catch(e){
     if(externalSignal?.aborted)return'[Cancelled by user]';
     const msg=e.message||'';
     const isTimeout=msg.includes('timed out')||msg.includes('Timeout')||msg.includes('AbortError')||msg.includes('The operation was aborted');
@@ -2585,22 +2586,39 @@ async function readNdjsonStream(res,signal,onLine){
       if(signal?.aborted){reader.cancel();break;}
       const{done,value}=await reader.read();if(done)break;
       buf+=dec.decode(value,{stream:true});
-      const lines=buf.split('\n');buf=lines.pop();
+      // Handle both \n and \r\n line endings
+      const lines=buf.split(/\r?\n/);
+      buf=lines.pop();
       for(const line of lines){
         if(!line.trim())continue;
         try{
           const m=JSON.parse(line);
           if(m.t==='d')exitCode=parseInt(m.d)||0;
-          else if(m.t==='o'||m.t==='e'){output+=m.d;onLine(m.d,m.t==='e');}
-        }catch{output+=line+'\n';onLine(line+'\n',false);}
+          else if(m.t==='o'||m.t==='e'){
+            output+=m.d;
+            try{onLine(m.d,m.t==='e');}catch{/* don't let UI errors kill the stream */}
+          }
+        }catch{
+          output+=line+'\n';
+          try{onLine(line+'\n',false);}catch{}
+        }
       }
     }
-  }catch(e){if(!signal?.aborted)output+='\n[Stream error: '+e.message+']';}
-  if(buf.trim()){
-    try{const m=JSON.parse(buf);if(m.t==='d')exitCode=parseInt(m.d)||0;else{output+=m.d;onLine(m.d,m.t==='e');}}
-    catch{output+=buf;onLine(buf,false);}
+  }catch(e){
+    if(!signal?.aborted)output+='\n[Stream error: '+e.message+']';
   }
-  if (exitCode != null && exitCode !== 0)output+='\n[exit code: '+exitCode+']';
+  // Process remaining buffer
+  if(buf.trim()){
+    try{
+      const m=JSON.parse(buf);
+      if(m.t==='d')exitCode=parseInt(m.d)||0;
+      else{output+=m.d;try{onLine(m.d,m.t==='e');}catch{};}
+    }catch{
+      output+=buf;
+      try{onLine(buf,false);}catch{};
+    }
+  }
+  if(exitCode!=null&&exitCode!==0)output+='\n[exit code: '+exitCode+']';
   return output;
 }
 
@@ -2696,7 +2714,26 @@ async function checkCompanion(){
     dot.className='status-dot off';txt.textContent='Shell';
     info.innerHTML='<div style="color:var(--tx-4)">Not connected</div>';
   }
+  checkGitRepo();
   renderToolList();
+}
+
+async function checkGitRepo() {
+  state.isGitRepo = false;
+  if (!state.compConnected) return;
+  try {
+    const res = await fetch(`${state.compUrl}/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: 'git rev-parse --is-inside-work-tree 2>&1', timeout: 10 }),
+      signal: AbortSignal.timeout(5000)
+    });
+    const text = await res.text();
+    // NDJSON response: {"t":"o","d":"true"} for a repo, {"t":"e","d":"fatal:..."} for not
+    state.isGitRepo = text.includes('"true"') && !text.includes('fatal');
+  } catch {
+    state.isGitRepo = false;
+  }
 }
 
 /* ═══════════════ TOOL DISPATCH ═══════════════ */
@@ -2894,7 +2931,7 @@ async function streamChat(messages, onChunk, onToolCall, onThinkStream) {
   /* ── Build dynamic prompt sections ── */
   const projInfo = state.projectType
     ? `Type: ${state.projectType}${state.projectMeta?.name ? ' | Name: ' + state.projectMeta.name : ''}${state.projectMeta?.deps ? ' | Key deps: ' + Object.entries(state.projectMeta.deps).slice(0, 8).map(([k]) => k).join(', ') : ''}`
-    : 'No project type detected';
+    : 'No project type detected — remember: already inside "' + (state.dirName || '?') + '", do not prefix paths';
 
   const pythonCmd = (function () {
     if (state.compConnected && state.compInfo) {
@@ -2978,11 +3015,13 @@ fetch_url uses urllib which CANNOT execute JavaScript. Many modern sites (news s
   })();
 
   /* Git section */
-  const gitSection = state.compConnected
-    ? `**Git tools available:** git_status, git_diff (staged=true for staged), git_log, git_add, git_commit.
+  const gitSection = !state.compConnected
+    ? 'Git tools require the companion server. Not available.'
+    : state.isGitRepo
+      ? `**Git tools available:** git_status, git_diff (staged=true for staged), git_log, git_add, git_commit.
 Workflow: make changes → git_status to see what changed → git_add to stage → git_commit with descriptive message.
 Use git_diff to review changes before committing. git_diff without arguments shows unstaged changes.`
-    : 'Git tools require the companion server. Not available.';
+      : '**Git not available:** The current workspace is not a git repository. Git tools are hidden. If the user wants version control, they should run `git init` in their terminal first, then the tools will appear on the next message.';
 
   /* Context section */
   const ctxPct = Math.round(getContextPct());
@@ -4959,7 +4998,7 @@ async function openDirectory(){
     state.dirName=state.dirHandle.name;
     document.getElementById('dir-name').textContent=state.dirName;
     showToast(`Workspace: ${state.dirName}`,'ok');
-    await refreshFileTree();await detectProject();updateWelcomeStatus();
+    await refreshFileTree();await detectProject();checkGitRepo();updateWelcomeStatus();
   }catch(e){if(e.name!=='AbortError')showToast(e.message,'err');}
 }
 
