@@ -1673,15 +1673,12 @@ function checkTextLoop(newText) {
 }
 
 /* ═══════════════ VISION / IMAGES ═══════════════ */
-const VISION_PATTERNS = /(?:vision|vl[/-]|vlm|visual|see|sight|llava|pixtral|qwen.*vl|gemma-4*|qwen3.5*|molmo|emu3|cogvlm|idefics|internvl|kosmos|florence|sharegpt4v|phi-3.*vision|minicpm.*v|glm-4v|gemini|gpt-4[.-]?o|o1|o3|o4-mini)/i;
 
 function detectVision(modelId) {
   if (!modelId) return false;
-  /* ── Check LM Studio native API metadata first ── */
+  /* ── Check LM Studio native API metadata  ── */
   const info = state.modelInfoMap.get(modelId);
   if (info !== undefined) return info.vision;
-  /* ── Fallback: regex for non-LM-Studio backends (Ollama, etc.) ── */
-  return VISION_PATTERNS.test(modelId);
 }
 
 function updateVisionUI() {
@@ -2889,28 +2886,43 @@ async function fetchModelInfo() {
     const res = await fetch(`${state.apiUrl}/api/v0/models`, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) return;
     const data = await res.json();
-    if (!Array.isArray(data.data)) return;
-    for (const m of data.data) {
-      if (!m.identifier) continue;
-      state.modelInfoMap.set(m.identifier, {
-        vision: !!m.vision,
-        contextLength: m.maxContextLength || m.contextLength || 0,
-        displayName: m.displayName || m.identifier,
-        trainedForToolUse: !!m.trainedForToolUse,
-        architecture: m.architecture || '',
+    const models = data.data || data.availableModels || data.downloadedModels || [];
+    if (!Array.isArray(models)) return;
+    for (const m of models) {
+      if (!m.id) continue;
+      const isVlm = m.type === 'vlm';
+      const hasToolUse = Array.isArray(m.capabilities) && m.capabilities.includes('tool_use');
+      state.modelInfoMap.set(m.id, {
+        vision: isVlm || !!m.vision,
+        contextLength: m.max_context_length || m.maxContextLength || 0,
+        loadedContextLength: m.loaded_context_length || 0,
+        displayName: m.displayName || m.id,
+        trainedForToolUse: hasToolUse || !!m.trainedForToolUse,
+        architecture: m.arch || m.architecture || '',
         paramsString: m.paramsString || '',
+        type: m.type || 'llm',
+        state: m.state || 'not-loaded',
+        publisher: m.publisher || '',
+        quantization: m.quantization || '',
       });
     }
   } catch {
-    /* /api/v0/models not available (non-LM-Studio backend) — regex fallback will be used */
+    /* /api/v0/models not available (non-LM-Studio backend) */
   }
 }
 
 async function testConnection(retry = 3) {
   try {
-    await refreshModels(false);
-    const count = document.getElementById('model-sel').options.length;
-    showToast(`Connected — ${count} model(s)`, 'ok');
+    await refreshModels(true); // was false — now double-checks after getting the list
+    const sel = document.getElementById('model-sel');
+    const count = sel.options.length;
+    if (activeInstance?.identifier === state.model) {
+      showToast(`Connected — ${state.model.split('/').pop()}`, 'ok');
+    } else if (!activeInstance) {
+      showToast(`Connected (${count} models) — couldn't verify loaded model`, 'warn');
+    } else {
+      showToast(`Loaded: ${activeInstance.identifier.split('/').pop()} — selector shows different model`, 'warn');
+    }
   } catch (e) {
     if (retry > 0) { setTimeout(() => testConnection(retry - 1), 3000); return; }
     showToast(`LM Studio: ${e.message}`, 'err');
@@ -3142,22 +3154,34 @@ function formatTok(n){return n<1000?Math.round(n)+' tok':(n/1000).toFixed(1)+'k 
 /* ═══════════════ MODEL SYNC (LM Studio v0.3+) ═══════════════ */
 let activeInstance = null; // { instance_id, identifier, ... }
 
-async function fetchActiveModel() {
-  /* Returns the full activeModel object from LM Studio, or null */
-  try {
-    const res = await fetch(`${state.apiUrl}/api/v0/models`, { signal: AbortSignal.timeout(3000) });
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data.activeModel?.state === 'loaded') {
-      activeInstance = data.activeModel;
-      return data.activeModel;
+async function fetchActiveModel(retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const timeout = attempt === 0 ? 5000 : 8000;
+      const res = await fetch(`${state.apiUrl}/api/v0/models`, { signal: AbortSignal.timeout(timeout) });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const models = data.data || [];
+      const loaded = models.find(m => m.state === 'loaded');
+      if (loaded) {
+        activeInstance = {
+          instance_id: loaded.id,   // ← was: loaded.instanceId || ''
+          identifier: loaded.id,
+          state: 'loaded',
+          contextLength: loaded.max_context_length || 0,
+          loadedContextLength: loaded.loaded_context_length || 0,
+        };
+        return activeInstance;
+      }
+      activeInstance = null;
+      return null;
+    } catch {
+      if (attempt === retries) { activeInstance = null; return null; }
+      await new Promise(r => setTimeout(r, 1500));
     }
-    activeInstance = null;
-    return null;
-  } catch {
-    activeInstance = null;
-    return null;
   }
+  activeInstance = null;
+  return null;
 }
 
 async function unloadModel(instanceId) {
@@ -3251,21 +3275,14 @@ async function refreshModels(forceReload) {
     if (activeId) {
       state.model = activeId;
       sel.value = activeId;
-    } else if (prev && sorted.find(m => m.id === prev)) {
-      state.model = prev;
-      sel.value = prev;
     } else {
+      // Couldn't determine what's loaded — pick first in list and let
+      // updateModelMeta() + updateModelLoadBtn() show the mismatch clearly.
       state.model = sorted[0].id;
     }
 
     sel.disabled = false;
 
-    // Sync context window to whatever is actually loaded
-    if (activeInstance?.contextLength && activeInstance.contextLength > 1024) {
-      state.ctxWindow = activeInstance.contextLength;
-      document.getElementById('s-ctx-window').value = state.ctxWindow;
-      updateContextMeter();
-    }
 
     updateVisionUI();
     updateModelMeta();
@@ -3292,16 +3309,25 @@ function updateModelMeta() {
   const meta = document.getElementById('model-meta');
   if (!meta) return;
   const info = state.modelInfoMap.get(state.model);
-  const parts = [];
-  if (info?.paramsString) parts.push(info.paramsString);
-  if (info?.contextLength) parts.push((info.contextLength / 1000).toFixed(0) + 'k');
-  if (info?.trainedForToolUse) parts.push('🔧');
-  if (info?.vision) parts.push('👁');
-  // Show mismatch warning
-  if (activeInstance && activeInstance.identifier && activeInstance.identifier !== state.model) {
-    meta.innerHTML = `<span style="color:var(--yellow)">⚠ loaded: ${esc(truncate(activeInstance.identifier, 28))}</span>`;
-  } else {
+  
+  // Always show what's actually loaded if we know it
+  if (activeInstance?.identifier && activeInstance.identifier !== state.model) {
+    const loadedShort = activeInstance.identifier.split('/').pop();
+    meta.innerHTML = `<span style="color:var(--yellow)" title="Click the load button to switch">⚠ loaded: ${esc(truncate(loadedShort, 28))}</span>`;
+  } else if (activeInstance?.identifier === state.model) {
+    // Confirmed match — show model info
+    const parts = [];
+    if (info?.paramsString) parts.push(info.paramsString);
+    if (info?.contextLength) parts.push((info.contextLength / 1000).toFixed(0) + 'k');
+    if (info?.trainedForToolUse) parts.push('🔧');
+    if (info?.vision) parts.push('👁');
     meta.textContent = parts.length ? parts.join(' · ') : '';
+  } else {
+    // Couldn't verify — show nothing or a subtle hint
+    const parts = [];
+    if (info?.paramsString) parts.push(info.paramsString);
+    if (info?.vision) parts.push('👁');
+    meta.innerHTML = parts.length ? parts.join(' · ') + ' <span style="color:var(--tx-4)">· unverified</span>' : '<span style="color:var(--tx-4)">unverified</span>';
   }
 }
 
@@ -3350,6 +3376,7 @@ async function requestModelLoad(modelId) {
 
   const loadBody = { model: modelId, echo_load_config: true };
   if (state.modelCtxOverride > 0) loadBody.context_length = state.modelCtxOverride;
+  else loadBody.context_length = state.ctxWindow;
   if (state.modelFlashAttn) loadBody.flash_attention = true;
   if (!state.modelKvOffload) loadBody.offload_kv_cache_to_gpu = false;
   if (state.modelNumExperts > 0) loadBody.num_experts = state.modelNumExperts;
@@ -3377,7 +3404,7 @@ async function requestModelLoad(modelId) {
 
     // Step 3: Update activeInstance from load response — no extra fetch needed
     activeInstance = {
-      instance_id: data.instance_id,
+      instance_id: data.instance_id || modelId,  
       identifier: modelId,
       state: 'loaded',
       contextLength: data.load_config?.context_length || state.modelCtxOverride || 0,
@@ -3401,12 +3428,6 @@ async function requestModelLoad(modelId) {
     const timeStr = loadTimeSec < 1 ? (loadTimeSec * 1000).toFixed(0) + 'ms' : loadTimeSec.toFixed(1) + 's';
     meta.innerHTML = `<span style="color:var(--green)">✓ ${timeStr}</span>${cfgStr ? '<span style="color:var(--tx-4);margin-left:4px">[' + esc(cfgStr) + ']</span>' : ''}`;
 
-    // If context_length came back, use it for our estimation
-    if (cfg.context_length && cfg.context_length > 1024) {
-      state.ctxWindow = cfg.context_length;
-      document.getElementById('s-ctx-window').value = state.ctxWindow;
-      updateContextMeter();
-    }
 
     // Re-fetch full model info to update vision/tools/etc flags for this loaded model
     updateVisionUI();
@@ -4802,6 +4823,9 @@ function loadSettings(){
     if(s.modelEvalBatch!==undefined) state.modelEvalBatch = s.modelEvalBatch;
     if(s.sysPrompt)document.getElementById('s-sys-prompt').value=s.sysPrompt;
   }catch{}
+  // ADD THESE TWO LINES — sync loaded settings to UI and meter on startup:
+  document.getElementById('s-ctx-window').value = state.ctxWindow;
+  updateContextMeter();
 }
 function persistSettings(){
   try{localStorage.setItem(SETTINGS_KEY,JSON.stringify({
@@ -4866,7 +4890,7 @@ function saveSettings(){
   state.autoCompactPct=Math.max(50,Math.min(99,parseInt(document.getElementById('s-auto-compact').value)||85));
   state.verifyWrites=document.getElementById('s-verify-writes').checked;
   persistSettings();closeSettings();showToast('Settings saved','ok');
-  testConnection();updateContextMeter();
+  testConnection();updateContextMeter();updateContextMeter();
 }
 
 /* ═══════════════ EXPORT ═══════════════ */
@@ -5394,19 +5418,25 @@ function init(){
     if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();handleSend();}
   });
 
-  document.getElementById('model-sel').addEventListener('change', e => {
-    state.model = e.target.value;
-    const info = state.modelInfoMap.get(state.model);
-    if (info?.contextLength > 1024) {
-      state.ctxWindow = info.contextLength;
-      document.getElementById('s-ctx-window').value = state.ctxWindow;
-      updateContextMeter();
+  document.getElementById('model-sel').addEventListener('change', async e => {
+    const newModel = e.target.value;
+    if (!newModel) return;
+    // If it's already loaded, just update local state
+    if (activeInstance?.identifier === newModel) {
+      state.model = newModel;
+      updateVisionUI(); updateModelMeta(); updateModelLoadBtn();
+      updateSendBtn(); updateWelcomeStatus();
+      return;
     }
-    updateVisionUI();
-    updateModelMeta();
-    updateModelLoadBtn();
-    updateSendBtn();
-    updateWelcomeStatus();
+    // Otherwise unload old and load new
+    if (state.running) {
+      showToast('Wait for current response to finish', 'warn');
+      e.target.value = state.model; // revert dropdown
+      return;
+    }
+    state.model = newModel;
+    updateVisionUI(); updateModelMeta(); updateSendBtn(); updateWelcomeStatus();
+    await requestModelLoad(newModel);
   });
 
   /* ── Show model metadata hint ── */
