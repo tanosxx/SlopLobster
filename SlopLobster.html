@@ -354,6 +354,10 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative
 .svg-toggle-btn{background:var(--bg-3);border:1px solid var(--border);color:var(--tx-2);cursor:pointer;font-size:9px;padding:2px 8px;border-radius:4px;font-family:'JetBrains Mono',monospace;transition:.12s;white-space:nowrap;flex-shrink:0}
 .svg-toggle-btn:hover{background:var(--bg-4);color:var(--tx-0);border-color:var(--border-l)}
 .svg-toggle-btn.active{background:rgba(34,211,238,.1);color:var(--cyan);border-color:rgba(34,211,238,.2)}
+.image-preview-only{padding:8px 10px;border-top:1px solid var(--border);background:var(--bg-1)}
+.image-preview-only img{max-width:100%;max-height:280px;border-radius:6px;border:1px solid var(--border);object-fit:contain;display:block;cursor:pointer;transition:opacity .15s}
+.image-preview-only img:hover{opacity:.9}
+.image-preview-only .img-label{font-size:10px;color:var(--tx-3);font-family:'JetBrains Mono',monospace;margin-bottom:4px;display:flex;align-items:center;gap:4px}
 
 .kbd{background:var(--bg-3);border:1px solid var(--border);padding:1px 6px;border-radius:3px;font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--tx-2);font-weight:500}
 .shortcut-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:12px;color:var(--tx-2)}
@@ -2003,8 +2007,9 @@ function addImageAttachmentsToInputArea() {
 function getToolDefs(){
   const tools = [
     {type:'function',function:{name:'think',description:'Think through a problem step by step before acting. Visible to user.',parameters:{type:'object',properties:{thought:{type:'string',description:'Your reasoning and plan'}},required:['thought']}}},
-    {type:'function',function:{name:'read_file',description: 'Read a file. For raster image files (PNG, JPG, GIF, WebP, BMP, ICO marked [IMAGE] in list_directory), the image is sent to you visually. SVG files are XML text — read them normally, you will see the markup.',parameters:{type:'object',properties:{path:{type:'string',description:'Relative path to file or image'}},required:['path']}}},
+{type:'function',function:{name:'read_file',description:'Read a file as text. For raster image files (PNG, JPG, GIF, WebP, BMP, ICO marked [IMAGE] in list_directory), the image is sent to you visually. For SVG files, returns the raw XML markup as text — use view_image to see the rendered graphic instead.',parameters:{type:'object',properties:{path:{type:'string',description:'Relative path to file or image'}},required:['path']}}},
     {type:'function',function:{name:'read_file_lines',description:'Read specific line ranges from a file. Much more efficient than reading entire files.',parameters:{type:'object',properties:{path:{type:'string',description:'Relative path'},start_line:{type:'number',description:'1-based start line (default: 1)'},end_line:{type:'number',description:'1-based end line (default: end of file)'}},required:['path']}}},
+    {type:'function',function:{name:'view_image',description:'Display an image file visually to the user. For SVG files, renders the graphic with a "View Code" toggle. For raster images (PNG, JPG, GIF, WebP), shows the image. If you are vision-capable, the image is also sent to you for analysis. Use this when you want to see how an image/SVG actually looks. Use read_file instead when you want to read the raw SVG/XML markup as text.',parameters:{type:'object',properties:{path:{type:'string',description:'Relative path to the image file (SVG, PNG, JPG, GIF, WebP, etc.)'}},required:['path']}}},   
     {type:'function',function:{name:'edit_file',description:'CRITICAL: Use this to modify existing files. Provide search/replace blocks. More reliable and token-efficient than write_file.',parameters:{type:'object',properties:{path:{type:'string',description:'Relative path'},edits:{type:'array',items:{type:'object',properties:{old_text:{type:'string',description:'Exact text to find (must be unique in file)'},new_text:{type:'string',description:'Replacement text'}},required:['old_text','new_text']},description:'Array of search/replace edits to apply sequentially'}},required:['path','edits']}}},
     {type:'function',function:{name:'write_file',description:'Create a new file or completely overwrite. Only use for NEW files — prefer edit_file for existing files.',parameters:{type:'object',properties:{path:{type:'string',description:'Relative path'},content:{type:'string',description:'Full file content'}},required:['path','content']}}},
     {type:'function',function:{name:'list_directory',description:'List files and directories. Image files are marked with [IMAGE].',parameters:{type:'object',properties:{path:{type:'string',description:'Relative path (default: root)'},recursive:{type:'boolean',description:'List recursively'}},required:[]}}},
@@ -2035,7 +2040,7 @@ function renderToolList(){
   const el=document.getElementById('tools-list');
   el.innerHTML=defs.map(t=>{
     const n=t.function.name;
-    const icons={think:'brain',read_file:'file-code',read_file_lines:'file-lines',edit_file:'pen-to-square',write_file:'file-circle-plus',list_directory:'list',search_files:'magnifying-glass',grep:'magnifying-glass-plus',web_search:'globe',fetch_url:'magnifying-glass',execute_command:'terminal',git_status:'code-branch',git_diff:'code-compare',git_log:'clock-rotate-left',git_add:'plus',git_commit:'check'};
+    const icons={think:'brain',read_file:'file-code',read_file_lines:'file-lines',view_image:'image',edit_file:'pen-to-square',write_file:'file-circle-plus',list_directory:'list',search_files:'magnifying-glass',grep:'magnifying-glass-plus',web_search:'globe',fetch_url:'magnifying-glass',execute_command:'terminal',git_status:'code-branch',git_diff:'code-compare',git_log:'clock-rotate-left',git_add:'plus',git_commit:'check'};
     const live=(n==='execute_command'||n==='web_search')&&state.compConnected?' live':'';
     return `<div class="tool-tag${live}" title="${t.function.description}"><i class="fas fa-${icons[n]||'bolt'}"></i> ${n}</div>`;
   }).join('');
@@ -2262,6 +2267,36 @@ async function retrySingleTool(panel) {
   }
 
   /* ── Raster image from retry ── */
+    /* ── SVG preview from retry ── */
+  if(typeof result==='object'&&result&&result._svgPreviewUrl&&!panel.el.querySelector('.svg-preview')){
+    panel.el.classList.add('screenshot-tool');
+    panel.el._svgPreviewUrl=result._svgPreviewUrl;
+    panel.el._svgText=result._svgText;
+    panel.el._svgPath=result._svgPath;
+    const prev=document.createElement('div');
+    prev.className='svg-preview';
+    const path=esc(result._svgPath||'file.svg');
+    prev.innerHTML=
+      '<div class="svg-toggle-row">'+
+        '<span><i class="fas fa-bezier-curve" style="color:var(--accent);margin-right:4px"></i>'+path+'</span>'+
+        '<button class="svg-toggle-btn" onclick="toggleSvgView(this)">View Code</button>'+
+      '</div>'+
+      '<img class="svg-preview-img" src="'+result._svgPreviewUrl+'" onclick="openImgViewer(this.src)" alt="'+path+'">'+
+      '<div class="svg-code-view"><pre><code class="language-xml">'+esc(result._svgText||'')+'</code></pre></div>';
+    panel.el.appendChild(prev);
+  }
+
+  /* ── Non-vision raster preview from retry ── */
+  if(typeof result==='object'&&result&&result._previewDataUrl&&!result._imageDataUrl&&!panel.el.querySelector('.image-preview-only')){
+    panel.el.classList.add('screenshot-tool');
+    const prev=document.createElement('div');
+    prev.className='image-preview-only';
+    const path=esc(result._previewPath||'image');
+    prev.innerHTML=
+      '<div class="img-label"><i class="fas fa-image" style="color:var(--accent)"></i>'+path+'</div>'+
+      '<img src="'+result._previewDataUrl+'" onclick="openImgViewer(this.src)" alt="'+path+'">';
+    panel.el.appendChild(prev);
+  }
   const imgUrl = panel.el._screenshotDataUrl || panel.el._imageDataUrl;
   if (imgUrl && !panel.el.querySelector('.screenshot-preview')) {
 
@@ -2370,6 +2405,70 @@ async function readFileLinesSafe(rel, startLine, endLine){
   const header=`File: ${rel}\nLines: ${s+1}-${e} of ${lines.length}\n---\n`;
   const numbered=selected.map((l,i)=>`${String(s+i+1).padStart(4)} | ${l}`).join('\n');
   return{output:header+numbered};
+}
+
+async function viewImageSafe(rel){
+  requireWorkspace();
+  const h=await resolvePath(rel);
+  if(h.kind!=='file')return{output:`"${rel}" is not a file`};
+  const f=await h.getFile();
+
+  const isSvg=f.type&&f.type.includes('svg');
+  const isRaster=f.type&&f.type.startsWith('image/')&&!isSvg;
+
+  if(!isSvg&&!isRaster){
+    return{output:`"${rel}" is not an image file (type: ${f.type||'unknown'}). Use read_file for text files.`};
+  }
+
+  const maxB=10*1024*1024;
+  if(f.size>maxB){
+    return{output:`Image: ${rel}\nType: ${f.type}\nSize: ${(f.size/1024/1024).toFixed(1)} MB\n⚠ Too large to preview (max 10 MB). Use read_file_lines to read sections of the raw data.`};
+  }
+
+  /* ── SVG: render preview + keep text for code toggle ── */
+  if(isSvg){
+    const text=await f.text();
+    cacheSet(rel,text);
+    let previewUrl;
+    try{previewUrl='data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(text)));}
+    catch{previewUrl='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(text);}
+
+    const result={
+      output:`SVG: ${rel}\nSize: ${text.length} chars, ${text.split('\n').length} lines\n[Rendered preview shown to user]`,
+      _svgPreviewUrl:previewUrl,
+      _svgText:text,
+      _svgPath:rel,
+    };
+    /* If vision-capable, also send to model so it can see the rendered graphic */
+    if(state.visionCapable){
+      result._imageDataUrl=previewUrl;
+      result._imagePath=rel;
+      result._imageReason='view_image (rendered SVG)';
+      result._imageType='svg';
+    }
+    return result;
+  }
+
+  /* ── Raster image ── */
+  try{
+    const dataUrl=await fileToBase64FromFile(f);
+    const sizeKB=Math.round((dataUrl.length*3/4)/1024);
+    const result={
+      output:`Image: ${rel}\nType: ${f.type}\nSize: ${sizeKB} KB\n[Preview shown to user${state.visionCapable?' and sent to you for viewing':''}]`,
+      _previewDataUrl:dataUrl,
+      _previewPath:rel,
+    };
+    /* If vision-capable, send to model */
+    if(state.visionCapable){
+      result._imageDataUrl=dataUrl;
+      result._imagePath=rel;
+      result._imageReason='view_image';
+      result._imageType='raster';
+    }
+    return result;
+  }catch(e){
+    return{output:`Image: ${rel}\nError reading: ${e.message}`};
+  }
 }
 
 async function editFileSafe(rel, edits){
@@ -2826,6 +2925,9 @@ async function executeTool(name, argsStr, signal, panel){
       case 'read_file':
         if(!args.path)return{output:'Error: "path" is required for read_file'};
         result=await readFileSafe(args.path);break;
+      case 'view_image':
+        if(!args.path)return{output:'Error: "path" is required for view_image'};
+        result=await viewImageSafe(args.path);break;
       case 'read_file_lines':
         if(!args.path)return{output:'Error: "path" is required for read_file_lines'};
         result=await readFileLinesSafe(args.path,args.start_line,args.end_line);break;
@@ -3146,8 +3248,19 @@ Use git_diff to review changes before committing. git_diff without arguments sho
   });
 
   if (!res.ok) {
-    const err = await res.text().catch(() => res.statusText);
-    throw new Error(`API ${res.status}: ${err}`);
+      const errRaw = await res.text().catch(() => res.statusText);
+      /* Strip HTML error pages from LM Studio into a clean message */
+      let err = errRaw;
+      if (err.includes('<!DOCTYPE') || err.includes('<html')) {
+        const titleMatch = err.match(/<title>([^<]*)<\/title>/i);
+        const preMatch = err.match(/<pre>([^<]*)<\/pre>/i);
+        if (preMatch) err = preMatch[1].trim();
+        else if (titleMatch) err = titleMatch[1].trim();
+        else err = 'LM Studio internal error';
+      }
+      /* Truncate very long errors */
+      if (err.length > 300) err = err.slice(0, 300) + '...';
+      throw new Error(`API ${res.status}: ${err}`);
   }
 
   const reader = res.body.getReader(), dec = new TextDecoder();
@@ -3708,7 +3821,20 @@ async function progressCompact(progressSaved) {
       ], temperature: 0.1, max_tokens: 1000 }),
       signal: state.abortCtrl.signal
     });
-    if (!res.ok) throw new Error('API ' + res.status);
+    if (!res.ok) {
+      const errRaw = await res.text().catch(() => res.statusText);
+      let err = errRaw;
+      if (err.includes('<!DOCTYPE') || err.includes('<html')) {
+        const preMatch = err.match(/<pre>([^<]*)<\/pre>/i);
+        const titleMatch = err.match(/<title>([^<]*)<\/title>/i);
+        if (preMatch) err = preMatch[1].trim();
+        else if (titleMatch) err = titleMatch[1].trim();
+        else err = 'LM Studio internal error';
+      }
+      if (err.length > 300) err = err.slice(0, 300) + '...';
+      throw new Error('API ' + res.status + ': ' + err);
+    }
+
     const data = await res.json();
     const summary = data.choices?.[0]?.message?.content || 'Summary unavailable';
     const before = estimateConvTokens();
@@ -3752,9 +3878,9 @@ async function progressCompact(progressSaved) {
 async function agentLoop(){
   state.running=true;updateSendBtn();
   let iters=0;
-  const SOFT_WARN = Math.floor(state.maxIters * 0.4);   // ~40%
-  const COMPACT_AT = Math.floor(state.maxIters * 0.6);   // ~60%
-  const HARD_STOP  = state.maxIters;        
+  const SOFT_WARN = Math.floor(state.maxIters * 0.4);
+  const COMPACT_AT = Math.floor(state.maxIters * 0.6);
+  const HARD_STOP  = state.maxIters;
   const sessionChanges={modified:new Set(),created:new Set(),deleted:new Set(),moved:[]};
   toolCallHistory.length=0;
   textLoopBuffer.length=0;
@@ -3762,210 +3888,285 @@ async function agentLoop(){
   while(state.running){
     const ctxPct=getContextPct();
     if(ctxPct>=state.autoCompactPct){
-        
-    const saved=await saveProgressToWorkspace('context limit ('+Math.round(ctxPct)+'%)');
-    if (!saved) appendMsg('system', '⚠ Could not save progress file — workspace may be disconnected');
-    await progressCompact(saved);iters=0;if(!state.running)break;continue;}
-    if(iters>=COMPACT_AT){const saved=await saveProgressToWorkspace('iteration limit ('+iters+')');await progressCompact(saved);iters=0;if(!state.running)break;continue;}
+      const saved=await saveProgressToWorkspace('context limit ('+Math.round(ctxPct)+'%)');
+      if(!saved)appendMsg('system','⚠ Could not save progress file — workspace may be disconnected');
+      await progressCompact(saved);iters=0;if(!state.running)break;continue;
+    }
+    if(iters>=COMPACT_AT){
+      const saved=await saveProgressToWorkspace('iteration limit ('+iters+')');
+      await progressCompact(saved);iters=0;if(!state.running)break;continue;
+    }
     if(iters===SOFT_WARN){
-    state.messages.push({
-    role: 'user',
-    content: '[SYSTEM NOTE: Context at ' + Math.round(getContextPct()) + '%. Will auto-compact at ' + COMPACT_AT + ' iterations. A progress file will be saved. Continue working normally — do not acknowledge this message, just keep going.]'
-    });
+      state.messages.push({
+        role:'user',
+        content:'[SYSTEM NOTE: Context at '+Math.round(getContextPct())+'%. Will auto-compact at '+COMPACT_AT+' iterations. A progress file will be saved. Continue working normally — do not acknowledge this message, just keep going.]'
+      });
     }
     iters++;
-    if(iters>HARD_STOP){await saveProgressToWorkspace('hard stop ('+iters+' iterations)');appendMsg('system','Stopped after '+iters+' iterations. Progress saved to `'+getProgressFile()+'`.');break;}
+    if(iters>HARD_STOP){
+      await saveProgressToWorkspace('hard stop ('+iters+' iterations)');
+      appendMsg('system','Stopped after '+iters+' iterations. Progress saved to `'+getProgressFile()+'`.');
+      break;
+    }
 
     const th=showThinking();let cur='',tcs=[];
     const liveThinkEls=new Map();
     try{
-      await streamChat(state.messages,t=>{cur=t;if(th)th.remove();updateStreamingMsg(t);},c=>{tcs=c;},(thinkText)=>{let idx=-1;for(let i=0;i<tcs.length;i++){if(tcs[i].function.name==='think')idx=i;}if(idx===-1)return;if(th)th.remove();if(!liveThinkEls.has(idx)){const el=createLiveThinkBlock();if(streamEl&&streamEl.parentNode)streamEl.parentNode.insertBefore(el,streamEl);else $msg().appendChild(el);liveThinkEls.set(idx,el);}updateLiveThinkBlock(liveThinkEls.get(idx),thinkText);scrollBottom();});
+      await streamChat(state.messages,t=>{cur=t;if(th)th.remove();updateStreamingMsg(t);},c=>{tcs=c;},(thinkText)=>{
+        let idx=-1;for(let i=0;i<tcs.length;i++){if(tcs[i].function.name==='think')idx=i;}
+        if(idx===-1)return;if(th)th.remove();
+        if(!liveThinkEls.has(idx)){
+          const el=createLiveThinkBlock();
+          if(streamEl&&streamEl.parentNode)streamEl.parentNode.insertBefore(el,streamEl);
+          else $msg().appendChild(el);
+          liveThinkEls.set(idx,el);
+        }
+        updateLiveThinkBlock(liveThinkEls.get(idx),thinkText);scrollBottom();
+      });
     }catch(e){
       if(th&&th.parentNode)th.remove();
       if(e.name==='AbortError'){if(iters>2)saveProgressToWorkspace('user stopped ('+iters+' iterations)');appendMsg('system','Stopped.');break;}
       appendMsg('system','Error: '+e.message);break;
     }
     if(th&&th.parentNode)th.remove();
-    const am={role:'assistant',content:cur||null};if(tcs.length)am.tool_calls=tcs;state.messages.push(am);updateContextMeter();
+    const am={role:'assistant',content:cur||null};if(tcs.length)am.tool_calls=tcs;
+    state.messages.push(am);updateContextMeter();
     for(const[,el]of liveThinkEls)finalizeLiveThinkBlock(el);liveThinkEls.clear();
+
     if(!tcs.length){
-      /* ── Text loop detection ── */
       if(checkTextLoop(cur)){
-        if(streamEl){ finalizeStreamingMsg(cur); streamEl = null; }
+        if(streamEl){finalizeStreamingMsg(cur);streamEl=null;}
         const wEl=document.createElement('div');wEl.className='health-warning';
         wEl.innerHTML='<i class="fas fa-triangle-exclamation"></i><span>Agent stuck in a text loop — repeating similar responses. Intervening...</span>';
         $msg().appendChild(wEl);scrollBottom();
         state.messages.push({role:'user',content:'[SYSTEM: Your last '+TEXT_LOOP_WINDOW+' responses were highly repetitive — you are looping. Stop. Either take a DIFFERENT action (use a tool, try a new approach) or clearly tell the user what you are stuck on and ask for guidance. Do NOT repeat what you just said.]'});
-        textLoopBuffer.length = 0;
-        /* Don't break — let it try to recover, but if it loops again the iteration limit will stop it */
+        textLoopBuffer.length=0;
         continue;
       }
       finalizeStreamingMsg(cur);break;
     }
     if(cur)finalizeStreamingMsg(cur);
+
     const thinkTcs=tcs.filter(tc=>tc.function.name==='think');
     const nonThinkTcs=tcs.filter(tc=>tc.function.name!=='think');
-    const validToolNames = new Set(getToolDefs().map(t => t.function.name));
-    const rejectedTcs = nonThinkTcs.filter(tc => !validToolNames.has(tc.function.name));
-    const validNonThinkTcs = nonThinkTcs.filter(tc => validToolNames.has(tc.function.name));
+    const validToolNames=new Set(getToolDefs().map(t=>t.function.name));
+    const rejectedTcs=nonThinkTcs.filter(tc=>!validToolNames.has(tc.function.name));
+    const validNonThinkTcs=nonThinkTcs.filter(tc=>validToolNames.has(tc.function.name));
 
-    if (rejectedTcs.length) {
-      appendMsg('system', 'Tool(s) no longer available: ' + rejectedTcs.map(tc => tc.function.name).join(', ') + ' — companion disconnected mid-conversation.');
-      for (const tc of rejectedTcs) {
+    if(rejectedTcs.length){
+      appendMsg('system','Tool(s) no longer available: '+rejectedTcs.map(tc=>tc.function.name).join(', ')+' — companion disconnected mid-conversation.');
+    }
+
+    if(validNonThinkTcs.length){
+      const isParallel=validNonThinkTcs.length>1;
+      if(isParallel)showParallelBadge(validNonThinkTcs.length);
+      const toolAbortCtrls=validNonThinkTcs.map(()=>new AbortController());
+      const batchId='batch_'+Date.now();
+      const toolPanels=validNonThinkTcs.map((tc,i)=>{
+        const p=showToolPanel(tc.function.name,tc.function.arguments,'run',
+          ()=>toolAbortCtrls[i].abort(),tc.id);
+        p.el._batchId=batchId;
+        return p;
+      });
+
+      /* ── Map tc.id → panel for later lookup ── */
+      const panelMap=new Map();
+      for(let i=0;i<validNonThinkTcs.length;i++)panelMap.set(validNonThinkTcs[i].id,toolPanels[i]);
+
+      const results=await Promise.all(validNonThinkTcs.map(async(tc,i)=>{
+        if(toolAbortCtrls[i].signal.aborted){
+          updateToolStatus(toolPanels[i],'err');updateToolResult(toolPanels[i],'Cancelled by user.');
+          return{tc,outText:'Cancelled by user.',cancelled:true};
+        }
+        let result;
+        try{
+          result=await executeTool(tc.function.name,tc.function.arguments,toolAbortCtrls[i].signal,toolPanels[i]);
+          updateToolStatus(toolPanels[i],'ok');
+        }catch(e){
+          if(toolAbortCtrls[i].signal.aborted){
+            updateToolStatus(toolPanels[i],'err');updateToolResult(toolPanels[i],'Cancelled by user.');
+            return{tc,outText:'Cancelled by user.',cancelled:true};
+          }
+          result={output:'Error: '+e.message};updateToolStatus(toolPanels[i],'err');
+        }
+        const outText=(typeof result==='string')?result:(result&&result.output)||'';
+        const diff=(typeof result==='object'&&result&&result.diff)||null;
+        const searchData=(typeof result==='object'&&result&&result._searchData)||null;
+
+        /* ── Collect all preview metadata onto panel.el ── */
+        if(typeof result==='object'&&result){
+          if(result._screenshotDataUrl){
+            toolPanels[i].el._screenshotDataUrl=result._screenshotDataUrl;
+            toolPanels[i].el._imagePath='screenshot';
+            toolPanels[i].el._imageReason=result._screenshotReason||'agent requested';
+            toolPanels[i].el._imageType='screenshot';
+          }else if(result._imageDataUrl){
+            toolPanels[i].el._imageDataUrl=result._imageDataUrl;
+            toolPanels[i].el._imagePath=result._imagePath||'unknown';
+            toolPanels[i].el._imageReason=result._imageReason||'file read';
+            toolPanels[i].el._imageType=result._imageType||'file';
+          }
+          toolPanels[i].el._svgPreviewUrl=result._svgPreviewUrl||null;
+          toolPanels[i].el._svgText=result._svgText||null;
+          toolPanels[i].el._svgPath=result._svgPath||null;
+          toolPanels[i].el._previewDataUrl=result._previewDataUrl||null;
+          toolPanels[i].el._previewPath=result._previewPath||null;
+        }
+
+        updateToolResult(toolPanels[i],outText);
+        if(diff)showDiffPanel(diff);
+        if(searchData)showSearchPanel(searchData);
+
+        if(!outText.includes('Error:')&&!outText.includes('ERROR')&&!outText.includes('Cancelled')){
+          const args=safeParseArgs(tc.function.arguments);
+          if(tc.function.name==='write_file')sessionChanges.created.add(args.path);
+          if(tc.function.name==='edit_file')sessionChanges.modified.add(args.path);
+          if(tc.function.name==='delete_file')sessionChanges.deleted.add(args.path);
+          if(tc.function.name==='move_file')sessionChanges.moved.push({from:args.source,to:args.destination});
+        }
+        const sig=tc.function.name+':'+(tc.function.arguments||'').slice(0,100);
+        const success=!outText.includes('Error:')&&!outText.includes('ERROR')&&!outText.includes('Cancelled');
+        toolCallHistory.push({sig,success});if(toolCallHistory.length>20)toolCallHistory.shift();
+        return{tc,outText,diff,searchData};
+      }));
+
+      if(toolCallHistory.length>=3){
+        const r=toolCallHistory.slice(-3);
+        if(r[0].sig===r[1].sig&&r[1].sig===r[2].sig&&!r[0].success&&!r[1].success&&!r[2].success){
+          const wEl=document.createElement('div');wEl.className='health-warning';
+          wEl.innerHTML='<i class="fas fa-triangle-exclamation"></i><span>Agent stuck in a loop — same tool call failed 3 times. Intervening...</span>';
+          $msg().appendChild(wEl);scrollBottom();
+          state.messages.push({role:'user',content:'[SYSTEM: Your last 3 tool calls were identical and all failed: "'+r[0].sig+'". Stop repeating this. BEFORE trying again, use web_search to look up the error or problem. Research the solution, then try a different approach. If search doesn\'t help, ask the user.]'});
+          state.messages.push({role:'assistant',content:'Understood. I was stuck in a failure loop. Let me try a completely different approach.'});
+          toolCallHistory.length=0;
+        }
+      }
+
+      /* ── Index results by tool_call_id ── */
+      const resultMap=new Map();
+      for(const r of results)resultMap.set(r.tc.id,r);
+
+      /* ── Push ALL tool results in original tcs order (API requirement) ── */
+      for(const tc of tcs){
+        if(tc.function.name==='think'){
+          let thought='';
+          try{const a=JSON.parse(tc.function.arguments);thought=a.thought||'';}
+          catch{thought=tc.function.arguments||'';}
+          state.messages.push({role:'tool',tool_call_id:tc.id,content:thought});
+        }else{
+          const r=resultMap.get(tc.id);
+          const panel=panelMap.get(tc.id);
+
+          /* ── Rejected tool (companion disconnected mid-conversation) ── */
+          if(!r){
+            state.messages.push({
+              role:'tool',tool_call_id:tc.id,
+              content:'[Error: '+tc.function.name+' is no longer available — the companion server disconnected. The tool list has been updated. Use only the tools that are currently available.]'
+            });
+            continue;
+          }
+
+          /* ── Build tool message with metadata for replay ── */
+          const toolMsg={
+            role:'tool',tool_call_id:tc.id,content:r.outText,
+            _diff:r.diff||null,_searchData:r.searchData||null,
+          };
+          /* Attach preview metadata from panel for replay */
+          if(panel){
+            if(panel.el._svgPreviewUrl){toolMsg._svgPreviewUrl=panel.el._svgPreviewUrl;toolMsg._svgText=panel.el._svgText;toolMsg._svgPath=panel.el._svgPath;}
+            if(panel.el._previewDataUrl){toolMsg._previewDataUrl=panel.el._previewDataUrl;toolMsg._previewPath=panel.el._previewPath;}
+            if(panel.el._imageDataUrl){toolMsg._imageDataUrl=panel.el._imageDataUrl;toolMsg._imagePath=panel.el._imagePath;toolMsg._imageReason=panel.el._imageReason;toolMsg._imageType=panel.el._imageType;}
+            if(panel.el._screenshotDataUrl){toolMsg._screenshotDataUrl=panel.el._screenshotDataUrl;toolMsg._imagePath=panel.el._imagePath;toolMsg._imageReason=panel.el._imageReason;toolMsg._imageType=panel.el._imageType;}
+          }
+          state.messages.push(toolMsg);
+
+          /* ── Right panel: track changes + auto-preview ── */
+          const tName=tc.function.name;const tArgs=safeParseArgs(tc.function.arguments);
+          if((tName==='edit_file'||tName==='write_file')&&r.diff){
+            rpState.addChange(r.diff.path,tName==='write_file'?'created':'modified',r.diff);
+            if(tArgs.path)previewFile(tArgs.path);
+          }
+          if(tName==='delete_file'&&tArgs.path)rpState.addChange(tArgs.path,'deleted',null);
+          if(tName==='move_file'&&tArgs.destination)rpState.addChange(tArgs.destination||'?','moved',null);
+        }
+      }
+
+      if(rpState.activeTab==='git'&&state.compConnected)setTimeout(updateGitPanel,300);
+
+      /* ── Render ALL previews in ONE place (no duplicates) ── */
+      for(let ri=0;ri<results.length;ri++){
+        const panel=toolPanels[ri];
+
+        /* SVG: rendered image + code toggle */
+        if(panel.el._svgPreviewUrl&&!panel.el.querySelector('.svg-preview')){
+          panel.el.classList.add('screenshot-tool');
+          const prev=document.createElement('div');prev.className='svg-preview';
+          const path=esc(panel.el._svgPath||'file.svg');
+          prev.innerHTML=
+            '<div class="svg-toggle-row">'+
+              '<span><i class="fas fa-bezier-curve" style="color:var(--accent);margin-right:4px"></i>'+path+'</span>'+
+              '<button class="svg-toggle-btn" onclick="toggleSvgView(this)">View Code</button>'+
+            '</div>'+
+            '<img class="svg-preview-img" src="'+panel.el._svgPreviewUrl+'" onclick="openImgViewer(this.src)" alt="'+path+'">'+
+            '<div class="svg-code-view"><pre><code class="language-xml">'+esc(panel.el._svgText||'')+'</code></pre></div>';
+          panel.el.appendChild(prev);
+        }
+
+        /* Raster preview for non-vision models (no model injection) */
+        if(panel.el._previewDataUrl&&!panel.el._imageDataUrl&&!panel.el.querySelector('.image-preview-only')){
+          panel.el.classList.add('screenshot-tool');
+          const prev=document.createElement('div');prev.className='image-preview-only';
+          const path=esc(panel.el._previewPath||'image');
+          prev.innerHTML=
+            '<div class="img-label"><i class="fas fa-image" style="color:var(--accent)"></i>'+path+'</div>'+
+            '<img src="'+panel.el._previewDataUrl+'" onclick="openImgViewer(this.src)" alt="'+path+'">';
+          panel.el.appendChild(prev);
+        }
+
+        /* Vision image: inject into model context + show preview */
+        const imgUrl=panel.el._screenshotDataUrl||panel.el._imageDataUrl;
+        if(!imgUrl)continue;
+
+        if(!panel.el.querySelector('.screenshot-preview')){
+          panel.el.classList.add('screenshot-tool');
+          const preview=document.createElement('div');preview.className='screenshot-preview';
+          const imgPath=panel.el._imagePath||'image';
+          const label=panel.el._imageType==='file'
+            ?'<div style="font-size:10px;color:var(--tx-3);margin-bottom:4px;font-family:\'JetBrains Mono\',monospace"><i class="fas fa-image" style="color:var(--accent)"></i> '+esc(imgPath)+'</div>'
+            :'';
+          preview.innerHTML=label+'<img src="'+imgUrl+'" onclick="openImgViewer(this.src)" alt="'+esc(imgPath)+'">';
+          panel.el.appendChild(preview);
+        }
+
         state.messages.push({
-          role: 'tool',
-          tool_call_id: tc.id,
-          content: '[Error: ' + tc.function.name + ' is no longer available — the companion server disconnected. The tool list has been updated. Use only the tools that are currently available.]'
+          role:'user',
+          content:'['+(panel.el._imageType||'screenshot')+': '+(panel.el._imageReason||'captured')+' — '+(panel.el._imagePath||'image')+']',
+          _images:[{type:'image_url',image_url:{url:imgUrl}}],
+          _isAgentImage:true,_imageType:panel.el._imageType
         });
       }
     }
 
-    if(validNonThinkTcs.length){
-        const isParallel=validNonThinkTcs.length>1;if(isParallel)showParallelBadge(validNonThinkTcs.length);
-        const toolAbortCtrls=validNonThinkTcs.map(()=>new AbortController());
-        const batchId = 'batch_' + Date.now();
-        const toolPanels = validNonThinkTcs.map((tc, i) => {
-            const p = showToolPanel(tc.function.name, tc.function.arguments, 'run',
-            () => toolAbortCtrls[i].abort(), tc.id);
-            p.el._batchId = batchId;
-            return p;
-        });
-
-
-        const results=await Promise.all(validNonThinkTcs.map(async(tc,i)=>{
-          if(toolAbortCtrls[i].signal.aborted){updateToolStatus(toolPanels[i],'err');updateToolResult(toolPanels[i],'Cancelled by user.');return{tc,outText:'Cancelled by user.',cancelled:true};}
-          let result;try{result=await executeTool(tc.function.name,tc.function.arguments,toolAbortCtrls[i].signal,toolPanels[i]);updateToolStatus(toolPanels[i],'ok');}
-          catch(e){if(toolAbortCtrls[i].signal.aborted){updateToolStatus(toolPanels[i],'err');updateToolResult(toolPanels[i],'Cancelled by user.');return{tc,outText:'Cancelled by user.',cancelled:true};}result={output:'Error: '+e.message};updateToolStatus(toolPanels[i],'err');}
-          const outText=(typeof result==='string')?result:(result&&result.output)||'';
-          const diff=(typeof result==='object'&&result&&result.diff)||null;
-          const searchData=(typeof result==='object'&&result&&result._searchData)||null;
-          if(typeof result==='object'&&result){
-            if(result._screenshotDataUrl){toolPanels[i].el._screenshotDataUrl=result._screenshotDataUrl;toolPanels[i].el._imagePath='screenshot';toolPanels[i].el._imageReason=result._screenshotReason||'agent requested';toolPanels[i].el._imageType='screenshot';}
-            else if(result._imageDataUrl){toolPanels[i].el._imageDataUrl=result._imageDataUrl;toolPanels[i].el._imagePath=result._imagePath||'unknown';toolPanels[i].el._imageReason=result._imageReason||'file read';toolPanels[i].el._imageType='file';}
-          }
-
-          updateToolResult(toolPanels[i],outText);
-          if(diff)showDiffPanel(diff);
-          if(searchData)showSearchPanel(searchData);
-
-          /* ── SVG preview: show rendered image with code toggle ── */
-          if(typeof result==='object'&&result&&result._svgPreviewUrl&&!toolPanels[i].el.querySelector('.svg-preview')){
-            toolPanels[i].el.classList.add('screenshot-tool');
-            const prev=document.createElement('div');
-            prev.className='svg-preview';
-            const path=esc(result._svgPath||'file.svg');
-            prev.innerHTML=
-              '<div class="svg-toggle-row">'+
-                '<span><i class="fas fa-bezier-curve" style="color:var(--accent);margin-right:4px"></i>'+path+'</span>'+
-                '<button class="svg-toggle-btn" onclick="toggleSvgView(this)">View Code</button>'+
-              '</div>'+
-              '<img class="svg-preview-img" src="'+result._svgPreviewUrl+'" onclick="openImgViewer(this.src)" alt="'+path+'">'+
-              '<div class="svg-code-view"><pre><code class="language-xml">'+esc(result._svgText||'')+'</code></pre></div>';
-            toolPanels[i].el.appendChild(prev);
-          }
-
-          if(!outText.includes('Error:')&&!outText.includes('ERROR')&&!outText.includes('Cancelled')){
-            const args=safeParseArgs(tc.function.arguments);
-            if(tc.function.name==='write_file')sessionChanges.created.add(args.path);
-            if(tc.function.name==='edit_file')sessionChanges.modified.add(args.path);
-            if(tc.function.name==='delete_file')sessionChanges.deleted.add(args.path);
-            if(tc.function.name==='move_file')sessionChanges.moved.push({from:args.source,to:args.destination});
-          }
-          const sig=tc.function.name+':'+(tc.function.arguments||'').slice(0,100);
-          const success=!outText.includes('Error:')&&!outText.includes('ERROR')&&!outText.includes('Cancelled');
-          toolCallHistory.push({sig,success});if(toolCallHistory.length>20)toolCallHistory.shift();
-          return{tc,outText,diff,searchData};
-        }));
-
-        if(toolCallHistory.length>=3){const r=toolCallHistory.slice(-3);if(r[0].sig===r[1].sig&&r[1].sig===r[2].sig&&!r[0].success&&!r[1].success&&!r[2].success){
-          const wEl=document.createElement('div');wEl.className='health-warning';wEl.innerHTML='<i class="fas fa-triangle-exclamation"></i><span>Agent stuck in a loop — same tool call failed 3 times. Intervening...</span>';$msg().appendChild(wEl);scrollBottom();
-          state.messages.push({role:'user',content:'[SYSTEM: Your last 3 tool calls were identical and all failed: "'+r[0].sig+'". Stop repeating this. BEFORE trying again, use web_search to look up the error or problem. Research the solution, then try a different approach. If search doesn\'t help, ask the user.]'});
-          state.messages.push({role:'assistant',content:'Understood. I was stuck in a failure loop. Let me try a completely different approach.'});toolCallHistory.length=0;
-        }}
-
-        // ── Index results by tool_call_id for ordered retrieval ──
-        const resultMap = new Map();
-        for (const r of results) resultMap.set(r.tc.id, r);
-
-        // ── Push ALL tool results in original tcs order ──
-        // The API requires tool results to appear in the same sequence
-        // as tool_calls in the assistant message.
-        for (const tc of tcs) {
-          if (tc.function.name === 'think') {
-            let thought = '';
-            try { const a = JSON.parse(tc.function.arguments); thought = a.thought || ''; }
-            catch { thought = tc.function.arguments || ''; }
-            state.messages.push({ role: 'tool', tool_call_id: tc.id, content: thought });
-          } else {
-            const r = resultMap.get(tc.id);
-            if (!r) continue;
-            const toolMsg = {
-              role: 'tool',
-              tool_call_id: tc.id,
-              content: r.outText,
-              _diff: r.diff || null,
-              _searchData: r.searchData || null
-            };
-            state.messages.push(toolMsg);
-
-            // ── Right panel: track changes + auto-preview edited files ──
-            const tName = tc.function.name;
-            const tArgs = safeParseArgs(tc.function.arguments);
-            if ((tName === 'edit_file' || tName === 'write_file') && r.diff) {
-              rpState.addChange(r.diff.path, tName === 'write_file' ? 'created' : 'modified', r.diff);
-              if (tArgs.path) previewFile(tArgs.path);
-            }
-            if (tName === 'delete_file' && tArgs.path) rpState.addChange(tArgs.path, 'deleted', null);
-            if (tName === 'move_file' && tArgs.destination) rpState.addChange(tArgs.destination || '?', 'moved', null);
-          }
-        }
-
-        /* Refresh git panel if visible */
-        if(rpState.activeTab==='git'&&state.compConnected)setTimeout(updateGitPanel,300);
-
-        // ── Handle image results: show preview + inject as user messages ──
-        for (let ri = 0; ri < results.length; ri++) {
-          const panel = toolPanels[ri];
-          if (!panel.el._imageDataUrl && !panel.el._screenshotDataUrl) continue;
-          const imgUrl = panel.el._screenshotDataUrl || panel.el._imageDataUrl;
-          const imgPath = panel.el._imagePath || 'image';
-          const imgReason = panel.el._imageReason || 'captured';
-          const imgType = panel.el._imageType || 'screenshot';
-
-          if (!panel.el.querySelector('.screenshot-preview')) {
-            panel.el.classList.add('screenshot-tool');
-            const preview = document.createElement('div');
-            preview.className = 'screenshot-preview';
-            const label = imgType === 'file'
-              ? '<div style="font-size:10px;color:var(--tx-3);margin-bottom:4px;font-family:\'JetBrains Mono\',monospace"><i class="fas fa-image" style="color:var(--accent)"></i> ' + esc(imgPath) + '</div>'
-              : '';
-            preview.innerHTML = label + '<img src="' + imgUrl + '" onclick="openImgViewer(this.src)" alt="' + esc(imgPath) + '">';
-            panel.el.appendChild(preview);
-          }
-          state.messages.push({
-            role: 'user',
-            content: '[' + imgType + ': ' + imgReason + ' — ' + imgPath + ']',
-            _images: [{ type: 'image_url', image_url: { url: imgUrl } }],
-            _isAgentImage: true,
-            _imageType: imgType
-          });
-        }
+    /* ── Think-only turn (no non-think tools) ── */
+    else if(thinkTcs.length){
+      for(const tc of thinkTcs){
+        let thought='';
+        try{const a=JSON.parse(tc.function.arguments);thought=a.thought||'';}
+        catch{thought=tc.function.arguments||'';}
+        state.messages.push({role:'tool',tool_call_id:tc.id,content:thought});
       }
-      // ── Think-only tool calls (no non-think tools) ──
-      else if (thinkTcs.length) {
-        for (const tc of thinkTcs) {
-          let thought = '';
-          try { const a = JSON.parse(tc.function.arguments); thought = a.thought || ''; }
-          catch { thought = tc.function.arguments || ''; }
-          state.messages.push({ role: 'tool', tool_call_id: tc.id, content: thought });
-        }
-      }
-      updateContextMeter();
+    }
+
+    updateContextMeter();
   }
+
   state.running=false;state.abortCtrl=null;updateSendBtn();saveCurrentConv();
-  if(sessionChanges.modified.size||sessionChanges.created.size||sessionChanges.deleted.size||sessionChanges.moved.length){showChangeSummary(sessionChanges);refreshFileTree();}
+  if(sessionChanges.modified.size||sessionChanges.created.size||sessionChanges.deleted.size||sessionChanges.moved.length){
+    showChangeSummary(sessionChanges);refreshFileTree();
+  }
 }
 
+    
 
 /* ═══════════════ LIVE THINK BLOCK ═══════════════ */
 function createLiveThinkBlock(){
@@ -3999,6 +4200,27 @@ function toggleThinkContent(hdrEl){
   block._collapsed=!block._collapsed;
   content.classList.toggle('collapsed',block._collapsed);
   chevron.classList.toggle('collapsed',block._collapsed);
+}
+
+function toggleSvgView(btn){
+  const preview=btn.closest('.svg-preview');
+  const imgEl=preview.querySelector('.svg-preview-img');
+  const codeEl=preview.querySelector('.svg-code-view');
+  if(!imgEl||!codeEl)return;
+  const showingCode=codeEl.style.display!=='none';
+  if(showingCode){
+    codeEl.style.display='none';
+    imgEl.style.display='block';
+    btn.textContent='View Code';
+    btn.classList.remove('active');
+  }else{
+    imgEl.style.display='none';
+    codeEl.style.display='block';
+    btn.textContent='View Image';
+    btn.classList.add('active');
+    const codeBlock=codeEl.querySelector('code');
+    if(codeBlock&&!codeBlock.dataset.hljs){hljs.highlightElement(codeBlock);codeBlock.dataset.hljs='1';}
+  }
 }
 
 /* ═══════════════ UI RENDERING ═══════════════ */
@@ -4633,6 +4855,34 @@ function replayMessages(msgs){
             preview.innerHTML='<div style="font-size:10px;color:var(--tx-3);margin-bottom:4px;font-family:\'JetBrains Mono\',monospace"><i class="fas fa-image" style="color:var(--accent)"></i> '+esc(toolMsg._imagePath||'image')+'</div><img src="'+toolMsg._imageDataUrl+'" onclick="openImgViewer(this.src)" alt="image">';
             panel.el.appendChild(preview);
             }
+
+            /* ── SVG preview replay ── */
+            if(toolMsg._svgPreviewUrl&&!panel.el.querySelector('.svg-preview')){
+              panel.el.classList.add('screenshot-tool');
+              const prev=document.createElement('div');
+              prev.className='svg-preview';
+              const path=esc(toolMsg._svgPath||'file.svg');
+              prev.innerHTML=
+                '<div class="svg-toggle-row">'+
+                  '<span><i class="fas fa-bezier-curve" style="color:var(--accent);margin-right:4px"></i>'+path+'</span>'+
+                  '<button class="svg-toggle-btn" onclick="toggleSvgView(this)">View Code</button>'+
+                '</div>'+
+                '<img class="svg-preview-img" src="'+toolMsg._svgPreviewUrl+'" onclick="openImgViewer(this.src)" alt="'+path+'">'+
+                '<div class="svg-code-view"><pre><code class="language-xml">'+esc(toolMsg._svgText||'')+'</code></pre></div>';
+              panel.el.appendChild(prev);
+            }
+
+            /* ── Non-vision raster preview replay ── */
+            if(toolMsg._previewDataUrl&&!toolMsg._imageDataUrl&&!panel.el.querySelector('.image-preview-only')){
+              panel.el.classList.add('screenshot-tool');
+              const prev=document.createElement('div');
+              prev.className='image-preview-only';
+              const path=esc(toolMsg._previewPath||'image');
+              prev.innerHTML=
+                '<div class="img-label"><i class="fas fa-image" style="color:var(--accent)"></i>'+path+'</div>'+
+                '<img src="'+toolMsg._previewDataUrl+'" onclick="openImgViewer(this.src)" alt="'+path+'">';
+              panel.el.appendChild(prev);
+            }            
 
             /* ── SVG preview replay ── */
             if(toolMsg._svgPreviewUrl&&!panel.el.querySelector('.svg-preview')){
