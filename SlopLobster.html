@@ -5296,17 +5296,39 @@ async function updateGitPanel(){
 
 async function rpGitQuick(action){
   if(!state.compConnected)return;
-  const msgs={stage:'git add -A',log:'git log --oneline -10'};
-  const cmd=msgs[action];if(!cmd)return;
-  rpTermStart(cmd);
-  try{const out=await execViaCompanion(cmd,15);rpTermEnd(out);showToast('Done','ok');}
-  catch(e){rpTermEnd('[Error: '+e.message+']');showToast('Failed','err');}
-  if(action==='stage')setTimeout(updateGitPanel,500);
   if(action==='log'){
     const el=document.getElementById('rp-git-content');
-    const logEl=document.createElement('div');logEl.style.cssText='padding:8px 12px;font-family:JetBrains Mono,monospace;font-size:10px;color:var(--tx-2);white-space:pre-wrap;border-top:1px solid var(--border)';
-    const out=rpState.terminalEntries[rpState.terminalEntries.length-1]?.output||'';
-    logEl.textContent=out;el.appendChild(logEl);
+    const existingLog=el.querySelector('.rp-git-log');
+    if(existingLog)existingLog.remove();
+    const logEl=document.createElement('div');
+    logEl.className='rp-git-log';
+    logEl.style.cssText='border-top:1px solid var(--border)';
+    logEl.innerHTML='<div style="padding:6px 12px;font-size:9px;color:var(--tx-4);font-family:JetBrains Mono,monospace;text-transform:uppercase;letter-spacing:.5px">Recent Commits</div>';
+    el.appendChild(logEl);
+    try{
+      const out=await execViaCompanion('git log --oneline --decorate -15',15);
+      const clean=(out||'').replace(/\[exit code.*$/,'').trim();
+      if(!clean){logEl.innerHTML+='<div style="padding:12px;font-size:11px;color:var(--tx-4);text-align:center">No commits yet</div>';return;}
+      const lines=clean.split('\n').filter(l=>l.trim());
+      const items=lines.map((line,i)=>{
+        const m=line.match(/^([0-9a-f]{7,})\s*(.*)/);
+        if(!m)return '';
+        const hash=m[1], msg=m[2].trim();
+        const isFirst=i===0;
+        return `<div style="display:flex;align-items:flex-start;gap:8px;padding:${isFirst?'8':'5'}px 12px;${isFirst?'background:var(--bg-2);':''}cursor:default;transition:background .1s" onmouseover="this.style.background='var(--bg-3)'" onmouseout="this.style.background='${isFirst?'var(--bg-2)':''}'">
+          <code style="font-family:JetBrains Mono,monospace;font-size:10px;color:var(--accent);flex-shrink:0;margin-top:1px;user-select:all;cursor:text">${esc(hash)}</code>
+          <span style="font-size:11px;color:var(--tx-1);line-height:1.4">${esc(msg)}</span>
+        </div>`;
+      }).join('');
+      logEl.innerHTML+='<div>'+items+'</div>';
+    }catch(e){logEl.innerHTML+='<div style="padding:12px;font-size:11px;color:var(--red)">Error: '+esc(e.message)+'</div>';}
+    return;
+  }
+  if(action==='stage'){
+    rpTermStart('git add -A');
+    try{const out=await execViaCompanion('git add -A',15);rpTermEnd(out);showToast('Staged','ok');}
+    catch(e){rpTermEnd('[Error: '+e.message+']');showToast('Failed','err');}
+    setTimeout(updateGitPanel,500);
   }
 }
 
