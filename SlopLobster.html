@@ -10,6 +10,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <script>
 tailwind.config={theme:{extend:{fontFamily:{mono:['JetBrains Mono','monospace'],sans:['Space Grotesk','sans-serif']}}}}
@@ -1315,6 +1316,8 @@ if __name__ == "__main__":
 `;
 
 /* ═══════════════ TEMPLATES ═══════════════ */
+function esc(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+
 const TEMPLATES = [
   {id:'analyze',label:'Analyze Codebase',icon:'fa-magnifying-glass-chart',prompt:'Analyze this codebase. Use list_directory first to understand structure, then read key files. Explain architecture, dependencies, and entry points.',color:'var(--cyan)'},
   {id:'fix',label:'Find & Fix Bugs',icon:'fa-bug',prompt:'Find and fix bugs in this project. Run tests, check for errors, and apply targeted fixes using edit_file.',color:'var(--red)'},
@@ -1545,7 +1548,11 @@ const REFERENCE_SITES = [
   ]},
 ];
 
+
 function buildReferenceSection(){
+  let _cachedReferenceSection = '';
+  let _cachedReferenceSectionHash = '';
+  if (_cachedReferenceSection) return _cachedReferenceSection;
   let text = '═══ REFERENCE SITES ═══\n\n';
   text += 'For accurate, up-to-date information, go directly to these sources instead of relying only on web_search.\n';
   text += 'For "fetch: yes" sites, use fetch_url to read the specific doc page. For "search" sites, append the query to the URL.\n\n';
@@ -1586,6 +1593,7 @@ function buildReferenceSection(){
   text += `4. Apply the fix based on what you learned.\n`;
   text += `5. Re-run to verify. If it still fails, search again with the NEW error.\n`;
   text += `Do NOT just try random fixes in a loop. Research first, then act.\n`;
+  _cachedReferenceSection = text;
   return text;
 }
 
@@ -1613,8 +1621,9 @@ function wordSet(text) {
 */
 
 function textFingerprint(text) {
-  // Use n-grams of tokens (words + operators) for better discrimination
-  const tokens = text.match(/[\w]+|[{}()\[\];,.<>!?+\-*/=&|]/g) || [];
+  // Only use word-like tokens for fingerprinting — excludes operators/punctuation
+  const tokens = text.match(/\b[a-zA-Z_][\w]*\b/g) || [];
+  if (tokens.length < 5) return new Set(); // too short to compare meaningfully
   const bigrams = new Set();
   for (let i = 0; i < tokens.length - 1; i++) {
     bigrams.add(tokens[i].toLowerCase() + ' ' + tokens[i + 1].toLowerCase());
@@ -2000,121 +2009,224 @@ function renderToolList(){
 }
 
 
-async function retrySingleTool(panel){
-  if(state.running)return;
+async function retrySingleTool(panel) {
+  if (state.running) return;
 
-  const toolCallId=panel.el._toolCallId;
-  if(!toolCallId){
-    /* Fallback: this panel was replayed before the _toolCallId fix was added.
-       Cannot safely retry without knowing which tool_call_id to match. */
-    showToast('Cannot retry — tool call ID not available (old conversation)','warn');
+  const toolCallId = panel.el._toolCallId;
+  if (!toolCallId) {
+    showToast('Cannot retry — tool call ID not available (old conversation)', 'warn');
     return;
   }
 
-  /* Find the original tool result in message history */
-  const toolResultIdx=state.messages.findIndex(m=>m.role==='tool'&&m.tool_call_id===toolCallId);
-  if(toolResultIdx<0){
-    showToast('Cannot retry — tool result not found in history','warn');
+  /* ── Find the tool result in message history ── */
+  const toolResultIdx = state.messages.findIndex(m => m.role === 'tool' && m.tool_call_id === toolCallId);
+  if (toolResultIdx < 0) {
+    showToast('Cannot retry — tool result not found in history', 'warn');
     return;
   }
 
-  /* Truncate everything after the tool result so the LLM re-evaluates from here */
-  state.messages=state.messages.slice(0,toolResultIdx+1);
+  /* ── Walk backward to find the parent assistant message ── */
+  let assistantIdx = -1;
+  let targetToolCall = null;
+  for (let i = toolResultIdx - 1; i >= 0; i--) {
+    const m = state.messages[i];
+    if (m.role === 'assistant' && m.tool_calls) {
+      const tc = m.tool_calls.find(tc => tc.id === toolCallId);
+      if (tc) { assistantIdx = i; targetToolCall = tc; break; }
+    }
+  }
+  if (assistantIdx < 0 || !targetToolCall) {
+    showToast('Cannot retry — parent assistant message not found', 'warn');
+    return;
+  }
 
-  /* Remove all DOM after this panel */
-  const panelEl=panel.el;
-  while($msg().lastChild&&$msg().lastChild!==panelEl){
+  const parentMsg = state.messages[assistantIdx];
+  const isParallel = parentMsg.tool_calls.length > 1;
+
+  /* ── Rebuild message history to isolate this single tool call ── */
+  if (isParallel) {
+        // Keep think calls + the retried call in the assistant message
+        const thinkTcs = parentMsg.tool_calls.filter(tc => tc.function.name === 'think');
+        state.messages[assistantIdx] = { ...parentMsg, tool_calls: [...thinkTcs, targetToolCall] };
+
+        // Identify which tool results produce images, so we can map image messages to tools
+        const nonThinkTcs = parentMsg.tool_calls.filter(tc => tc.function.name !== 'think');
+        const retriedIdxInBatch = nonThinkTcs.findIndex(tc => tc.id === toolCallId);
+
+        // Scan tool results in the slice to build a positional map:
+        //   imageProducingToolIndices[i] = index into nonThinkTcs for the i-th image-producing result
+        const imageProducingToolIndices = [];
+        for (let i = assistantIdx + 1; i < sliceEnd; i++) {
+            const m = state.messages[i];
+            if (m.role !== 'tool') continue;
+            // Find this result's position among non-think tool calls
+            const tcIdx = nonThinkTcs.findIndex(tc => tc.id === m.tool_call_id);
+            if (tcIdx === -1) continue; // think result or unknown — skip
+            if (m._imageDataUrl || m._screenshotDataUrl) {
+                imageProducingToolIndices.push(tcIdx);
+            }
+        }
+
+        // Determine which image messages (by ordinal) to skip
+        const imageOrdinalsToSkip = new Set();
+        for (let i = 0; i < imageProducingToolIndices.length; i++) {
+            if (imageProducingToolIndices[i] === retriedIdxInBatch) {
+                imageOrdinalsToSkip.add(i);
+            }
+        }
+
+        // Collect everything to keep
+        const keptResults = [];
+        let imageOrdinal = 0;
+
+        for (let i = assistantIdx + 1; i < sliceEnd; i++) {
+            const m = state.messages[i];
+
+            // Keep all tool results except the one being retried
+            if (m.role === 'tool' && m.tool_call_id !== toolCallId) {
+                keptResults.push(m);
+                continue;
+            }
+
+            // Keep agent-injected image messages, EXCEPT the one for the retried tool
+            if (m.role === 'user' && m._isAgentImage) {
+                if (!imageOrdinalsToSkip.has(imageOrdinal)) {
+                    keptResults.push(m);
+                }
+                imageOrdinal++;
+                continue;
+            }
+        }
+
+        state.messages = [
+            ...state.messages.slice(0, assistantIdx),
+            state.messages[assistantIdx],
+            ...keptResults
+        ];
+  } else {
+        // Single tool call: simple truncation — remove everything after its result
+        state.messages = state.messages.slice(0, toolResultIdx + 1);
+  }
+
+  let prev = panel.el.previousElementSibling;
+  while (prev && prev.classList.contains('tool-panel') && prev._batchId === panel.el._batchId) {
+        prev.remove();
+        prev = panel.el.previousElementSibling;
+    }
+
+  /* Remove everything AFTER the retry panel (orphaned panels, diffs, messages) */
+  while ($msg().lastChild && $msg().lastChild !== panel.el) {
     $msg().removeChild($msg().lastChild);
   }
 
-  /* Clear previous result from the panel UI */
-  const resEl=panelEl.querySelector('.tool-result');
-  if(resEl){
-    resEl.textContent='';
-    resEl.className='tool-result';
-    resEl.style.background='';
-    resEl.style.animation='';
+  /* ── Reset the panel UI for re-execution ── */
+  const resEl = panel.el.querySelector('.tool-result');
+  if (resEl) {
+    resEl.textContent = '';
+    resEl.className = 'tool-result';
+    resEl.style.background = '';
+    resEl.style.animation = '';
+    resEl.style.display = '';
   }
-  updateToolStatus(panel,'run');
-  panel.el._resultText='';
+  updateToolStatus(panel, 'run');
+  panel.el._resultText = '';
 
-  /* Remove any stale retry/error buttons */
-  const retryBtn=panelEl.querySelector('.tool-retry-btn');
-  if(retryBtn)retryBtn.remove();
+  const retryBtn = panel.el.querySelector('.tool-retry-btn');
+  if (retryBtn) retryBtn.remove();
 
-  /* Re-execute the tool */
-  const name=panel.el._toolName;
-  const argsStr=panel.el._toolArgs;
-  const signal=new AbortController();
+  /* Clear stale image state from previous attempt */
+  panel.el._screenshotDataUrl = null;
+  panel.el._imageDataUrl = null;
+  panel.el._imagePath = null;
+  panel.el._imageReason = null;
+  panel.el._imageType = null;
+
+  const prevPreview = panel.el.querySelector('.screenshot-preview');
+  if (prevPreview) prevPreview.remove();
+  panel.el.classList.remove('screenshot-tool');
+
+  /* ── Wire up the stop button specifically for this retry operation ── */
+  const retryAbort = new AbortController();
+  const stopBtn = panel.el.querySelector('.tool-stop');
+  if (stopBtn) {
+    stopBtn.style.display = '';
+    stopBtn.onclick = (e) => { e.stopPropagation(); retryAbort.abort(); };
+  }
+
+  /* ── Re-execute the tool ── */
+  const name = panel.el._toolName;
+  const argsStr = panel.el._toolArgs;
   let result;
-  try{
-    result=await executeTool(name,argsStr,signal.signal,panel);
-    updateToolStatus(panel,'ok');
-  }catch(e){
-    if(signal.signal.aborted){
-      updateToolStatus(panel,'err');
-      updateToolResult(panel,'Cancelled by user.');
+
+  try {
+    result = await executeTool(name, argsStr, retryAbort.signal, panel);
+    updateToolStatus(panel, 'ok');
+  } catch (e) {
+    if (retryAbort.signal.aborted) {
+      updateToolStatus(panel, 'err');
+      updateToolResult(panel, 'Cancelled by user.');
       return;
     }
-    result={output:'Error: '+e.message};
-    updateToolStatus(panel,'err');
+    result = { output: 'Error: ' + e.message };
+    updateToolStatus(panel, 'err');
   }
 
-  const outText=typeof result==='string'?result:(result?.output||'');
-  const diff=(typeof result==='object'&&result&&result.diff)||null;
-  const searchData=(typeof result==='object'&&result&&result._searchData)||null;
+  const outText = typeof result === 'string' ? result : (result?.output || '');
+  const diff = result && typeof result === 'object' ? result.diff : null;
+  const searchData = result && typeof result === 'object' ? result._searchData : null;
 
-  /* Update the tool result message in-place (same tool_call_id, so API stays happy) */
-  state.messages[toolResultIdx].content=outText;
-  state.messages[toolResultIdx]._diff=diff;
-  state.messages[toolResultIdx]._searchData=searchData;
+  /* Update the tool result message in-place (last message in array) */
+  const lastMsg = state.messages[state.messages.length - 1];
+  lastMsg.content = outText;
+  lastMsg._diff = diff;
+  lastMsg._searchData = searchData;
 
   /* Handle image results from file reads */
-  if(typeof result==='object'&&result){
-    if(result._screenshotDataUrl){
-      panel.el._screenshotDataUrl=result._screenshotDataUrl;
-      panel.el._imagePath='screenshot';
-      panel.el._imageReason=result._screenshotReason||'agent requested';
-      panel.el._imageType='screenshot';
-    }else if(result._imageDataUrl){
-      panel.el._imageDataUrl=result._imageDataUrl;
-      panel.el._imagePath=result._imagePath||'unknown';
-      panel.el._imageReason=result._imageReason||'file read';
-      panel.el._imageType='file';
+  if (typeof result === 'object' && result) {
+    if (result._screenshotDataUrl) {
+      panel.el._screenshotDataUrl = result._screenshotDataUrl;
+      panel.el._imagePath = 'screenshot';
+      panel.el._imageReason = result._screenshotReason || 'agent requested';
+      panel.el._imageType = 'screenshot';
+    } else if (result._imageDataUrl) {
+      panel.el._imageDataUrl = result._imageDataUrl;
+      panel.el._imagePath = result._imagePath || 'unknown';
+      panel.el._imageReason = result._imageReason || 'file read';
+      panel.el._imageType = 'file';
     }
   }
 
-  updateToolResult(panel,outText);
-  if(diff)showDiffPanel(diff);
-  if(searchData)showSearchPanel(searchData);
+  updateToolResult(panel, outText);
+  if (diff) showDiffPanel(diff);
+  if (searchData) showSearchPanel(searchData);
 
   /* Render image preview if this tool returned one */
-  if(panel.el._imageDataUrl&&!panel.el.querySelector('.screenshot-preview')){
+  const imgUrl = panel.el._screenshotDataUrl || panel.el._imageDataUrl;
+  if (imgUrl && !panel.el.querySelector('.screenshot-preview')) {
     panel.el.classList.add('screenshot-tool');
-    const preview=document.createElement('div');
-    preview.className='screenshot-preview';
-    const imgPath=panel.el._imagePath||'image';
-    const label=panel.el._imageType==='file'
-      ?'<div style="font-size:10px;color:var(--tx-3);margin-bottom:4px;font-family:\'JetBrains Mono\',monospace"><i class="fas fa-image" style="color:var(--accent)"></i> '+esc(imgPath)+'</div>'
-      :'';
-    const imgUrl=panel.el._screenshotDataUrl||panel.el._imageDataUrl;
-    preview.innerHTML=label+'<img src="'+imgUrl+'" onclick="openImgViewer(this.src)" alt="'+esc(imgPath)+'">';
+    const preview = document.createElement('div');
+    preview.className = 'screenshot-preview';
+    const imgPath = panel.el._imagePath || 'image';
+    const label = panel.el._imageType === 'file'
+      ? '<div style="font-size:10px;color:var(--tx-3);margin-bottom:4px;font-family:\'JetBrains Mono\',monospace"><i class="fas fa-image" style="color:var(--accent)"></i> ' + esc(imgPath) + '</div>'
+      : '';
+    preview.innerHTML = label + '<img src="' + imgUrl + '" onclick="openImgViewer(this.src)" alt="' + esc(imgPath) + '">';
     panel.el.appendChild(preview);
 
     /* Inject as a user-adjacent image message so the LLM sees it */
     state.messages.push({
-      role:'user',
-      content:'['+(panel.el._imageType||'screenshot')+': '+(panel.el._imageReason||'retry')+' — '+imgPath+']',
-      _images:[{type:'image_url',image_url:{url:imgUrl}}],
-      _isAgentImage:true,
-      _imageType:panel.el._imageType
+      role: 'user',
+      content: '[' + (panel.el._imageType || 'screenshot') + ': ' + (panel.el._imageReason || 'retry') + ' — ' + imgPath + ']',
+      _images: [{ type: 'image_url', image_url: { url: imgUrl } }],
+      _isAgentImage: true,
+      _imageType: panel.el._imageType
     });
   }
 
   saveCurrentConv();
 
-  /* Continue the agent loop — it will pick up from the updated tool result */
-  streamEl=null;
+  /* Continue the agent loop — it picks up from the updated tool result */
+  streamEl = null;
   agentLoop();
 }
 
@@ -2185,7 +2297,7 @@ async function editFileSafe(rel, edits){
   requireWorkspace();const segs=sanitizePath(rel);
   let dir=state.dirHandle;
   for(let i=0;i<segs.length-1;i++)dir=await dir.getDirectoryHandle(segs[i],{create:true});
-  const fh=await dir.getFileHandle(segs[segs.length-1],{create:true});
+  const fh=await dir.getFileHandle(segs[segs.length-1],{create:false});
   const file=await fh.getFile();let content=await file.text();
   const results=[];const allDiffs=[];
   for(let i=0;i<edits.length;i++){
@@ -2370,7 +2482,7 @@ async function grepSafe(pattern, searchPath, includeGlob, contextLines){
     if(f.size>5*1024*1024)return;
     const buf = await f.slice(0, 8000).arrayBuffer();
     const bytes = new Uint8Array(buf);
-    if (bytes.some(b => b === 0)) return 'Binary file — cannot search';
+    if (bytes.some(b => b === 0)) return { output: 'Binary file — cannot read line ranges' };
     const text=await f.text();
     if(!includeGlob||filePath.endsWith(includeGlob.replace(/^\*/,''))){
       const lines=text.split('\n');let matches=0;
@@ -2567,7 +2679,7 @@ const SEARCH_CACHE_MAX=50;
 async function searchViaCompanion(query, numResults, fetchTop){
   if(!query||typeof query!=='string'||!query.trim())return{query,error:'No query provided',count:0,results:[{"error":"No query provided"}]};
   query=query.trim();
-  const cacheKey=query.toLowerCase().slice(0,200);
+  const cacheKey = `${query.toLowerCase().slice(0,200)}|${numResults||8}|${fetchTop||0}`;
   const cached=searchCache.get(cacheKey);
   if(cached&&Date.now()-cached.time<SEARCH_CACHE_TTL)return cached.data;
   try{
@@ -2596,6 +2708,7 @@ async function searchViaCompanion(query, numResults, fetchTop){
 }
 
 async function checkCompanion(){
+  if (state.running) return; // ← skip health check during agent loop
   const dot=document.getElementById('comp-dot'),txt=document.getElementById('comp-text'),info=document.getElementById('comp-info');
   dot.className='status-dot loading';txt.textContent='Shell...';
   try{
@@ -2801,11 +2914,13 @@ async function testConnection(retry = 3) {
   checkCompanion();
 }
 
-function extractThinkText(argsStr){
-  try{const a=JSON.parse(argsStr);return a.thought||'';}catch{}
-  const m=argsStr.match(/"thought"\s*:\s*"((?:[^"\\]|\\.)*)/);
-  if(m)return m[1].replace(/\\n/g,'\n').replace(/\\t/g,'\t').replace(/\\"/g,'"').replace(/\\\\/g,'\\');
-  return argsStr.replace(/^\s*\{?\s*"thought"\s*:\s*"?/,'').replace(/"?[\s,}]*$/,'');
+function extractThinkText(argsStr) {
+  // Don't try to show partial JSON — it'll be garbage
+  try { const a = JSON.parse(argsStr); return a.thought || ''; } catch {}
+  // Only try regex if we can see a closing quote for the value
+  const m = argsStr.match(/"thought"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (m) return m[1].replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+  return ''; // ← was: return argsStr.replace(...) which showed garbage
 }
 
 async function streamChat(messages, onChunk, onToolCall, onThinkStream) {
@@ -2870,10 +2985,8 @@ Start the companion for real shell access, git, and web search.`;
   /* Search section */
   const searchSection = (function () {
     if (!state.compConnected) {
-      return `**web_search** searches DuckDuckGo. Returns titles, URLs, and snippets.
-- Set fetch_top=1 to auto-fetch and read the full content of the #1 result. Use fetch_top=2 for top 2.
-- This is essential for: API documentation, library usage, error message lookups, current best practices
-- **fetch_url** retrieves any URL's content (cleaned text by default, or raw HTML with mode="raw")`;
+        return `**web_search** and **fetch_url** are NOT available — the companion server is not connected.
+    Start the companion for web search and URL fetching capabilities.`;
     }
     let text = `**web_search** searches DuckDuckGo. Returns titles, URLs, and snippets.
 - Set fetch_top=1 to auto-fetch and read the full content of the #1 result. Use fetch_top=2 for top 2.
@@ -3059,7 +3172,8 @@ async function refreshModels(forceReload) {
   const dot = document.getElementById('llm-dot');
   const txt = document.getElementById('llm-text');
 
-  // Fetch actual loaded model first — safe default so we never get ReferenceError
+  // Step 1: Get the actual loaded model from LM Studio
+  // This is the single source of truth for "what's in GPU right now"
   let active = null;
   try { active = await fetchActiveModel(); } catch { activeInstance = null; }
 
@@ -3068,6 +3182,12 @@ async function refreshModels(forceReload) {
     if (!res.ok) throw new Error(res.statusText);
     const data = await res.json();
     await fetchModelInfo();
+
+    // Step 2: If forced reload, re-verify what's loaded AFTER getting the list
+    // (the list fetch took time — model state may have changed)
+    if (forceReload) {
+      try { active = await fetchActiveModel(); } catch { activeInstance = null; }
+    }
 
     const prev = state.model;
     sel.innerHTML = '';
@@ -3137,6 +3257,8 @@ async function refreshModels(forceReload) {
     updateModelLoadBtn();
 
   } catch (e) {
+    // On /v1/models failure: mark API as unreachable but DON'T nuke activeInstance
+    // The API might be temporarily down — keep whatever loaded model state we had
     state.connected = false;
     dot.className = 'status-dot off';
     txt.textContent = 'LLM';
@@ -3370,23 +3492,27 @@ function setupScrollDetection(){
 /* ═══════════════ PROGRESS PERSISTENCE ═══════════════ */
 const PROGRESS_FILE = `.sloplobster-progress-${state.activeConvId}.md`;
 
-function getProgressFile() {
-  return `.sloplobster-progress-${state.activeConvId || 'default'}.md`;
+function getProgressFile(convId) {
+  return `.sloplobster-progress-${convId || 'default'}.md`;
 }
 
 function safeParseArgs(argsStr) {
   try { return JSON.parse(argsStr); } catch { return {}; }
 }
 
-function findParentToolCall(toolMsg) {
-  for (let i = state.messages.indexOf(toolMsg) - 1; i >= 0; i--) {
-    const m = state.messages[i];
-    if (m.role === 'assistant' && m.tool_calls) {
-      const tc = m.tool_calls.find(tc => tc.id === toolMsg.tool_call_id);
-      if (tc) return tc;
+function findParentToolCall(toolMsgOrIndex) {
+    const idx = typeof toolMsgOrIndex === 'number'
+        ? toolMsgOrIndex
+        : state.messages.indexOf(toolMsgOrIndex);
+    if (idx < 0) return null;
+    for (let i = idx - 1; i >= 0; i--) {
+        const m = state.messages[i];
+        if (m.role === 'assistant' && m.tool_calls) {
+            const tc = m.tool_calls.find(tc => tc.id === state.messages[idx].tool_call_id);
+            if (tc) return tc;
+        }
     }
-  }
-  return null;
+    return null;
 }
 
 function buildProgressSummary(reason) {
@@ -3547,7 +3673,9 @@ async function progressCompact(progressSaved) {
 async function agentLoop(){
   state.running=true;updateSendBtn();
   let iters=0;
-  const SOFT_WARN=12,COMPACT_AT=20,HARD_STOP=35;
+  const SOFT_WARN = Math.floor(state.maxIters * 0.4);   // ~40%
+  const COMPACT_AT = Math.floor(state.maxIters * 0.6);   // ~60%
+  const HARD_STOP  = state.maxIters;        
   const sessionChanges={modified:new Set(),created:new Set(),deleted:new Set(),moved:[]};
   toolCallHistory.length=0;
   textLoopBuffer.length=0;
@@ -3561,8 +3689,10 @@ async function agentLoop(){
     await progressCompact(saved);iters=0;if(!state.running)break;continue;}
     if(iters>=COMPACT_AT){const saved=await saveProgressToWorkspace('iteration limit ('+iters+')');await progressCompact(saved);iters=0;if(!state.running)break;continue;}
     if(iters===SOFT_WARN){
-    state.messages.push({role:'user',content:'[SYSTEM: Context at '+Math.round(getContextPct())+'%. It will auto-compact at '+COMPACT_AT+' iterations if needed. A progress file will be saved so you can continue after compaction. Keep working normally.]'});
-    state.messages.push({role:'assistant',content:'Understood, continuing.'});
+    state.messages.push({
+    role: 'user',
+    content: '[SYSTEM NOTE: Context at ' + Math.round(getContextPct()) + '%. Will auto-compact at ' + COMPACT_AT + ' iterations. A progress file will be saved. Continue working normally — do not acknowledge this message, just keep going.]'
+    });
     }
     iters++;
     if(iters>HARD_STOP){await saveProgressToWorkspace('hard stop ('+iters+' iterations)');appendMsg('system','Stopped after '+iters+' iterations. Progress saved to `'+getProgressFile()+'`.');break;}
@@ -3582,6 +3712,7 @@ async function agentLoop(){
     if(!tcs.length){
       /* ── Text loop detection ── */
       if(checkTextLoop(cur)){
+        if(streamEl){ finalizeStreamingMsg(cur); streamEl = null; }
         const wEl=document.createElement('div');wEl.className='health-warning';
         wEl.innerHTML='<i class="fas fa-triangle-exclamation"></i><span>Agent stuck in a text loop — repeating similar responses. Intervening...</span>';
         $msg().appendChild(wEl);scrollBottom();
@@ -3595,13 +3726,34 @@ async function agentLoop(){
     if(cur)finalizeStreamingMsg(cur);
     const thinkTcs=tcs.filter(tc=>tc.function.name==='think');
     const nonThinkTcs=tcs.filter(tc=>tc.function.name!=='think');
+    const validToolNames = new Set(getToolDefs().map(t => t.function.name));
+    const rejectedTcs = nonThinkTcs.filter(tc => !validToolNames.has(tc.function.name));
+    const validNonThinkTcs = nonThinkTcs.filter(tc => validToolNames.has(tc.function.name));
 
-    if(nonThinkTcs.length){
-        const isParallel=nonThinkTcs.length>1;if(isParallel)showParallelBadge(nonThinkTcs.length);
-        const toolAbortCtrls=nonThinkTcs.map(()=>new AbortController());
-        const toolPanels=nonThinkTcs.map((tc,i)=>showToolPanel(tc.function.name,tc.function.arguments,'run',()=>toolAbortCtrls[i].abort()));
+    if (rejectedTcs.length) {
+      appendMsg('system', 'Tool(s) no longer available: ' + rejectedTcs.map(tc => tc.function.name).join(', ') + ' — companion disconnected mid-conversation.');
+      for (const tc of rejectedTcs) {
+        state.messages.push({
+          role: 'tool',
+          tool_call_id: tc.id,
+          content: '[Error: ' + tc.function.name + ' is no longer available — the companion server disconnected. The tool list has been updated. Use only the tools that are currently available.]'
+        });
+      }
+    }
 
-        const results=await Promise.all(nonThinkTcs.map(async(tc,i)=>{
+    if(validNonThinkTcs.length){
+        const isParallel=validNonThinkTcs.length>1;if(isParallel)showParallelBadge(validNonThinkTcs.length);
+        const toolAbortCtrls=validNonThinkTcs.map(()=>new AbortController());
+        const batchId = 'batch_' + Date.now();
+        const toolPanels = validNonThinkTcs.map((tc, i) => {
+            const p = showToolPanel(tc.function.name, tc.function.arguments, 'run',
+            () => toolAbortCtrls[i].abort(), tc.id);
+            p.el._batchId = batchId;
+            return p;
+        });
+
+
+        const results=await Promise.all(validNonThinkTcs.map(async(tc,i)=>{
           if(toolAbortCtrls[i].signal.aborted){updateToolStatus(toolPanels[i],'err');updateToolResult(toolPanels[i],'Cancelled by user.');return{tc,outText:'Cancelled by user.',cancelled:true};}
           let result;try{result=await executeTool(tc.function.name,tc.function.arguments,toolAbortCtrls[i].signal,toolPanels[i]);updateToolStatus(toolPanels[i],'ok');}
           catch(e){if(toolAbortCtrls[i].signal.aborted){updateToolStatus(toolPanels[i],'err');updateToolResult(toolPanels[i],'Cancelled by user.');return{tc,outText:'Cancelled by user.',cancelled:true};}result={output:'Error: '+e.message};updateToolStatus(toolPanels[i],'err');}
@@ -3884,9 +4036,11 @@ function showShellConfirm(cmd,callback){
   $msg().appendChild(el);scrollBottom();
 }
 
-function showToolPanel(name, argsStr, status, onStopClick){
+function showToolPanel(name, argsStr, status, onStopClick, toolCallId) {
+
   let prev='';try{const a=JSON.parse(argsStr);prev=Object.entries(a).map(([k,v])=>'<span>'+esc(k)+'</span>: '+esc(String(v).length>120?String(v).slice(0,120)+'...':String(v))).join('<br>');}catch{prev=esc(argsStr?.slice(0,200)||'');}
   const el=document.createElement('div');el.className='tool-panel';
+  el._toolCallId = toolCallId || null;
   el._toolName=name;el._toolArgs=argsStr;el._screenshotDataUrl=null;el._imageDataUrl=null;el._imagePath=null;el._imageReason=null;el._imageType=null;el._resultText='';el._collapsed=false;
   el.innerHTML=`<div class="tool-hdr"><i class="fas fa-bolt tool-icon"></i><span class="tool-name">${esc(name)}</span><span class="tool-status ${status}">${status==='run'?'Running...':status==='ok'?'Done':'Error'}</span><div class="tool-actions">${onStopClick?'<button class="tool-stop" title="Stop"><i class="fas fa-stop"></i> Stop</button>':''}<button class="tool-act-btn" onclick="copyToolOutput(this)" title="Copy output"><i class="fas fa-copy"></i></button><button class="tool-act-btn tool-expand-btn" onclick="toggleToolExpand(this)" title="Expand/Collapse" style="display:none"><i class="fas fa-expand"></i></button></div></div><div class="tool-params">${prev}</div><div class="tool-result loading"></div>`;
   if(onStopClick)el.querySelector('.tool-stop').onclick=(e)=>{e.stopPropagation();onStopClick();};
@@ -3916,11 +4070,9 @@ function updateToolResult(w, r) {
 
   const text = (r != null) ? String(r) : '(no output)';
 
-  /* Always update content — remove the early return that skipped truncation */
   res.textContent = text;
   w.el._resultText = text;
 
-  /* Truncation check — always run, not gated behind the old early return */
   const isTruncated = text.length > 500 && text.includes('[Truncated');
   if (isTruncated) {
     res.classList.add('truncated');
@@ -3928,7 +4080,6 @@ function updateToolResult(w, r) {
     if (eb) eb.style.display = '';
   }
 
-  /* Collapse toggle — always wire up, not gated behind the old early return */
   w.el.querySelector('.tool-hdr').onclick = () => {
     w.el._collapsed = !w.el._collapsed;
     res.style.display = w.el._collapsed ? 'none' : '';
@@ -4032,8 +4183,25 @@ function showChangeSummary(changes){
   $msg().appendChild(el);scrollBottom();
 }
 
-function renderMd(t){if(!t)return'';try{return marked.parse(t,{breaks:true,gfm:true});}catch{return esc(t);}}
-function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML;}
+function renderMd(t) {
+  if (!t) return '';
+  try {
+    const raw = marked.parse(t, { breaks: true, gfm: true });
+    // Allow images, links, code blocks, tables — block everything else
+    return DOMPurify.sanitize(raw, {
+      ALLOWED_TAGS: ['p','br','strong','em','b','i','a','code','pre','ul','ol','li',
+                      'h1','h2','h3','h4','h5','h6','blockquote','table','thead','tbody',
+                      'tr','th','td','hr','del','sup','sub','span','div'],
+      ALLOWED_ATTR: ['href','target','rel','class','id'],
+      FORBID_ATTR: ['onerror','onload','onclick','onmouseover','style'],
+      ADD_ATTR: ['target'], // for _blank links
+    });
+  } catch (e) {
+    console.error('[renderMd]', e);
+    return esc(t); // fallback to escaped text
+  }
+}
+
 function addCopyBtns(c){
   c.querySelectorAll('pre').forEach(pre=>{
     if(pre.parentElement.classList.contains('code-block'))return;
@@ -4044,6 +4212,7 @@ function addCopyBtns(c){
     pre.parentNode.insertBefore(w,pre);w.appendChild(h);w.appendChild(pre);
   });
 }
+
 function copyCode(btn){
   const code=btn.closest('.code-block').querySelector('code');
   navigator.clipboard.writeText(code.textContent).then(()=>{
@@ -4147,7 +4316,14 @@ function saveConversations() {
           delete clean._searchData;
           delete clean._images;       // ← strip image data
           // Keep a small marker so replay knows images existed
-          if (m._images?.length) clean._hadImages = m._images.length;
+          if (m._images?.length) {
+                clean._hadImages = m._images.length;
+                delete clean._images;
+            }
+          if (m._imageDataUrl) {
+                clean._hadImagePreview = true;
+                delete clean._imageDataUrl;
+            }
           return clean;
         })
       }))
@@ -4205,20 +4381,48 @@ function newConversation(){
 }
 
 
-async function doNewConversation(){
+async function doNewConversation() {
   saveCurrentConv();
-  const id='conv_'+Date.now();
-  state.conversations.unshift({id,title:'New conversation',messages:[],created:Date.now(),updated:Date.now()});
-  state.activeConvId=id;state.messages=[];state.fileCache.clear();modifiedFiles.clear();state.pendingImages=[];state.originalTask = null;addImageAttachmentsToInputArea();
-  rpState.clearChanges();rpState.activeFile=null;
-  document.getElementById('rp-files-empty').style.display='';document.getElementById('rp-file-preview').style.display='none';
+  const oldProgressFile = state.activeConvId
+    ? `.sloplobster-progress-${state.activeConvId}.md` : null;
+  
+  const id = 'conv_' + Date.now();
+  state.conversations.unshift({
+    id,
+    title: 'New conversation',
+    messages: [],
+    created: Date.now(),
+    updated: Date.now()
+  });
+  state.activeConvId = id;
+  state.messages = [];
+  state.fileCache.clear();
+  modifiedFiles.clear();
+  state.pendingImages = [];
+  state.originalTask = null;
+  addImageAttachmentsToInputArea();
+  rpState.clearChanges();
+  rpState.activeFile = null;
+  document.getElementById('rp-files-empty').style.display = '';
+  document.getElementById('rp-file-preview').style.display = 'none';
+  
   /* Clean up old progress file from previous task */
-  if(state.dirHandle){
-    try{ await deleteFileSafe(getProgressFile(), false); }catch{}
+  if (state.dirHandle && oldProgressFile) {
+    try {
+      await deleteFileSafe(oldProgressFile, false);
+    } catch (_) {
+      // Ignore errors when cleaning up old progress file
+    }
   }
-  $msg().innerHTML='';streamEl=null;
-  document.getElementById('welcome').style.display='flex';$msg().style.display='none';
-  saveConversations();renderConvList();updateContextMeter();refreshFileTree();
+  
+  $msg().innerHTML = '';
+  streamEl = null;
+  document.getElementById('welcome').style.display = 'flex';
+  $msg().style.display = 'none';
+  saveConversations();
+  renderConvList();
+  updateContextMeter();
+  refreshFileTree();
 }
 
 function switchConv(id){
@@ -4305,6 +4509,14 @@ function replayMessages(msgs){
     } else if(m.role==='assistant'){
       if(pendingThinkText!==null){renderStaticThinkBlock(pendingThinkText);pendingThinkText=null;}
       if(m.content)appendMsg('assistant',m.content);
+      if (toolMsg._hadImagePreview && !toolMsg._imageDataUrl) {
+        // Show "image preview not available after reload" placeholder
+        panel.el.classList.add('screenshot-tool');
+        const preview = document.createElement('div');
+        preview.className = 'screenshot-preview';
+        preview.innerHTML = '<div style="font-size:10px;color:var(--tx-4);padding:12px;text-align:center"><i class="fas fa-image" style="margin-right:4px"></i>Image preview not available (page was reloaded)</div>';
+        panel.el.appendChild(preview);
+      }
       if(m.tool_calls){
         for(const tc of m.tool_calls){
           if(tc.function.name==='think')continue;
@@ -4504,7 +4716,16 @@ function setupFileDrop(){
   const wrap=document.getElementById('input-wrap');
   let dragCounter=0;
   area.addEventListener('dragenter',e=>{e.preventDefault();dragCounter++;overlay.classList.add('visible');wrap.classList.add('drag-over');});
-  area.addEventListener('dragleave',e=>{e.preventDefault();dragCounter--;if(dragCounter<=0){dragCounter=0;overlay.classList.remove('visible');wrap.classList.remove('drag-over');}});
+  area.addEventListener('dragleave', e => {
+    e.preventDefault();
+    dragCounter = Math.max(0, dragCounter - 1);  // ← clamp
+    if (dragCounter <= 0) {
+        dragCounter = 0;
+        overlay.classList.remove('visible');
+        wrap.classList.remove('drag-over');
+     }
+    });
+
   area.addEventListener('dragover',e=>e.preventDefault());
     area.addEventListener('drop',async e=>{
       e.preventDefault();dragCounter=0;overlay.classList.remove('visible');wrap.classList.remove('drag-over');
@@ -4550,12 +4771,15 @@ async function openDirectory(){
   }catch(e){if(e.name!=='AbortError')showToast(e.message,'err');}
 }
 
-function handleSend(){
-  if(state.running){state.abortCtrl?.abort();state.running=false;updateSendBtn();return;}
-  const inp=document.getElementById('msg-input'),t=inp.value.trim();
-  if(!t&&!state.pendingImages.length)return;
-  if(t.startsWith('/')&&!state.pendingImages.length){handleCmd(t);inp.value='';inp.style.height='auto';updateSendBtn();return;}
-  
+async function handleSend() {
+  if (state.running) { state.abortCtrl?.abort(); state.running = false; updateSendBtn(); return; }
+  const inp = document.getElementById('msg-input'), t = inp.value.trim();
+  if (!t && !state.pendingImages.length) return;
+  if (t.startsWith('/') && !state.pendingImages.length) { handleCmd(t); inp.value = ''; inp.style.height = 'auto'; updateSendBtn(); return; }
+  if (!state.activeConvId) {
+    if (!state.activeConvId) await doNewConversation();
+  }
+
   /* Warn if images but no vision */
   if(state.pendingImages.length&&!state.visionCapable){
     showToast('Current model does not support images — images will not be sent','warn');
@@ -4783,16 +5007,18 @@ function rpTermEnd(fullOutput){
   const m=entry.output.match(/\[exit code:\s*(\d+)\]/);entry.exitCode=m?parseInt(m[1]):0;
   rpRenderTermEntry(entry,false);
 }
-function rpRenderTermEntry(entry,isNew){
-  let el=document.getElementById('rp-term-'+entry.id);
-  const dur=entry.endTime?((entry.endTime-entry.startTime)/1000).toFixed(1)+'s':'...';
-  const exitCls=entry.streaming?'running':entry.exitCode===0?'ok':'err';
-  const exitText=entry.streaming?'running':entry.exitCode===0?'0':' '+entry.exitCode;
-  const html=`<div class="rp-term-header" onclick="rpToggleTermEntry(${entry.id})"><i class="fas fa-chevron-down rp-term-chevron${entry.collapsed?' collapsed':''}"></i><i class="fas fa-terminal rp-term-cmd-icon"></i><span class="rp-term-cmd">${esc(entry.command)}</span><div class="rp-term-meta"><span>${dur}</span><span class="rp-term-exit ${exitCls}">${exitText}</span></div></div><div class="rp-term-output${entry.collapsed?' collapsed':''}" id="rp-term-out-${entry.id}">${esc(entry.output)}</div>`;
-  if(el){el.innerHTML=html;return;}
-  el=document.createElement('div');el.className='rp-term-entry';el.id='rp-term-'+entry.id;el.innerHTML=html;
-  const c=document.getElementById('rp-term-entries');
-  if(isNew)c.appendChild(el);else c.replaceChild(el,c.lastChild);
+function rpRenderTermEntry(entry, isNew) {
+  const el = document.getElementById('rp-term-' + entry.id);
+  const dur = entry.endTime ? ((entry.endTime - entry.startTime) / 1000).toFixed(1) + 's' : '...';
+  const exitCls = entry.streaming ? 'running' : entry.exitCode === 0 ? 'ok' : 'err';
+  const exitText = entry.streaming ? 'running' : entry.exitCode === 0 ? '0' : ' ' + entry.exitCode;
+  const html = `<div class="rp-term-header" onclick="rpToggleTermEntry(${entry.id})"><i class="fas fa-chevron-down rp-term-chevron${entry.collapsed ? ' collapsed' : ''}"></i><i class="fas fa-terminal rp-term-cmd-icon"></i><span class="rp-term-cmd">${esc(entry.command)}</span><div class="rp-term-meta"><span>${dur}</span><span class="rp-term-exit ${exitCls}">${exitText}</span></div></div><div class="rp-term-output${entry.collapsed ? ' collapsed' : ''}" id="rp-term-out-${entry.id}">${esc(entry.output)}</div>`;
+  if (el) { el.innerHTML = html; return; }
+  const newEl = document.createElement('div');
+  newEl.className = 'rp-term-entry';
+  newEl.id = 'rp-term-' + entry.id;
+  newEl.innerHTML = html;
+  document.getElementById('rp-term-entries').appendChild(newEl);
 }
 function rpToggleTermEntry(id){
   const el=document.getElementById('rp-term-'+id);if(!el)return;
@@ -4957,7 +5183,12 @@ function init(){
   updateWelcomeStatus();updateScrollLockBtn();
   initRightPanel();
   setTimeout(() => testConnection(3), 800);
-  setInterval(checkCompanion, 20000);
+  const _intervals = [];
+  function startPolling() {
+    _intervals.push(setInterval(checkCompanion, 20000));
+    _intervals.push(setInterval(pollModel, 30000));
+  }
+  window.addEventListener('beforeunload', () => _intervals.forEach(clearInterval));
   
   // Poll LM Studio for model changes (user might switch in LM Studio UI)
   setInterval(async () => {
