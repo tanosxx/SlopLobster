@@ -7912,7 +7912,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const c = state.conversations.find(c => c.id === state.activeConvId); if (!c) return;
       c.messages = state.messages; c.updated = Date.now();
       c._originalTask = state.originalTask;
-      if (!c.title) { const f = state.messages.find(m => m.role === 'user'); if (f) c.title = f.content.slice(0, 60) + (f.content.length > 60 ? '...' : ''); }
+      if (!c.title || c.title === 'New conversation') { const f = state.messages.find(m => m.role === 'user' && m.content && m.content !== '[Image(s) attached]'); if (f) c.title = f.content.slice(0, 60) + (f.content.length > 60 ? '...' : ''); }
       saveConversations(); renderConvList();
     }
 
