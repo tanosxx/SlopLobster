@@ -3054,7 +3054,6 @@
       border-left: 1px solid var(--border);
       display: flex;
       flex-direction: column;
-      overflow: hidden;
       transition: width .25s ease, border-color .25s ease
     }
 
@@ -3062,6 +3061,54 @@
       width: 0;
       border-left-color: transparent;
       overflow: hidden
+    }
+
+    .right-panel {
+      position: relative;
+      width: 400px;
+      flex-shrink: 0;
+      background: var(--bg-1);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      transition: width .25s ease, border-color .25s ease
+    }
+
+    .rp-resize-handle {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 5px;
+      background: var(--border-l);
+      cursor: col-resize;
+      z-index: 10;
+      transition: background .15s
+    }
+
+    .rp-resize-handle:hover,
+    .rp-resize-handle.active {
+      background: var(--accent)
+    }
+
+    .right-panel.resizing {
+      transition: none !important;
+      user-select: none
+    }
+
+    body.rp-resizing {
+      cursor: col-resize !important;
+      user-select: none !important
+    }
+
+    body.rp-resizing * {
+      cursor: col-resize !important
+    }
+
+    body.rp-resizing iframe,
+    body.rp-resizing canvas,
+    body.rp-resizing img {
+      pointer-events: none
     }
 
     .rp-tabs {
@@ -3757,6 +3804,7 @@
             class="fas fa-arrow-down"></i></button>
       </main>
       <aside id="right-panel" class="right-panel">
+        <div class="rp-resize-handle" id="rp-resize-handle"></div>
         <div class="rp-tabs">
           <button class="rp-tab active" data-tab="files" onclick="switchRpTab('files')"><i class="fas fa-file-code"></i>
             Files</button>
@@ -8711,6 +8759,57 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       }
     }
 
+    function initRightPanelResize() {
+      const handle = document.getElementById('rp-resize-handle');
+      const panel = document.getElementById('right-panel');
+      if (!handle || !panel) return;
+
+      const MIN_W = 260;
+      const MAX_W = 800;
+      let startX = 0;
+      let startW = 0;
+
+      function onDown(e) {
+        if (panel.classList.contains('collapsed')) return;
+        e.preventDefault();
+        startX = e.clientX;
+        startW = panel.offsetWidth;
+        handle.classList.add('active');
+        panel.classList.add('resizing');
+        document.body.classList.add('rp-resizing');
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+      }
+
+      function onMove(e) {
+        const dx = startX - e.clientX;
+        const newW = Math.max(MIN_W, Math.min(MAX_W, startW + dx));
+        panel.style.width = newW + 'px';
+      }
+
+      function onUp() {
+        handle.classList.remove('active');
+        panel.classList.remove('resizing');
+        document.body.classList.remove('rp-resizing');
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        localStorage.setItem('SlopLobster_rpWidth', panel.style.width);
+      }
+
+      handle.addEventListener('mousedown', onDown);
+
+      // Restore saved width
+      try {
+        const saved = localStorage.getItem('SlopLobster_rpWidth');
+        if (saved) {
+          const w = parseInt(saved);
+          if (w && w >= MIN_W && w <= MAX_W) {
+            panel.style.width = w + 'px';
+          }
+        }
+      } catch {}
+    }
+
     function initRightPanel() {
       rpState.renderChanges(); rpState.updateBadge();
       /* Add clear button to terminal tab header */
@@ -8831,7 +8930,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       updateWorkspaceBanner();
       if (!document.getElementById('s-sys-prompt').value) document.getElementById('s-sys-prompt').value = DEFAULT_SYS;
       updateWelcomeStatus(); updateScrollLockBtn();
-      initRightPanel();
+      initRightPanel();initRightPanelResize();
       setTimeout(() => testConnection(3), 800);
       const _intervals = [];
       function startPolling() {
