@@ -1645,6 +1645,71 @@
       font-size: 11px
     }
 
+        .ws-warning {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 20px;
+      background: rgba(234, 179, 8, .08);
+      border-bottom: 1px solid rgba(234, 179, 8, .2);
+      font-size: 12px;
+      color: var(--yellow);
+      backdrop-filter: blur(8px);
+      animation: msgIn .2s ease-out
+    }
+
+    .ws-warning i {
+      font-size: 13px;
+      flex-shrink: 0
+    }
+
+    .ws-warning .ws-warn-text {
+      flex: 1;
+      line-height: 1.4
+    }
+
+    .ws-warning .ws-warn-btn {
+      background: var(--yellow);
+      color: var(--bg-0);
+      border: none;
+      padding: 5px 14px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: .15s;
+      white-space: nowrap;
+      flex-shrink: 0
+    }
+
+    .ws-warning .ws-warn-btn:hover {
+      opacity: .85
+    }
+
+    .ws-warning .ws-warn-dismiss {
+      background: none;
+      border: none;
+      color: var(--tx-4);
+      cursor: pointer;
+      font-size: 12px;
+      padding: 4px;
+      border-radius: 4px;
+      transition: .12s;
+      flex-shrink: 0
+    }
+
+    .ws-warning .ws-warn-dismiss:hover {
+      color: var(--tx-1);
+      background: rgba(255, 255, 255, .05)
+    }
+
+
     .input-area {
       padding: 10px 20px 14px;
       background: var(--bg-1);
@@ -1811,6 +1876,7 @@
     .scroll-toggle.off {
       color: var(--red)
     }
+
 
     #scroll-bottom-btn {
       position: absolute;
@@ -3681,6 +3747,12 @@
           </div>
         </div>
         <div id="messages" style="display:none"></div>
+        <div class="ws-warning" id="ws-warning" style="display:none">
+            <i class="fas fa-folder-open"></i>
+            <span class="ws-warn-text">No workspace directory selected — the agent cannot read, create, or edit files. Open a project folder to enable file operations.</span>
+            <button class="ws-warn-btn" onclick="openDirectory()">Open Directory</button>
+            <button class="ws-warn-dismiss" onclick="dismissWorkspaceWarning()" title="Dismiss"><i class="fas fa-xmark"></i></button>
+        </div>
         <button id="scroll-bottom-btn" onclick="scrollToBottomForce()" title="Scroll to bottom"><i
             class="fas fa-arrow-down"></i></button>
       </main>
@@ -7377,16 +7449,14 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const isAgent = role === 'assistant' || role === 'agent';
       const el = document.createElement('div');
       el.className = 'msg';
-      el._role = role; 
+      el._role = role;
       el._time = new Date().toLocaleTimeString();
-      el._msgIndex = state.messages.length;
-      el._role = role; el._time = new Date().toLocaleTimeString();
       el._msgIndex = state.messages.length;
       const gid = 'ag_' + Math.random().toString(36).substr(2, 9);
       el.innerHTML = `<div class="msg-avatar ${isUser ? 'user' : 'agent'}">${isUser ? '<i class="fas fa-user" style="font-size:10px"></i>' : '<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:18px;height:18px"><defs><linearGradient id="' + gid + '" x1="2" y1="2" x2="26" y2="26" gradientUnits="userSpaceOnUse"><stop stop-color="#f5b742"/><stop offset="1" stop-color="#a06e10"/></linearGradient></defs><rect width="28" height="28" rx="6" fill="url(#' + gid + ')"/><ellipse cx="14" cy="18" rx="5.5" ry="4" fill="#08080a" opacity=".9"/><path d="M14 22L12 26M14 22L14 26.5M14 22L16 26" stroke="#08080a" stroke-width="1.2" stroke-linecap="round" opacity=".85"/><circle cx="14" cy="13" r="3.2" fill="#08080a" opacity=".9"/><path d="M8.5 17Q4.5 15 3 11Q2.5 9.5 4 9.5Q5.5 9.5 6.5 11.5Q7.5 13.5 8.5 15" fill="#08080a" opacity=".85"/><path d="M19.5 17Q23.5 15 25 11Q25.5 9.5 24 9.5Q22.5 9.5 21.5 11.5Q20.5 13.5 19.5 15" fill="#08080a" opacity=".85"/><circle cx="12.2" cy="12" r="1" fill="#f5b742"/><circle cx="15.8" cy="12" r="1" fill="#f5b742"/><path d="M12.5 10.2Q10 7 9 5" stroke="#08080a" stroke-width="1" stroke-linecap="round" opacity=".8"/><path d="M15.5 10.2Q18 7 19 5" stroke="#08080a" stroke-width="1" stroke-linecap="round" opacity=".8"/><circle cx="9" cy="5" r=".8" fill="#08080a" opacity=".8"/><circle cx="19" cy="5" r=".8" fill="#08080a" opacity=".8"/><path d="M10 19L8 21.5M11 19.5L9.5 22M13 20L12 22.5M15 20L16 22.5M17 19.5L18.5 22M18 19L20 21.5" stroke="#08080a" stroke-width=".9" stroke-linecap="round" opacity=".7"/></svg>'}</div><div class="msg-body"><div class="msg-header"><span class="msg-name">${isUser ? 'You' : 'SlopLobster'}</span><span class="msg-time">${el._time}</span><div class="msg-actions">${isAgent ? '<button class="msg-act" onclick="copyMsgText(this)" title="Copy"><i class="fas fa-copy"></i></button><button class="msg-act" onclick="pruneMsg(this)" title="Prune out of context"><i class="fas fa-scissors"></i></button><button class="msg-act" onclick="retryMsg(this)" title="Retry from here"><i class="fas fa-rotate-right"></i></button>' : ''}${isUser ? '<button class="msg-act" onclick="editMsg(this)" title="Edit & resend"><i class="fas fa-pen"></i></button><button class="msg-act" onclick="copyMsgText(this)" title="Copy"><i class="fas fa-copy"></i></button><button class="msg-act" onclick="pruneMsg(this)" title="Prune out of context"><i class="fas fa-scissors"></i></button>' : ''}</div></div><div class="msg-content ${streaming ? 'streaming-cursor' : ''}">${isUser ? esc(text) : renderMd(text)}</div></div>`;
       if (isAgent && !streaming) { el.querySelector('.msg-content').querySelectorAll('pre code').forEach(b => hljs.highlightElement(b)); addCopyBtns(el.querySelector('.msg-content')); }
       return el;
-  }
+    }
 
     function appendMsg(role, content) {
       switchToChat();
@@ -7660,8 +7730,6 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       else { btn.className = 'send-btn send'; btn.innerHTML = '<i class="fas fa-arrow-up"></i>'; btn.disabled = !(state.connected && state.model && inp.value.trim()); }
     }
 
-    function toggleAutoScroll() { state.autoScroll = !state.autoScroll; updateScrollLockBtn(); if (state.autoScroll) scrollToBottomForce(); }
-
     function updateWelcomeStatus() {
       const el = document.getElementById('welcome-status'); const parts = [];
       if (state.connected && state.model) parts.push(`<span style="color:var(--green)"><i class="fas fa-circle" style="font-size:6px"></i> LLM: ${esc(state.model)}</span>`);
@@ -7824,6 +7892,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
 
     async function doNewConversation() {
+      _wsWarningDismissed = false;
+      updateWorkspaceBanner();
       saveCurrentConv();
       const oldProgressFile = state.activeConvId
         ? `.sloplobster-progress-${state.activeConvId}.md` : null;
@@ -8270,6 +8340,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         state.dirName = state.dirHandle.name;
         document.getElementById('dir-name').textContent = state.dirName;
         showToast(`Workspace: ${state.dirName}`, 'ok');
+        _wsWarningDismissed = false;
+        updateWorkspaceBanner();
         await refreshFileTree(); await detectProject(); checkGitRepo(); updateWelcomeStatus();
       } catch (e) { if (e.name !== 'AbortError') showToast(e.message, 'err'); }
     }
@@ -8279,9 +8351,6 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const inp = document.getElementById('msg-input'), t = inp.value.trim();
       if (!t && !state.pendingImages.length) return;
       if (t.startsWith('/') && !state.pendingImages.length) { handleCmd(t); inp.value = ''; inp.style.height = 'auto'; updateSendBtn(); return; }
-      if (!state.activeConvId) {
-        try { await doNewConversation(); } catch (e) { showToast('Could not create conversation: ' + e.message, 'err'); return; }
-      }
 
       /* Warn if images but no vision */
       if (state.pendingImages.length && !state.visionCapable) {
@@ -8361,6 +8430,23 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     }
 
     function toggleSidebar() { document.getElementById('sidebar').classList.toggle('collapsed'); }
+
+    let _wsWarningDismissed = false;
+
+    function updateWorkspaceBanner() {
+      const el = document.getElementById('ws-warning');
+      if (!el) return;
+      if (state.dirHandle || _wsWarningDismissed) {
+        el.style.display = 'none';
+      } else {
+        el.style.display = 'flex';
+      }
+    }
+
+    function dismissWorkspaceWarning() {
+      _wsWarningDismissed = true;
+      document.getElementById('ws-warning').style.display = 'none';
+    }
 
     function showToast(msg, type = 'info') {
       const el = document.createElement('div'); el.className = `toast ${type}`;
@@ -8742,6 +8828,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) { e.preventDefault(); inp.focus(); }
       });
 
+      updateWorkspaceBanner();
       if (!document.getElementById('s-sys-prompt').value) document.getElementById('s-sys-prompt').value = DEFAULT_SYS;
       updateWelcomeStatus(); updateScrollLockBtn();
       initRightPanel();
