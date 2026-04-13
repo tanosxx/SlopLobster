@@ -6235,7 +6235,7 @@ Python command: {{PYTHON_CMD}}`;
           if (m) { add(i, indent + (m[1] || '') + 'def ' + m[2] + '(' + m[3].slice(0, 80) + ')'); continue; }
           m = trimmed.match(/^class\s+(\w+)(?:\(([^)]*)\))?(?:\s*:)?/);
           if (m) { add(i, indent + 'class ' + m[1] + (m[2] ? '(' + m[2] + ')' : '')); continue; }
-          m = trimmed.match(/^@(\w+)/);
+          m = trimmed.match(/^@([\w.]+(?:\([^)]*\))?)/);
           if (m) { add(i, indent + '@' + m[1]); continue; }
           if (/^(import|from)\s/.test(trimmed)) { add(i, trimmed.slice(0, 100)); }
         }
@@ -6810,6 +6810,7 @@ Python command: {{PYTHON_CMD}}`;
     }
 
     function streamToolResult(panel, text) {
+      if (!panel.el || !panel.el.isConnected) return;
       const res = panel.el.querySelector('.tool-result');
       if (res.classList.contains('loading')) { res.classList.remove('loading'); }
       res.textContent += text; panel.el._resultText = res.textContent;
@@ -6928,27 +6929,66 @@ Python command: {{PYTHON_CMD}}`;
 
     /* ═══════════════ TOOL DISPATCH ═══════════════ */
     async function executeTool(name, argsStr, signal, panel) {
-      let args; try { args = JSON.parse(argsStr); } catch { args = {}; }
-      if (args.path != null && args.path !== '') { try { sanitizePath(args.path); } catch (e) { return { output: 'Security: ' + e.message }; } }
-      if (args.source != null && args.source !== '') { try { sanitizePath(args.source); } catch (e) { return { output: 'Security: ' + e.message }; } }
-      if (args.destination != null && args.destination !== '') { try { sanitizePath(args.destination); } catch (e) { return { output: 'Security: ' + e.message }; } }
+      /* ── Parse arguments with debug-friendly error reporting ── */
+      let args;
+      if (!argsStr || typeof argsStr !== 'string' || !argsStr.trim()) {
+        args = { _parseError: 'empty arguments string' };
+      } else {
+        try {
+          args = JSON.parse(argsStr);
+        } catch (parseErr) {
+          /* Diagnose the truncation: show first 80 + last 80 chars of raw args */
+          const raw = argsStr;
+          const preview = raw.length > 200
+            ? raw.slice(0, 80) + ' ... [' + raw.length + ' chars total] ... ' + raw.slice(-80)
+            : raw;
+          const opens  = (raw.match(/\{/g) || []).length;
+          const closes = (raw.match(/\}/g) || []).length;
+          const bracketOpens  = (raw.match(/\[/g) || []).length;
+          const bracketCloses = (raw.match(/\]/g) || []).length;
+          const unclosed = [];
+          if (opens > closes) unclosed.push('}' + (opens - closes));
+          if (bracketOpens > bracketCloses) unclosed.push(']' + (bracketOpens - bracketCloses));
+          args = {
+            _parseError: 'malformed JSON' + (unclosed.length ? ' (missing closing: ' + unclosed.join(', ') + ')' : '')
+              + '\nparse error: ' + parseErr.message
+              + '\nraw args (' + raw.length + ' chars): ' + preview
+          };
+        }
+      }
+
+      /* ── Path sanitization (before tool switch) ── */
+      if (args._parseError) {
+        /* Skip sanitization — we'll report the parse error in the tool-specific handler */
+      } else {
+        if (args.path != null && args.path !== '') { try { sanitizePath(args.path); } catch (e) { return { output: 'Security: ' + e.message }; } }
+        if (args.source != null && args.source !== '') { try { sanitizePath(args.source); } catch (e) { return { output: 'Security: ' + e.message }; } }
+        if (args.destination != null && args.destination !== '') { try { sanitizePath(args.destination); } catch (e) { return { output: 'Security: ' + e.message }; } }
+      }
+
       try {
         let result;
         switch (name) {
           case 'read_file':
-            if (!args.path) return { output: 'Error: "path" is required for read_file' };
+            if (args._parseError) return { output: 'Error: read_file received invalid arguments — ' + args._parseError + '\n\nFix: Provide "path" as valid JSON. Example:\nread_file({"path": "src/main.py"})' };
+            if (!args.path) return { output: 'Error: "path" is required for read_file. Example: read_file({"path": "src/main.py"})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
             result = await readFileSafe(args.path); break;
+
           case 'view_image':
-            if (!args.path) return { output: 'Error: "path" is required for view_image' };
+            if (args._parseError) return { output: 'Error: view_image received invalid arguments — ' + args._parseError };
+            if (!args.path) return { output: 'Error: "path" is required for view_image. Example: view_image({"path": "assets/logo.svg"})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
             result = await viewImageSafe(args.path); break;
+
           case 'read_file_lines':
-            if (!args.path) return { output: 'Error: "path" is required for read_file_lines' };
+            if (args._parseError) return { output: 'Error: read_file_lines received invalid arguments — ' + args._parseError };
+            if (!args.path) return { output: 'Error: "path" is required for read_file_lines. Example: read_file_lines({"path": "src/main.py", "start_line": 1, "end_line": 50})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
             result = await readFileLinesSafe(args.path, args.start_line, args.end_line); break;
+
           case 'edit_file':
-            if (args._parseError) return { output: `Error: edit_file received invalid arguments — ${args._parseError}\n\nFix: Provide "path" and "edits" as valid JSON. Example:\nedit_file({\n  "path": "src/example.py",\n  "edits": [{\n    "old_text": "old line",\n    "new_text": "new line"\n  }]\n})` };
-            if (!args.path) return { output: 'Error: "path" is required for edit_file. You must include the file path.\n\nExample:\nedit_file({\n  "path": "src/example.py",\n  "edits": [{"old_text": "...", "new_text": "..."}]\n})' };
-            if (!Array.isArray(args.edits) || !args.edits.length) return { output: 'Error: "edits" must be a non-empty array of {old_text, new_text} objects.\n\nExample:\nedit_file({\n  "path": "src/example.py",\n  "edits": [\n    {"old_text": "line to find", "new_text": "replacement line"},\n    {"old_text": "another line", "new_text": "another replacement"}\n  ]\n})' };
-            for (let i = 0; i < args.edits.length; i++) { if (!args.edits[i].old_text) return { output: 'Error: edits[' + i + '].old_text is missing or empty. Every edit must have an "old_text" field with the exact text to find.' }; }
+            if (args._parseError) return { output: 'Error: edit_file received invalid arguments — ' + args._parseError + '\n\nFix: Provide "path" and "edits" as valid JSON. The old_text content was likely too long and got truncated. Use smaller search/replace blocks.\n\nExample:\nedit_file({\n  "path": "src/example.py",\n  "edits": [{"old_text": "old line", "new_text": "new line"}]\n})' };
+            if (!args.path) return { output: 'Error: "path" is required for edit_file. Example:\nedit_file({"path": "src/example.py", "edits": [{"old_text": "...", "new_text": "..."}]})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
+            if (!Array.isArray(args.edits) || !args.edits.length) return { output: 'Error: "edits" must be a non-empty array of {old_text, new_text} objects.\n\nExample:\nedit_file({"path": "src/example.py", "edits": [\n  {"old_text": "line to find", "new_text": "replacement line"},\n  {"old_text": "another line", "new_text": "another replacement"}\n]})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
+            for (let i = 0; i < args.edits.length; i++) { if (!args.edits[i].old_text) return { output: 'Error: edits[' + i + '].old_text is missing or empty. Every edit must have an "old_text" field with the exact text to find.\n\nDebug: edits[' + i + '] = ' + esc(JSON.stringify(args.edits[i]).slice(0, 200)) }; }
             result = await editFileSafe(args.path, args.edits, state.requireEditApproval);
             if (!result._pendingApproval && !String(result.output).includes('ERROR')) {
               debouncedFileTreeRefresh();
@@ -6958,10 +6998,18 @@ Python command: {{PYTHON_CMD}}`;
               }
             }
             break;
+
           case 'write_file':
-            if (args._parseError) return { output: `Error: write_file received invalid arguments — ${args._parseError}\n\nFix: Provide both "path" and "content" as valid JSON. Example:\nwrite_file({\n  "path": "src/example.py",\n  "content": "print(\\"hello\\")"\n})\n\nIf the file is very large (>50KB), use edit_file on an existing file instead, or split into multiple smaller write_file calls.` };
-            if (!args.path) return { output: 'Error: "path" is required for write_file. You must include the file path.\n\nExample:\nwrite_file({\n  "path": "src/example.py",\n  "content": "your code here"\n})' };
-            if (args.content === undefined || args.content === null) return { output: 'Error: "content" is required for write_file. You must include the file content.\n\nExample:\nwrite_file({\n  "path": "src/example.py",\n  "content": "your code here"\n})\n\nIf the content is extremely long, it may have been truncated. Try writing a smaller file or using edit_file.' };
+            if (args._parseError) {
+              /* For write_file, estimate how much content was lost to truncation */
+              const contentHint = argsStr.includes('"content"') ? 'The "content" field was present but the JSON was cut off — the file content was too long for a single tool call.' : 'Could not find a "content" field in the truncated JSON.';
+              return {
+                output: 'Error: write_file received invalid arguments — ' + args._parseError + '\n\n' + contentHint + '\n\nFix: Instead of one large write_file, either:\n1. Use edit_file with small search/replace blocks on an existing file\n2. Split into multiple smaller write_file calls\n3. Reduce the content size\n\nExample:\nwrite_file({"path": "src/example.py", "content": "print(\\"hello\\")"})\n\nIf the file is very large (>30KB), use edit_file instead.',
+                _truncatedWrite: true
+              };
+            }
+            if (!args.path) return { output: 'Error: "path" is required for write_file.\n\nExample:\nwrite_file({"path": "src/example.py", "content": "your code here"})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
+            if (args.content === undefined || args.content === null) return { output: 'Error: "content" is required for write_file. The JSON may have been truncated mid-content.\n\nExample:\nwrite_file({"path": "src/example.py", "content": "your code here"})\n\nDebug: received args keys: [' + Object.keys(args).join(', ') + ']' };
             result = await writeFileSafe(args.path, args.content, state.requireEditApproval);
             if (!result._pendingApproval && !String(result.output).includes('ERROR')) {
               debouncedFileTreeRefresh();
@@ -6971,6 +7019,7 @@ Python command: {{PYTHON_CMD}}`;
               }
             }
             break;
+
           case 'list_directory':
             result = { output: await listDirSafe(args.path || '', args.recursive || false) }; break;
           case 'search_files':
@@ -7038,7 +7087,7 @@ Python command: {{PYTHON_CMD}}`;
               data.results.forEach((r, i) => {
                 if (r.error) {
                   text += `${i + 1}. Error: ${r.error}\n\n`;
-                  return; // skip to next result
+                  return;
                 }
                 text += (i + 1) + '. ' + (r.title || '(no title)') + '\n   ' + r.url + '\n';
                 if (r.snippet) text += '   ' + r.snippet + '\n'; if (r.content) text += '\n   --- Fetched content (' + (r.content_chars || r.content.length).toLocaleString() + ' chars) ---\n' + r.content.slice(0, 8000) + (r.content.length > 8000 ? '\n   ... (truncated)' : '') + '\n'; if (r.content_error) text += '   [Fetch failed: ' + r.content_error + ']\n'; text += '\n';
@@ -7063,7 +7112,7 @@ Python command: {{PYTHON_CMD}}`;
           case 'think':
             if (!args.thought) return { output: 'Error: "thought" is required for think' };
             result = { output: args.thought }; break;
-            
+
           case 'spawn_sub_agent':
             if (!args.task) return { output: 'Error: "task" is required for spawn_sub_agent' };
             {
@@ -7838,7 +7887,6 @@ Rules:
           } else {
             const err = await unloadRes.text().catch(() => '');
             console.warn('[model] unload warning:', unloadRes.status, err);
-            // Non-fatal — LM Studio may handle this on load anyway
           }
         } catch (e) {
           console.warn('[model] unload error (non-fatal):', e.message);
@@ -7865,7 +7913,7 @@ Rules:
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(loadBody),
-          signal: AbortSignal.timeout(300000) // 5 min — large models on slow machines
+          signal: AbortSignal.timeout(300000)
         });
 
         if (!res.ok) {
@@ -7878,13 +7926,33 @@ Rules:
         const data = await res.json();
         const loadTimeSec = data.load_time_seconds || ((performance.now() - loadStart) / 1000);
 
-        // Step 3: Update activeInstance from load response — no extra fetch needed
+        // Step 3: Update activeInstance from load response
         activeInstance = {
           instance_id: data.instance_id || modelId,
           identifier: modelId,
           state: 'loaded',
           contextLength: data.load_config?.context_length || state.modelCtxOverride || 0,
         };
+
+        // FIX: Sync state.ctxWindow to the actual context length LM Studio used.
+        // LM Studio may clamp the requested value to the model's maximum or round it,
+        // so the value we sent (state.modelCtxOverride or state.ctxWindow) may not
+        // match what's actually loaded. Without this, the context meter, auto-compact
+        // threshold, and iteration limits all operate against a stale/wrong number.
+        const actualCtx = data.load_config?.context_length;
+        if (actualCtx && actualCtx > 0 && actualCtx !== state.ctxWindow) {
+          const was = state.ctxWindow;
+          state.ctxWindow = actualCtx;
+          document.getElementById('s-ctx-window').value = actualCtx;
+          updateContextMeter();
+          if (was !== actualCtx) {
+            console.info(
+              '[model] context window adjusted by LM Studio:',
+              was, '→', actualCtx,
+              '(model max may be lower than requested)'
+            );
+          }
+        }
 
         dot.className = 'status-dot on';
         txt.textContent = 'LLM';
@@ -7904,8 +7972,6 @@ Rules:
         const timeStr = loadTimeSec < 1 ? (loadTimeSec * 1000).toFixed(0) + 'ms' : loadTimeSec.toFixed(1) + 's';
         meta.innerHTML = `<span style="color:var(--green)">✓ ${timeStr}</span>${cfgStr ? '<span style="color:var(--tx-4);margin-left:4px">[' + esc(cfgStr) + ']</span>' : ''}`;
 
-
-        // Re-fetch full model info to update vision/tools/etc flags for this loaded model
         updateVisionUI();
         updateModelMeta();
         updateModelLoadBtn();
@@ -8281,13 +8347,11 @@ Rules:
           }
           liveThinkEls.clear();
 
-          // Finalize the zombie streaming message so it doesn't stay in loading state
           if (streamEl) {
             if (streamEl._rAF) cancelAnimationFrame(streamEl._rAF);
             const c = streamEl.querySelector('.msg-content');
             if (c) c.classList.remove('streaming-cursor');
-            // If we got partial text before the error, render it cleanly.
-            // If we got no text, remove the empty message element entirely.
+
             if (cur) {
               c.innerHTML = renderMd(cur);
               c.querySelectorAll('pre code').forEach(b => {
@@ -8300,6 +8364,11 @@ Rules:
               tokEl.className = 'msg-tok';
               tokEl.textContent = formatTok(outTok) + ' out';
               hdr.insertBefore(tokEl, hdr.querySelector('.msg-actions'));
+
+              const am = { role: 'assistant', content: cur || null };
+              if (tcs.length) am.tool_calls = tcs;
+              state.messages.push(am);
+              updateContextMeter();
             } else {
               streamEl.remove();
             }
@@ -8972,6 +9041,7 @@ Rules:
     }
 
     function showToolPanel(name, argsStr, status, onStopClick, toolCallId) {
+      if (argsStr == null || typeof argsStr !== 'string') argsStr = '{}';
 
       let prev = ''; try { const a = JSON.parse(argsStr); prev = Object.entries(a).map(([k, v]) => '<span>' + esc(k) + '</span>: ' + esc(String(v).length > 120 ? String(v).slice(0, 120) + '...' : String(v))).join('<br>'); } catch { prev = esc(argsStr?.slice(0, 200) || ''); }
       const el = document.createElement('div'); el.className = 'tool-panel';
@@ -9435,11 +9505,9 @@ Rules:
       modifiedFiles.clear();
       state.pendingImages = [];
       state.originalTask = null;
-      state.originalTask = null;
       state.currentPlan = null;
       state.planExecuting = false;
       state.planStepIndex = -1;
-      toolCallHistory.length = 0;
       toolCallHistory.length = 0;
       state._autoVerifyRetries = 0;
       textLoopBuffer.length = 0;
@@ -9687,7 +9755,9 @@ Rules:
         if (s.requireEditApproval !== undefined) state.requireEditApproval = s.requireEditApproval;
         if (s.autoVerifyCommand !== undefined) state.autoVerifyCommand = s.autoVerifyCommand;
         if (s.autoVerifyMaxRetries !== undefined) state.autoVerifyMaxRetries = s.autoVerifyMaxRetries;
-        if (s.smartContextThreshold !== undefined) state.smartContextThreshold = s.smartContextThreshold;        
+        if (s.smartContextThreshold !== undefined) state.smartContextThreshold = s.smartContextThreshold;   
+        if (s.wsWarningDismissed !== undefined) _wsWarningDismissed = s.wsWarningDismissed;
+             
       } catch { }
       renderSysProfiles();
       // ADD THESE TWO LINES — sync loaded settings to UI and meter on startup:
@@ -9712,6 +9782,7 @@ Rules:
           requireEditApproval: state.requireEditApproval,
           autoVerifyCommand: state.autoVerifyCommand,
           autoVerifyMaxRetries: state.autoVerifyMaxRetries,
+          wsWarningDismissed: _wsWarningDismissed,
           smartContextThreshold: state.smartContextThreshold          
         }));
       } catch { }
@@ -9808,10 +9879,16 @@ Rules:
     }
 
     function saveCompanionScript() {
-      const blob = new Blob([COMPANION_SCRIPT], { type: 'text/x-python' }); const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob); a.download = 'SlopLobster-companion.py'; a.click(); URL.revokeObjectURL(a.href);
+      const blob = new Blob([COMPANION_SCRIPT], { type: 'text/x-python' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'SlopLobster-companion.py';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
       showToast('Saved SlopLobster-companion.py', 'ok');
     }
+    
     async function processFilesForInput(files) {
       if (!files || !files.length) return;
       const inp = document.getElementById('msg-input');
@@ -9892,9 +9969,17 @@ Rules:
     }
 
     async function handleSend() {
-      if (state.running) { state.abortCtrl?.abort(); state.running = false; updateSendBtn(); return; }
-      if (state.running) { state.abortCtrl?.abort(); state.running = false; state.planExecuting = false; updateSendBtn(); return; }
-      const inp = document.getElementById('msg-input'), t = inp.value.trim();
+      if (state.running) {
+        state.abortCtrl?.abort();
+        state.running = false;
+        state.planExecuting = false;
+        updateSendBtn();
+        return;
+      }
+
+      const inp = document.getElementById('msg-input');
+      const t = inp.value.trim();
+
       if (!t && !state.pendingImages.length) return;
       if (t.startsWith('/') && !state.pendingImages.length) { handleCmd(t); inp.value = ''; inp.style.height = 'auto'; updateSendBtn(); return; }
 
@@ -10073,7 +10158,12 @@ STEP: Run pytest to verify changes`;
 
         if (steps.length < 2) {
           appendMsg('system', 'Could not generate a structured plan (got ' + steps.length + ' step' + (steps.length !== 1 ? 's' : '') + '). Falling back to normal execution.');
-          agentLoop();
+          try {
+            await agentLoop();
+          } catch (loopErr) {
+            console.error('[plan] agentLoop fallback error:', loopErr);
+            appendMsg('system', 'Fallback execution also failed: ' + loopErr.message);
+          }
           return;
         }
 
@@ -10084,7 +10174,12 @@ STEP: Run pytest to verify changes`;
         if (thinkingEl.parentNode) thinkingEl.remove();
         if (e.name === 'AbortError') { appendMsg('system', 'Plan generation cancelled.'); return; }
         appendMsg('system', 'Plan generation failed: ' + e.message + ' — falling back to normal execution.');
-        agentLoop();
+        try {
+          await agentLoop();
+        } catch (loopErr) {
+          console.error('[plan] agentLoop fallback error:', loopErr);
+          appendMsg('system', 'Fallback execution also failed: ' + loopErr.message);
+        }
       }
     }
 
@@ -10308,7 +10403,14 @@ STEP: Run pytest to verify changes`;
         updateContextMeter();
 
         /* Run agent loop — exits when LLM stops calling tools */
-        await agentLoop();
+        try {
+          await agentLoop();
+        } catch (e) {
+          console.error('[plan] agentLoop error at step', i + 1, e);
+          updatePlanStep(i, 'failed');
+          appendMsg('system', 'Plan failed at step ' + (i + 1) + ': ' + e.message);
+          break;
+        }
 
         if (!state.planExecuting) {
           updatePlanStep(i, 'stopped');
@@ -10385,6 +10487,7 @@ STEP: Run pytest to verify changes`;
 
     function dismissWorkspaceWarning() {
       _wsWarningDismissed = true;
+      persistSettings(); 
       document.getElementById('ws-warning').style.display = 'none';
     }
 
