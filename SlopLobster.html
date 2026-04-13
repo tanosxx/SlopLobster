@@ -1458,6 +1458,166 @@
       opacity: .6
     }
 
+    .diff-panel.pending {
+      border-color: rgba(234, 179, 8, .3);
+      background: rgba(234, 179, 8, .03)
+    }
+
+    .diff-panel.pending .diff-hdr i {
+      color: var(--yellow)
+    }
+
+    .diff-panel.rejected {
+      opacity: .35;
+      pointer-events: none
+    }
+
+    .diff-approval-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-top: 1px solid rgba(234, 179, 8, .2);
+      background: rgba(234, 179, 8, .04)
+    }
+
+    .diff-approval-bar .da-label {
+      font-size: 10px;
+      color: var(--yellow);
+      font-weight: 600;
+      flex: 1
+    }
+
+    .da-btn {
+      padding: 4px 12px;
+      border-radius: 5px;
+      border: 1px solid;
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: 'Space Grotesk', sans-serif;
+      transition: .12s;
+      display: flex;
+      align-items: center;
+      gap: 4px
+    }
+
+    .da-btn.accept {
+      background: rgba(34, 197, 94, .12);
+      color: var(--green);
+      border-color: rgba(34, 197, 94, .3)
+    }
+
+    .da-btn.accept:hover {
+      background: rgba(34, 197, 94, .2);
+      border-color: var(--green)
+    }
+
+    .da-btn.reject {
+      background: rgba(239, 68, 68, .08);
+      color: var(--red);
+      border-color: rgba(239, 68, 68, .25)
+    }
+
+    .da-btn.reject:hover {
+      background: rgba(239, 68, 68, .15);
+      border-color: var(--red)
+    }
+
+    .new-file-pending {
+      background: var(--bg-2);
+      border: 1px solid rgba(34, 197, 94, .2);
+      border-radius: 7px;
+      margin: 5px 0;
+      overflow: hidden
+    }
+
+    .new-file-pending .nfp-hdr {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, .01)
+    }
+
+    .new-file-pending .nfp-hdr i {
+      color: var(--green)
+    }
+
+    .new-file-pending .nfp-preview {
+      padding: 8px 10px;
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--tx-3);
+      max-height: 150px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.45
+    }
+
+    .auto-route-hint {
+      padding: 6px 10px;
+      margin-top: 4px;
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--cyan);
+      background: rgba(34, 211, 238, .05);
+      border: 1px solid rgba(34, 211, 238, .15);
+      border-radius: 5px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word
+    }
+
+    .auto-route-hint::before {
+      content: '🔍 Auto-search: ';
+      font-weight: 700;
+      color: var(--teal)
+    }
+
+    .verify-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      font-size: 11px;
+      border-radius: 8px;
+      margin: 4px 0;
+      animation: msgIn .2s ease-out;
+      width: 100%;
+      max-width: 860px;
+      flex-shrink: 0
+    }
+
+    .verify-indicator.running {
+      background: rgba(34, 211, 238, .06);
+      border: 1px solid rgba(34, 211, 238, .15);
+      color: var(--cyan)
+    }
+
+    .verify-indicator.passed {
+      background: rgba(34, 197, 94, .06);
+      border: 1px solid rgba(34, 197, 94, .15);
+      color: var(--green)
+    }
+
+    .verify-indicator.failed {
+      background: rgba(239, 68, 68, .06);
+      border: 1px solid rgba(239, 68, 68, .15);
+      color: var(--red)
+    }
+
+    .verify-indicator .vi-cmd {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--tx-3);
+      margin-left: 4px
+    }
+
     /* ── Search panel ── */
     .search-panel {
       background: var(--bg-2);
@@ -3954,6 +4114,17 @@
               style="accent-color:var(--accent)"><span class="val" style="min-width:auto">Read back after write to
               confirm</span></div>
         </div>
+        <div class="field"><label>Require approval for file edits</label>
+          <div class="slider-row"><input type="checkbox" id="s-require-approval" style="accent-color:var(--accent)"><span class="val" style="min-width:auto">Show Accept/Reject before applying edits (off = fully autonomous)</span></div>
+        </div>
+        <div class="field"><label>Auto-verify command</label>
+          <input type="text" id="s-auto-verify" placeholder="e.g. pytest, npm test, cargo test">
+          <div class="hint">Run automatically after file edits. If tests fail, agent auto-fixes up to N retries. Empty = off.</div>
+        </div>
+        <div class="field"><label>Max auto-fix retries</label>
+          <input type="number" id="s-auto-verify-retries" value="3" min="1" max="10">
+          <div class="hint">After this many consecutive failures, stops and shows you the error.</div>
+        </div>
         <div class="field">
           <label>System Prompt</label>
           <div style="display:flex;gap:5px;align-items:center;margin-bottom:6px">
@@ -4658,6 +4829,10 @@ if __name__ == "__main__":
       autoCompactPct: 85, maxIters: 50,
       verifyWrites: true,
       /* ── Model load settings ── */
+      requireEditApproval: false,
+      autoVerifyCommand: '',
+      autoVerifyMaxRetries: 3,
+      _autoVerifyRetries: 0,
       modelCtxOverride: 0,       // 0 = use model default
       modelFlashAttn: true,
       modelKvOffload: true,
@@ -5554,12 +5729,13 @@ Python command: {{PYTHON_CMD}}`;
       }
     }
 
-    async function editFileSafe(rel, edits) {
+    async function editFileSafe(rel, edits, dryRun = false) {
       requireWorkspace(); const segs = sanitizePath(rel);
       let dir = state.dirHandle;
-      for (let i = 0; i < segs.length - 1; i++)dir = await dir.getDirectoryHandle(segs[i], { create: true });
+      for (let i = 0; i < segs.length - 1; i++) dir = await dir.getDirectoryHandle(segs[i], { create: true });
       const fh = await dir.getFileHandle(segs[segs.length - 1], { create: false });
       const file = await fh.getFile(); let content = await file.text();
+      const originalContent = content;
       if (!state.fileBackups.has(rel)) state.fileBackups.set(rel, content);
       const results = []; const allDiffs = [];
       for (let i = 0; i < edits.length; i++) {
@@ -5576,6 +5752,13 @@ Python command: {{PYTHON_CMD}}`;
           results.push(`Edit ${i + 1}: OK`);
         }
         allDiffs.push(generateDiffFromStrings(old_text, new_text));
+      }
+      if (dryRun) {
+        const hasChanges = content !== originalContent;
+        if (!hasChanges) return { output: results.join('\n'), diff: null, _pendingApproval: false };
+        const diffOutput = allDiffs.filter(d => d.lines.length);
+        const diff = diffOutput.length ? { path: rel, lines: diffOutput.flatMap(d => d.lines), stats: { additions: diffOutput.flatMap(d => d.lines).filter(l => l.type === 'add').length, deletions: diffOutput.flatMap(d => d.lines).filter(l => l.type === 'del').length }, truncated: false } : null;
+        return { output: '[PENDING APPROVAL] ' + results.join('\n'), diff, _pendingApproval: true, _pendingPath: rel, _pendingNewContent: content, _pendingIsNewFile: false };
       }
       const w = await fh.createWritable(); await w.write(content); await w.close();
       state.fileCache.set(rel, content); modifiedFiles.add(rel);
@@ -5646,12 +5829,17 @@ Python command: {{PYTHON_CMD}}`;
       return { compact: out, hidden: lines.length - out.filter(l => l.type !== 'ellipsis').length };
     }
 
-    async function writeFileSafe(rel, content) {
+    async function writeFileSafe(rel, content, dryRun = false) {
       requireWorkspace(); const segs = sanitizePath(rel);
       let dir = state.dirHandle; for (let i = 0; i < segs.length - 1; i++)dir = await dir.getDirectoryHandle(segs[i], { create: true });
       let prevContent = null;
       try { const eh = await dir.getFileHandle(segs[segs.length - 1]); prevContent = await (await eh.getFile()).text(); } catch { }
       if (prevContent !== null && !state.fileBackups.has(rel)) state.fileBackups.set(rel, prevContent);
+      if (dryRun) {
+        const isNew = prevContent === null;
+        const diff = !isNew ? { path: rel, lines: generateDiffFromStrings(prevContent, content).lines, stats: generateDiffFromStrings(prevContent, content).stats, truncated: false } : null;
+        return { output: isNew ? '[PENDING APPROVAL] Create ' + rel : '[PENDING APPROVAL] Overwrite ' + rel, diff, _pendingApproval: true, _pendingPath: rel, _pendingNewContent: content, _pendingIsNewFile: isNew };
+      }
       const fh = await dir.getFileHandle(segs[segs.length - 1], { create: true });
       const w = await fh.createWritable(); await w.write(content); await w.close();
       state.fileCache.set(rel, content); modifiedFiles.add(rel);
@@ -6038,8 +6226,8 @@ Python command: {{PYTHON_CMD}}`;
             if (!args.path) return { output: 'Error: "path" is required for edit_file' };
             if (!Array.isArray(args.edits) || !args.edits.length) return { output: 'Error: "edits" must be a non-empty array of {old_text, new_text} objects' };
             for (let i = 0; i < args.edits.length; i++) { if (!args.edits[i].old_text) return { output: 'Error: edits[' + i + '].old_text is missing or empty' }; }
-            result = await editFileSafe(args.path, args.edits);
-            if (!String(result.output).includes('ERROR')) {
+            result = await editFileSafe(args.path, args.edits, state.requireEditApproval);
+            if (!result._pendingApproval && !String(result.output).includes('ERROR')) {
               debouncedFileTreeRefresh();
               if (state.compConnected && (args.path.endsWith('.py') || args.path.endsWith('.js'))) {
                 const check = await execViaCompanion(args.path.endsWith('.py') ? `python -m py_compile "${args.path}"` : `node -c "${args.path}"`, 15, signal);
@@ -6050,8 +6238,8 @@ Python command: {{PYTHON_CMD}}`;
           case 'write_file':
             if (!args.path) return { output: 'Error: "path" is required for write_file' };
             if (args.content === undefined || args.content === null) return { output: 'Error: "content" is required for write_file' };
-            result = await writeFileSafe(args.path, args.content);
-            if (!String(result.output).includes('ERROR')) {
+            result = await writeFileSafe(args.path, args.content, state.requireEditApproval);
+            if (!result._pendingApproval && !String(result.output).includes('ERROR')) {
               debouncedFileTreeRefresh();
               if (state.compConnected && (args.path.endsWith('.py') || args.path.endsWith('.js'))) {
                 const check = await execViaCompanion(args.path.endsWith('.py') ? `python -m py_compile "${args.path}"` : `node -c "${args.path}"`, 15, signal);
@@ -7178,9 +7366,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             return p;
           });
 
-          /* ── Map tc.id → panel for later lookup ── */
           const panelMap = new Map();
-          for (let i = 0; i < validNonThinkTcs.length; i++)panelMap.set(validNonThinkTcs[i].id, toolPanels[i]);
+          for (let i = 0; i < validNonThinkTcs.length; i++) panelMap.set(validNonThinkTcs[i].id, toolPanels[i]);
 
           const results = await Promise.all(validNonThinkTcs.map(async (tc, i) => {
             if (toolAbortCtrls[i].signal.aborted) {
@@ -7202,29 +7389,90 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             const diff = (typeof result === 'object' && result && result.diff) || null;
             const searchData = (typeof result === 'object' && result && result._searchData) || null;
 
-            /* ── Collect all preview metadata onto panel.el ── */
             if (typeof result === 'object' && result) {
-              if (result._screenshotDataUrl) {
-                toolPanels[i].el._screenshotDataUrl = result._screenshotDataUrl;
-                toolPanels[i].el._imagePath = 'screenshot';
-                toolPanels[i].el._imageReason = result._screenshotReason || 'agent requested';
-                toolPanels[i].el._imageType = 'screenshot';
-              } else if (result._imageDataUrl) {
-                toolPanels[i].el._imageDataUrl = result._imageDataUrl;
-                toolPanels[i].el._imagePath = result._imagePath || 'unknown';
-                toolPanels[i].el._imageReason = result._imageReason || 'file read';
-                toolPanels[i].el._imageType = result._imageType || 'file';
-              }
-              toolPanels[i].el._svgPreviewUrl = result._svgPreviewUrl || null;
-              toolPanels[i].el._svgText = result._svgText || null;
-              toolPanels[i].el._svgPath = result._svgPath || null;
-              toolPanels[i].el._previewDataUrl = result._previewDataUrl || null;
-              toolPanels[i].el._previewPath = result._previewPath || null;
+              if (result._screenshotDataUrl) { toolPanels[i].el._screenshotDataUrl = result._screenshotDataUrl; toolPanels[i].el._imagePath = 'screenshot'; toolPanels[i].el._imageReason = result._screenshotReason || 'agent requested'; toolPanels[i].el._imageType = 'screenshot'; }
+              else if (result._imageDataUrl) { toolPanels[i].el._imageDataUrl = result._imageDataUrl; toolPanels[i].el._imagePath = result._imagePath || 'unknown'; toolPanels[i].el._imageReason = result._imageReason || 'file read'; toolPanels[i].el._imageType = result._imageType || 'file'; }
+              toolPanels[i].el._svgPreviewUrl = result._svgPreviewUrl || null; toolPanels[i].el._svgText = result._svgText || null; toolPanels[i].el._svgPath = result._svgPath || null;
+              toolPanels[i].el._previewDataUrl = result._previewDataUrl || null; toolPanels[i].el._previewPath = result._previewPath || null;
             }
 
             updateToolResult(toolPanels[i], outText);
-            if (diff) showDiffPanel(diff);
             if (searchData) showSearchPanel(searchData);
+
+            /* ── Inline approval: show diff + buttons right on the tool panel ── */
+            if (result._pendingApproval) {
+              const approved = await new Promise((resolve) => {
+                const bar = document.createElement('div');
+                bar.className = 'diff-approval-bar';
+                let decided = false;
+                const onDecide = (val) => { if (decided) return; decided = true; resolve(val); };
+                bar.querySelector?.('.da-btn.accept')?.addEventListener?.('click', () => {}); // noop - replaced by innerHTML below
+                const isnew = result._pendingIsNewFile;
+                const label = isnew ? 'Create this file?' : 'Apply this edit?';
+                bar.innerHTML = '<span class="da-label">' + label + '</span><button class="da-btn accept"><i class="fas fa-check"></i> Accept</button><button class="da-btn reject"><i class="fas fa-xmark"></i> Reject</button>';
+                bar.querySelector('.da-btn.accept').onclick = () => {
+                  onDecide(true);
+                  bar.innerHTML = '<span class="da-label" style="color:var(--green)">✓ Accepted</span>';
+                };
+                bar.querySelector('.da-btn.reject').onclick = () => {
+                  onDecide(false);
+                  bar.innerHTML = '<span class="da-label" style="color:var(--red)">✗ Rejected</span>';
+                };
+                if (diff) {
+                  const dEl = showDiffPanel(diff);
+                  dEl.classList.add('pending');
+                  dEl.appendChild(bar);
+                } else if (isnew) {
+                  const nfp = document.createElement('div');
+                  nfp.className = 'new-file-pending';
+                  nfp.innerHTML = '<div class="nfp-hdr"><i class="fas fa-file-circle-plus"></i> ' + esc(result._pendingPath) + ' <span style="margin-left:auto;color:var(--green)">' + result._pendingNewContent.length + ' chars · ' + result._pendingNewContent.split('\n').length + ' lines</span></div><div class="nfp-preview">' + esc(result._pendingNewContent.slice(0, 3000)) + (result._pendingNewContent.length > 3000 ? '\n... (truncated)' : '') + '</div>';
+                  nfp.appendChild(bar);
+                  $msg().appendChild(nfp);
+                } else {
+                  toolPanels[i].el.appendChild(bar);
+                }
+                scrollBottom();
+                if (toolAbortCtrls[i].signal) {
+                  const h = () => { if (!decided) { decided = true; resolve(false); } toolAbortCtrls[i].signal.removeEventListener('abort', h); };
+                  toolAbortCtrls[i].signal.addEventListener('abort', h);
+                }
+              });
+
+              if (approved) {
+                const actual = result._pendingIsNewFile
+                  ? await applyPendingWrite(result)
+                  : await applyPendingEdit(result);
+                const args = safeParseArgs(tc.function.arguments);
+                if (args.path) {
+                  if (result._pendingIsNewFile) sessionChanges.created.add(args.path); else sessionChanges.modified.add(args.path);
+                  rpState.addChange(args.path, result._pendingIsNewFile ? 'created' : 'modified', actual.diff);
+                  previewFile(args.path);
+                  debouncedFileTreeRefresh();
+                  if (state.compConnected && (args.path.endsWith('.py') || args.path.endsWith('.js'))) {
+                    const ck = await execViaCompanion(args.path.endsWith('.py') ? 'python -m py_compile "' + args.path + '"' : 'node -c "' + args.path + '"', 15);
+                    if (typeof ck === 'string' && ck.trim()) actual.output += '\n\n⚠️ SYNTAX CHECK:\n' + ck.trim();
+                  }
+                }
+                updateToolResult(toolPanels[i], actual.output);
+                return { tc, outText: actual.output, diff: actual.diff, searchData: null };
+              } else {
+                if (diff) { const dEl = toolPanels[i].el.nextSibling; if (dEl && dEl.classList.contains('diff-panel')) dEl.classList.add('rejected'); }
+                updateToolStatus(toolPanels[i], 'err');
+                updateToolResult(toolPanels[i], 'Rejected — try a different approach.');
+                return { tc, outText: 'Edit to "' + result._pendingPath + '" rejected by user. Do NOT retry this exact edit.', diff: null, searchData: null, rejected: true };
+              }
+            } else {
+              if (diff) showDiffPanel(diff);
+            }
+
+            /* ── Error auto-routing ── */
+            if (/not found|does not exist|no such file/i.test(outText)) {
+              const routed = await autoRouteFileError(tc.function.name, outText, toolPanels[i]);
+              if (routed !== outText) {
+                updateToolResult(toolPanels[i], routed);
+                return { tc, outText: routed, diff, searchData };
+              }
+            }
 
             if (!outText.includes('Error:') && !outText.includes('ERROR') && !outText.includes('Cancelled')) {
               const args = safeParseArgs(tc.function.arguments);
@@ -7239,6 +7487,84 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             return { tc, outText, diff, searchData };
           }));
 
+          /* ── Auto Verify-and-Fix Loop ── */
+          const hadEdits = results.some(r => {
+            if (r.rejected || r.cancelled) return false;
+            const tn = r.tc.function.name;
+            return (tn === 'edit_file' || tn === 'write_file') && !r.outText.includes('Error:');
+          });
+
+          if (hadEdits && state.autoVerifyCommand && state.compConnected) {
+            const vi = document.createElement('div');
+            vi.className = 'verify-indicator running';
+            vi.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Running verification...<span class="vi-cmd">' + esc(state.autoVerifyCommand) + '</span>';
+            $msg().appendChild(vi);
+            scrollBottom();
+
+            rpTermStart(state.autoVerifyCommand);
+            let verifyOutput = '';
+            try {
+              const vout = await execViaCompanion(
+                state.autoVerifyCommand,
+                Math.max(state.cmdTimeout, 120) + 30,
+                null,
+                (text) => { verifyOutput += text; rpTermAppend(text); }
+              );
+              verifyOutput = typeof vout === 'string' ? vout : String(vout);
+            } catch (e) {
+              verifyOutput = 'Error running verification: ' + e.message;
+            }
+            rpTermEnd(verifyOutput);
+
+            /* Check if user stopped during verification */
+            if (!state.running) { vi.remove(); continue; }
+
+            /* Detect command-not-found (misconfigured, not a test failure) */
+            if (/command not found|not recognized|No such file.*command/i.test(verifyOutput)) {
+              vi.className = 'verify-indicator failed';
+              vi.innerHTML = '<i class="fas fa-triangle-exclamation"></i> Verify command not found<span class="vi-cmd">' + esc(state.autoVerifyCommand) + '</span>';
+              setTimeout(() => vi.remove(), 4000);
+              appendMsg('system', 'Auto-verify command not found: "' + state.autoVerifyCommand + '". Check Settings.');
+              state._autoVerifyRetries = 0;
+            }
+            /* Check if tests passed */
+            else if (!/\[exit code:\s*[1-9]\d*\]/.test(verifyOutput)) {
+              state._autoVerifyRetries = 0;
+              vi.className = 'verify-indicator passed';
+              vi.innerHTML = '<i class="fas fa-check-circle"></i> Tests passed<span class="vi-cmd">' + esc(state.autoVerifyCommand) + '</span>';
+              setTimeout(() => vi.remove(), 2000);
+            }
+            /* Tests failed — inject fix instruction */
+            else if (state._autoVerifyRetries < state.autoVerifyMaxRetries) {
+              state._autoVerifyRetries++;
+              vi.className = 'verify-indicator failed';
+              vi.innerHTML = '<i class="fas fa-xmark-circle"></i> Tests failed — auto-fixing (' + state._autoVerifyRetries + '/' + state.autoVerifyMaxRetries + ')<span class="vi-cmd">' + esc(state.autoVerifyCommand) + '</span>';
+              setTimeout(() => vi.remove(), 3000);
+
+              /* Send last 4000 chars of output — enough for the error, not enough to blow context */
+              const tail = verifyOutput.length > 4000 ? '...\n' + verifyOutput.slice(-4000) : verifyOutput;
+              state.messages.push({
+                role: 'user',
+                content: '[AUTO-VERIFY FAILED (attempt ' + state._autoVerifyRetries + '/' + state.autoVerifyMaxRetries + '): Your recent file changes broke the test suite. Read the error below, identify the root cause, and fix it. Do NOT explain what went wrong — just fix it silently.\n\nCommand: ' + state.autoVerifyCommand + '\n---\n' + tail + ']'
+              });
+              updateContextMeter();
+            }
+            /* Max retries exceeded */
+            else {
+              state._autoVerifyRetries = 0;
+              vi.className = 'verify-indicator failed';
+              vi.innerHTML = '<i class="fas fa-circle-exclamation"></i> Auto-fix limit reached (' + state.autoVerifyMaxRetries + ') — manual intervention needed<span class="vi-cmd">' + esc(state.autoVerifyCommand) + '</span>';
+              setTimeout(() => vi.remove(), 5000);
+
+              const tail = verifyOutput.length > 4000 ? '...\n' + verifyOutput.slice(-4000) : verifyOutput;
+              state.messages.push({
+                role: 'user',
+                content: '[AUTO-VERIFY: Failed ' + state.autoVerifyMaxRetries + ' consecutive times. Stopping auto-fix. The user needs to intervene. Show them the error and suggest what might be wrong.]\n\nCommand: ' + state.autoVerifyCommand + '\n---\n' + tail + ']'
+              });
+              updateContextMeter();
+            }
+          }
+
           if (toolCallHistory.length >= 3) {
             const r = toolCallHistory.slice(-3);
             if (r[0].sig === r[1].sig && r[1].sig === r[2].sig && !r[0].success && !r[1].success && !r[2].success) {
@@ -7251,36 +7577,27 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             }
           }
 
-          /* ── Index results by tool_call_id ── */
           const resultMap = new Map();
           for (const r of results) resultMap.set(r.tc.id, r);
 
-          /* ── Push ALL tool results in original tcs order (API requirement) ── */
           for (const tc of tcs) {
             if (tc.function.name === 'think') {
               let thought = '';
-              try { const a = JSON.parse(tc.function.arguments); thought = a.thought || ''; }
-              catch { thought = tc.function.arguments || ''; }
+              try { const a = JSON.parse(tc.function.arguments); thought = a.thought || ''; } catch { thought = tc.function.arguments || ''; }
               state.messages.push({ role: 'tool', tool_call_id: tc.id, content: thought });
             } else {
               const r = resultMap.get(tc.id);
               const panel = panelMap.get(tc.id);
-
-              /* ── Rejected tool (companion disconnected mid-conversation) ── */
-              if (!r) {
+              if (!r || r.rejected) {
                 state.messages.push({
                   role: 'tool', tool_call_id: tc.id,
-                  content: '[Error: ' + tc.function.name + ' is no longer available — the companion server disconnected. The tool list has been updated. Use only the tools that are currently available.]'
+                  content: r && r.rejected
+                    ? '[Error: ' + tc.function.name + ' edit was rejected by the user. Do NOT retry this exact edit. Try a fundamentally different approach.]'
+                    : '[Error: ' + tc.function.name + ' is no longer available — the companion server disconnected. The tool list has been updated. Use only the tools that are currently available.]'
                 });
                 continue;
               }
-
-              /* ── Build tool message with metadata for replay ── */
-              const toolMsg = {
-                role: 'tool', tool_call_id: tc.id, content: r.outText,
-                _diff: r.diff || null, _searchData: r.searchData || null,
-              };
-              /* Attach preview metadata from panel for replay */
+              const toolMsg = { role: 'tool', tool_call_id: tc.id, content: r.outText, _diff: r.diff || null, _searchData: r.searchData || null };
               if (panel) {
                 if (panel.el._svgPreviewUrl) { toolMsg._svgPreviewUrl = panel.el._svgPreviewUrl; toolMsg._svgText = panel.el._svgText; toolMsg._svgPath = panel.el._svgPath; }
                 if (panel.el._previewDataUrl) { toolMsg._previewDataUrl = panel.el._previewDataUrl; toolMsg._previewPath = panel.el._previewPath; }
@@ -7288,8 +7605,6 @@ Use git_diff to review changes before committing. git_diff without arguments sho
                 if (panel.el._screenshotDataUrl) { toolMsg._screenshotDataUrl = panel.el._screenshotDataUrl; toolMsg._imagePath = panel.el._imagePath; toolMsg._imageReason = panel.el._imageReason; toolMsg._imageType = panel.el._imageType; }
               }
               state.messages.push(toolMsg);
-
-              /* ── Right panel: track changes + auto-preview ── */
               const tName = tc.function.name; const tArgs = safeParseArgs(tc.function.arguments);
               if ((tName === 'edit_file' || tName === 'write_file') && r.diff) {
                 rpState.addChange(r.diff.path, tName === 'write_file' ? 'created' : 'modified', r.diff);
@@ -7302,57 +7617,35 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
           if (rpState.activeTab === 'git' && state.compConnected) setTimeout(updateGitPanel, 300);
 
-          /* ── Render ALL previews in ONE place (no duplicates) ── */
+          /* ── Render previews ── */
           for (let ri = 0; ri < results.length; ri++) {
             const panel = toolPanels[ri];
-
-            /* SVG: rendered image + code toggle */
+            if (results[ri].rejected) continue;
             if (panel.el._svgPreviewUrl && !panel.el.querySelector('.svg-preview')) {
               panel.el.classList.add('screenshot-tool');
               const prev = document.createElement('div'); prev.className = 'svg-preview';
               const path = esc(panel.el._svgPath || 'file.svg');
-              prev.innerHTML =
-                '<div class="svg-toggle-row">' +
-                '<span><i class="fas fa-bezier-curve" style="color:var(--accent);margin-right:4px"></i>' + path + '</span>' +
-                '<button class="svg-toggle-btn" onclick="toggleSvgView(this)">View Code</button>' +
-                '</div>' +
-                '<img class="svg-preview-img" src="' + panel.el._svgPreviewUrl + '" onclick="openImgViewer(this.src)" alt="' + path + '">' +
-                '<div class="svg-code-view"><pre><code class="language-xml">' + esc(panel.el._svgText || '') + '</code></pre></div>';
+              prev.innerHTML = '<div class="svg-toggle-row"><span><i class="fas fa-bezier-curve" style="color:var(--accent);margin-right:4px"></i>' + path + '</span><button class="svg-toggle-btn" onclick="toggleSvgView(this)">View Code</button></div><img class="svg-preview-img" src="' + panel.el._svgPreviewUrl + '" onclick="openImgViewer(this.src)" alt="' + path + '"><div class="svg-code-view"><pre><code class="language-xml">' + esc(panel.el._svgText || '') + '</code></pre></div>';
               panel.el.appendChild(prev);
             }
-
-            /* Raster preview for non-vision models (no model injection) */
             if (panel.el._previewDataUrl && !panel.el._imageDataUrl && !panel.el.querySelector('.image-preview-only')) {
               panel.el.classList.add('screenshot-tool');
               const prev = document.createElement('div'); prev.className = 'image-preview-only';
               const path = esc(panel.el._previewPath || 'image');
-              prev.innerHTML =
-                '<div class="img-label"><i class="fas fa-image" style="color:var(--accent)"></i>' + path + '</div>' +
-                '<img src="' + panel.el._previewDataUrl + '" onclick="openImgViewer(this.src)" alt="' + path + '">';
+              prev.innerHTML = '<div class="img-label"><i class="fas fa-image" style="color:var(--accent)"></i>' + path + '</div><img src="' + panel.el._previewDataUrl + '" onclick="openImgViewer(this.src)" alt="' + path + '">';
               panel.el.appendChild(prev);
             }
-
-            /* Vision image: inject into model context + show preview */
             const imgUrl = panel.el._screenshotDataUrl || panel.el._imageDataUrl;
             if (!imgUrl || panel.el._svgPreviewUrl) continue;
-
             if (!panel.el.querySelector('.screenshot-preview')) {
               panel.el.classList.add('screenshot-tool');
               const preview = document.createElement('div'); preview.className = 'screenshot-preview';
               const imgPath = panel.el._imagePath || 'image';
-              const label = panel.el._imageType === 'file'
-                ? '<div style="font-size:10px;color:var(--tx-3);margin-bottom:4px;font-family:\'JetBrains Mono\',monospace"><i class="fas fa-image" style="color:var(--accent)"></i> ' + esc(imgPath) + '</div>'
-                : '';
+              const label = panel.el._imageType === 'file' ? '<div style="font-size:10px;color:var(--tx-3);margin-bottom:4px;font-family:\'JetBrains Mono\',monospace"><i class="fas fa-image" style="color:var(--accent)"></i> ' + esc(imgPath) + '</div>' : '';
               preview.innerHTML = label + '<img src="' + imgUrl + '" onclick="openImgViewer(this.src)" alt="' + esc(imgPath) + '">';
               panel.el.appendChild(preview);
             }
-
-            state.messages.push({
-              role: 'user',
-              content: '[' + (panel.el._imageType || 'screenshot') + ': ' + (panel.el._imageReason || 'captured') + ' — ' + (panel.el._imagePath || 'image') + ']',
-              _images: [{ type: 'image_url', image_url: { url: imgUrl } }],
-              _isAgentImage: true, _imageType: panel.el._imageType
-            });
+            state.messages.push({ role: 'user', content: '[' + (panel.el._imageType || 'screenshot') + ': ' + (panel.el._imageReason || 'captured') + ' — ' + (panel.el._imagePath || 'image') + ']', _images: [{ type: 'image_url', image_url: { url: imgUrl } }], _isAgentImage: true, _imageType: panel.el._imageType });
           }
         }
 
@@ -7676,6 +7969,98 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       }
 
       $msg().appendChild(el); scrollBottom();
+      return el;
+    }
+
+    function showDiffApproval(pendingItems, signal) {
+      return new Promise((resolve, reject) => {
+        const decisions = new Map();
+        let done = false;
+        pendingItems.forEach(item => {
+          const bar = document.createElement('div');
+          bar.className = 'diff-approval-bar';
+          const label = item.result._pendingIsNewFile ? 'Create this file?' : 'Apply this edit?';
+          bar.innerHTML = `<span class="da-label">${label}</span><button class="da-btn accept"><i class="fas fa-check"></i> Accept</button><button class="da-btn reject"><i class="fas fa-xmark"></i> Reject</button>`;
+          bar.querySelector('.da-btn.accept').onclick = () => { if (done) return; decisions.set(item.index, true); bar.innerHTML = '<span class="da-label" style="color:var(--green)">✓ Accepted</span>'; checkDone(); };
+          bar.querySelector('.da-btn.reject').onclick = () => { if (done) return; decisions.set(item.index, false); bar.innerHTML = '<span class="da-label" style="color:var(--red)">✗ Rejected</span>'; checkDone(); };
+          (item.diffEl || item.toolPanel.el).appendChild(bar);
+        });
+        function checkDone() { if (decisions.size === pendingItems.length) { done = true; resolve(decisions); } }
+        if (signal) { const h = () => { if (!done) { done = true; reject(new DOMException('Aborted', 'AbortError')); } signal.removeEventListener('abort', h); }; signal.addEventListener('abort', h); }
+        scrollBottom();
+      });
+    }
+
+    async function applyPendingEdit(pr) {
+      const segs = sanitizePath(pr._pendingPath);
+      let dir = state.dirHandle;
+      for (let i = 0; i < segs.length - 1; i++) dir = await dir.getDirectoryHandle(segs[i]);
+      const fh = await dir.getFileHandle(segs[segs.length - 1], { create: false });
+      const w = await fh.createWritable(); await w.write(pr._pendingNewContent); await w.close();
+      state.fileCache.set(pr._pendingPath, pr._pendingNewContent); modifiedFiles.add(pr._pendingPath);
+      let vm = '';
+      if (state.verifyWrites) { try { const v = await (await fh.getFile()).text(); vm = v === pr._pendingNewContent ? '\n✓ Write verified' : '\n✗ WRITE VERIFICATION FAILED'; } catch { } }
+      return { output: '✓ Approved — ' + pr.output.replace('[PENDING APPROVAL] ', '') + vm, diff: pr.diff };
+    }
+
+    async function applyPendingWrite(pr) {
+      const segs = sanitizePath(pr._pendingPath);
+      let dir = state.dirHandle;
+      for (let i = 0; i < segs.length - 1; i++) dir = await dir.getDirectoryHandle(segs[i], { create: true });
+      const fh = await dir.getFileHandle(segs[segs.length - 1], { create: true });
+      const w = await fh.createWritable(); await w.write(pr._pendingNewContent); await w.close();
+      state.fileCache.set(pr._pendingPath, pr._pendingNewContent); modifiedFiles.add(pr._pendingPath);
+      let vm = '';
+      if (state.verifyWrites) { try { const v = await (await fh.getFile()).text(); vm = v === pr._pendingNewContent ? '\n✓ Write verified' : '\n✗ WRITE VERIFICATION FAILED'; } catch { } }
+      const op = pr._pendingIsNewFile ? 'Created' : 'Overwrote';
+      return { output: `✓ Approved — ${op} ${pr._pendingPath} (${pr._pendingNewContent.length} chars)${vm}`, diff: pr.diff };
+    }
+
+    async function autoRouteFileError(toolName, output, toolPanel) {
+      if (!output || typeof output !== 'string') return output;
+      const fileTools = ['read_file', 'read_file_lines', 'edit_file', 'view_image', 'delete_file', 'move_file', 'grep'];
+      if (!fileTools.includes(toolName)) return output;
+
+      /* Extract the missing file name from SlopLobster's actual error formats */
+      let missing = null;
+      const patterns = [
+        /Error:\s*"([^"]+)"\s+not found/i,           // read_file: "utils.py" not found
+        /Error:\s*"(?:\/)?([^"\\]+)"\s+not found/i,  // with leading slash
+        /"([^"]+)"\s+not found/i,                    // bare: "utils.py" not found
+        /cannot find\s+"([^"]+)"/i,                  // alternative wording
+        /"([^"]+)"\s+does not exist/i,               // alternative wording
+        /no such file.*"([^"]+)"/i,                  // POSIX-style
+        /"([^"]+)"\s+is not a file/i,                // directory given instead of file
+      ];
+      for (const p of patterns) {
+        const m = output.match(p);
+        if (m) { missing = m[1]; break; }
+      }
+
+      if (!missing) return output;
+
+      /* Extract just the filename for fuzzy matching */
+      const fn = missing.split('/').pop().split('\\').pop();
+      if (!fn || fn.length < 2) return output;
+
+      if (!state.dirHandle) return output;
+
+      try {
+        const sr = await searchFilesSafe(fn);
+        if (sr.includes('No files found')) return output;
+        const suggestions = sr.split('\n').slice(0, 5);
+
+        /* Show hint below the tool panel */
+        if (toolPanel && toolPanel.el) {
+          const hint = document.createElement('div');
+          hint.className = 'auto-route-hint';
+          hint.textContent = suggestions.join('\n');
+          toolPanel.el.appendChild(hint);
+          scrollBottom();
+        }
+
+        return output + '\n\n[AUTO-SEARCH: File not found. Similar files — use one of these exact paths:]\n' + suggestions.join('\n');
+      } catch { return output; }
     }
 
     function toggleDiffExpand(btn) {
@@ -7961,6 +8346,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       state.pendingImages = [];
       state.originalTask = null;
       toolCallHistory.length = 0;
+      toolCallHistory.length = 0;
+      state._autoVerifyRetries = 0;
       textLoopBuffer.length = 0;
       addImageAttachmentsToInputArea();
       rpState.clearChanges();
@@ -8203,6 +8590,9 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         if (s.modelEvalBatch !== undefined) state.modelEvalBatch = s.modelEvalBatch;
         if (s.sysPrompt) document.getElementById('s-sys-prompt').value = s.sysPrompt;
         if (s.sysPromptProfiles) state.sysPromptProfiles = s.sysPromptProfiles;
+        if (s.requireEditApproval !== undefined) state.requireEditApproval = s.requireEditApproval;
+        if (s.autoVerifyCommand !== undefined) state.autoVerifyCommand = s.autoVerifyCommand;
+        if (s.autoVerifyMaxRetries !== undefined) state.autoVerifyMaxRetries = s.autoVerifyMaxRetries;
       } catch { }
       renderSysProfiles();
       // ADD THESE TWO LINES — sync loaded settings to UI and meter on startup:
@@ -8223,7 +8613,10 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           modelNumExperts: state.modelNumExperts,
           modelEvalBatch: state.modelEvalBatch,
           sysPrompt: document.getElementById('s-sys-prompt').value,
-          sysPromptProfiles: state.sysPromptProfiles
+          sysPromptProfiles: state.sysPromptProfiles,
+          requireEditApproval: state.requireEditApproval,
+          autoVerifyCommand: state.autoVerifyCommand,
+          autoVerifyMaxRetries: state.autoVerifyMaxRetries
         }));
       } catch { }
     }
@@ -8240,6 +8633,9 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       document.getElementById('s-model-experts').value = state.modelNumExperts;
       document.getElementById('s-model-eval').value = state.modelEvalBatch;
       document.getElementById('s-max-iters').value = state.maxIters;
+      document.getElementById('s-require-approval').checked = state.requireEditApproval;
+      document.getElementById('s-auto-verify').value = state.autoVerifyCommand || '';
+      document.getElementById('s-auto-verify-retries').value = state.autoVerifyMaxRetries;
       if (!document.getElementById('s-sys-prompt').value) document.getElementById('s-sys-prompt').value = DEFAULT_SYS;
 
       // Add preview of resolved prompt
@@ -8276,6 +8672,9 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       state.ctxWindow = Math.max(1024, parseInt(document.getElementById('s-ctx-window').value) || 32768);
       state.autoCompactPct = Math.max(50, Math.min(99, parseInt(document.getElementById('s-auto-compact').value) || 85));
       state.verifyWrites = document.getElementById('s-verify-writes').checked;
+      state.requireEditApproval = document.getElementById('s-require-approval').checked;
+      state.autoVerifyCommand = document.getElementById('s-auto-verify').value.trim();
+      state.autoVerifyMaxRetries = Math.max(1, parseInt(document.getElementById('s-auto-verify-retries').value) || 3);
       persistSettings(); closeSettings(); showToast('Settings saved', 'ok');
       testConnection(); updateContextMeter();
     }
