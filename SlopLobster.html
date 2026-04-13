@@ -6307,7 +6307,14 @@ Python command: {{PYTHON_CMD}}`;
       requireWorkspace(); const segs = sanitizePath(raw); let h = state.dirHandle;
       for (let i = 0; i < segs.length - 1; i++) { if (h.kind !== 'directory') throw new Error(`Cannot traverse into "${segs[i]}" — not a directory`); h = await h.getDirectoryHandle(segs[i]); }
       const last = segs[segs.length - 1];
-      try { return await h.getFileHandle(last); } catch (e) { try { return await h.getDirectoryHandle(last); } catch (e2) { throw new Error(`"${raw}" not found`); } }
+      try {
+        const fh = await h.getFileHandle(last);
+        /* Some browsers return a handle for directories too — verify it's actually a file */
+        if (fh.kind === 'file') return fh;
+        return h.getDirectoryHandle(last);
+      } catch {
+        return await h.getDirectoryHandle(last);
+      }
     }
 
     async function readFileSafe(rel) {
@@ -6598,26 +6605,68 @@ Python command: {{PYTHON_CMD}}`;
     }
 
     async function listDirSafe(rel, recursive) {
-      requireWorkspace(); const dh = rel ? await resolvePath(rel) : state.dirHandle;
-      if (!dh || dh.kind !== 'directory') throw new Error(`"${rel || '/'}" is not a directory`);
-      const entries = [];
-      async function walk(h, pfx, d) {
-        if (d > 8) { entries.push('  ' + pfx + '/ [depth limit]'); return; }
-        for await (const [name, kh] of h.entries()) {
-          if (SKIP.has(name)) continue;
-          const full = pfx ? pfx + '/' + name : name;
-          let suffix = '';
-          try {
-            if (kh.kind === 'file') {
-              const f = await kh.getFile();
-              if (f.type && f.type.startsWith('image/')) suffix = ' [IMAGE]';
-            }
-          } catch { }
-          entries.push((kh.kind === 'directory' ? 'DIR ' : 'FILE ') + full + suffix);
-          if (recursive && kh.kind === 'directory') await walk(kh, full, d + 1);
+      requireWorkspace();
+
+      /* ── Normalize path: "." and "./" mean root ── */
+      let normPath = (rel || '').replace(/^\.\/?$/, '');
+      if (normPath === '' || normPath === '/') normPath = '';
+
+      let dh;
+      if (normPath === '') {
+        dh = state.dirHandle;
+      } else {
+        const segs = sanitizePath(normPath);
+        dh = state.dirHandle;
+        for (const seg of segs) {
+          if (dh.kind !== 'directory') throw new Error('Cannot traverse into "' + seg + '" — parent is not a directory');
+          dh = await dh.getDirectoryHandle(seg);
         }
       }
-      return entries.join('\n');
+
+      if (!dh || dh.kind !== 'directory') throw new Error(`"${rel || '/'}" is not a directory`);
+
+      const entries = [];
+      let skippedCount = 0;
+
+      async function walk(h, pfx, d) {
+        if (d > 8) { entries.push('  ' + pfx + '/ [depth limit]'); return; }
+        try {
+          for await (const [name, kh] of h.entries()) {
+            if (SKIP.has(name)) { skippedCount++; continue; }
+            const full = pfx ? pfx + '/' + name : name;
+            /* Extension-based image detection — no getFile() I/O needed */
+            let suffix = '';
+            if (kh.kind === 'file') {
+              const ext = name.split('.').pop().toLowerCase();
+              if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg', 'tiff', 'tif', 'avif'].includes(ext)) {
+                suffix = ' [IMAGE]';
+              }
+            }
+            entries.push((kh.kind === 'directory' ? 'DIR ' : 'FILE ') + full + suffix);
+            if (recursive && kh.kind === 'directory') {
+              try { await walk(kh, full, d + 1); } catch { entries.push('  ' + full + '/ [error reading]'); }
+            }
+          }
+        } catch (e) {
+          if (entries.length === 0) throw e;
+          entries.push('  [error: ' + e.message + ']');
+        }
+      }
+
+      await walk(dh, '', 0);
+
+      if (entries.length === 0 && skippedCount > 0) {
+        return 'Directory is empty (all ' + skippedCount + ' entries are in the skip list: ' + [...SKIP].slice(0, 6).join(', ') + ', ...)';
+      }
+      if (entries.length === 0) {
+        return 'Directory is empty (no files found)';
+      }
+
+      let output = entries.join('\n');
+      if (skippedCount > 0) {
+        output += '\n\n[' + skippedCount + ' entries skipped: ' + [...SKIP].slice(0, 6).join(', ') + ', ...]';
+      }
+      return output;
     }
 
     async function searchFilesSafe(pattern) {
