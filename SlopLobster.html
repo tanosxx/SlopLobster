@@ -3419,6 +3419,197 @@
       border-color: var(--red)
     }
 
+    /* ── Sub-Agent Panel ── */
+    .sub-agent-panel {
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--cyan);
+      border-radius: 7px;
+      margin: 5px 0;
+      overflow: hidden;
+      width: 100%;
+      max-width: 860px;
+      flex-shrink: 0;
+      animation: msgIn .2s ease-out
+    }
+
+    .sub-agent-hdr {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      cursor: pointer;
+      transition: background .12s;
+      flex-wrap: wrap
+    }
+
+    .sub-agent-hdr:hover {
+      background: var(--bg-3)
+    }
+
+    .sub-agent-icon {
+      color: var(--cyan);
+      font-size: 11px;
+      flex-shrink: 0
+    }
+
+    .sub-agent-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--cyan);
+      font-family: 'JetBrains Mono', monospace;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      flex-shrink: 0
+    }
+
+    .sub-agent-task {
+      font-size: 11px;
+      color: var(--tx-1);
+      flex: 1;
+      min-width: 100px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap
+    }
+
+    .sub-agent-meta {
+      font-size: 9px;
+      color: var(--tx-4);
+      font-family: 'JetBrains Mono', monospace;
+      flex-shrink: 0;
+      white-space: nowrap
+    }
+
+    .sub-agent-summary {
+      padding: 8px 12px;
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--tx-1);
+      border-top: 1px solid var(--border)
+    }
+
+    .sub-agent-summary p {
+      margin-bottom: 4px
+    }
+
+    .sub-agent-summary p:last-child {
+      margin-bottom: 0
+    }
+
+    .sub-agent-details {
+      border-top: 1px solid var(--border);
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height .3s ease
+    }
+
+    .sub-agent-details.open {
+      max-height: 600px;
+      overflow-y: auto
+    }
+
+    .sub-agent-log {
+      padding: 6px 12px;
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--tx-3);
+      line-height: 1.5
+    }
+
+    .sub-agent-log-entry {
+      padding: 3px 0;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: flex-start;
+      gap: 6px
+    }
+
+    .sub-agent-log-entry:last-child {
+      border-bottom: none
+    }
+
+    .sub-agent-log-tool {
+      color: var(--teal);
+      flex-shrink: 0;
+      min-width: 80px
+    }
+
+    .sub-agent-log-ok {
+      color: var(--green)
+    }
+
+    .sub-agent-log-err {
+      color: var(--red)
+    }
+
+    .sub-agent-log-output {
+      color: var(--tx-4);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+      cursor: default
+    }
+
+    .sub-agent-log-output:hover {
+      white-space: normal;
+      word-break: break-word
+    }
+
+    .sub-agent-toggle {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--tx-4);
+      cursor: pointer;
+      font-size: 9px;
+      padding: 3px 8px;
+      border-radius: 3px;
+      font-family: 'JetBrains Mono', monospace;
+      transition: .12s;
+      flex-shrink: 0
+    }
+
+    .sub-agent-toggle:hover {
+      color: var(--tx-1);
+      border-color: var(--border-l);
+      background: var(--bg-3)
+    }
+
+    .sub-agent-status {
+      font-size: 9px;
+      font-family: 'JetBrains Mono', monospace;
+      flex-shrink: 0
+    }
+
+    .sub-agent-status.running {
+      color: var(--yellow);
+      animation: pulse 1s infinite
+    }
+
+    .sub-agent-status.done {
+      color: var(--green)
+    }
+
+    .sub-agent-status.error {
+      color: var(--red)
+    }
+
+    .sub-agent-status.limit {
+      color: var(--orange)
+    }
+
+    .sub-agent-tools-tag {
+      font-size: 8px;
+      background: rgba(34, 211, 238, .08);
+      color: var(--cyan);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-family: 'JetBrains Mono', monospace;
+      border: 1px solid rgba(34, 211, 238, .12);
+      flex-shrink: 0
+    }
+
     .tool-actions {
       display: flex;
       gap: 2px;
@@ -4401,6 +4592,10 @@
           <input type="number" id="s-auto-verify-retries" value="3" min="1" max="10">
           <div class="hint">After this many consecutive failures, stops and shows you the error.</div>
         </div>
+        <div class="field"><label>Smart context threshold (lines)</label>
+          <input type="number" id="s-smart-context" value="0" min="0" max="5000">
+          <div class="hint">Files over this many lines return a structure skeleton (signatures only) instead of full content. LLM then uses read_file_lines for specific sections. 0 = off. Recommended: 150-300 for local models.</div>
+        </div>
         <div class="field">
           <label>System Prompt</label>
           <div style="display:flex;gap:5px;align-items:center;margin-bottom:6px">
@@ -4936,6 +5131,98 @@ def stream_cmd(write_fn, cmd, cwd=None, timeout=DEFAULT_TIMEOUT):
         
     return full, returncode
 
+def extract_python_signatures(source, max_lines=300):
+    import ast as _ast
+    lines = source.split('\\n')
+    if len(lines) <= max_lines:
+        return None
+    try:
+        tree = _ast.parse(source)
+    except SyntaxError:
+        return None
+    result = []
+    for node in _ast.iter_child_nodes(tree):
+        if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+            prefix = 'async ' if isinstance(node, _ast.AsyncFunctionDef) else ''
+            args = [a.arg for a in node.args.args if a.arg not in ('self', 'cls')]
+            result.append('L%d: %sdef %s(%s)' % (node.lineno, prefix, node.name, ', '.join(args) if args else ''))
+            result.append('L%d:   ...' % (node.end_lineno or node.lineno))
+        elif isinstance(node, _ast.ClassDef):
+            bases = []
+            for b in node.bases:
+                if hasattr(b, 'id'): bases.append(b.id)
+                elif hasattr(b, 'attr'): bases.append(b.attr)
+                else: bases.append('...')
+            result.append('L%d: class %s(%s)' % (node.lineno, node.name, ', '.join(bases) if bases else ''))
+            for item in node.body:
+                if isinstance(item, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                    p = 'async ' if isinstance(item, _ast.AsyncFunctionDef) else ''
+                    a = [x.arg for x in item.args.args if x.arg not in ('self', 'cls')]
+                    result.append('L%d:   %sdef %s(%s)' % (item.lineno, p, item.name, ', '.join(a) if a else ''))
+                    result.append('L%d:     ...' % (item.end_lineno or item.lineno))
+                elif isinstance(item, _ast.Assign):
+                    for t in item.targets:
+                        if isinstance(t, _ast.Name):
+                            result.append('L%d:   %s = ...' % (item.lineno, t.id))
+            result.append('L%d:   ...' % (node.end_lineno or node.lineno))
+        elif isinstance(node, _ast.Import):
+            result.append('L%d: import %s' % (node.lineno, ', '.join(a.name for a in node.names)))
+        elif isinstance(node, _ast.ImportFrom):
+            result.append('L%d: from %s import %s' % (node.lineno, node.module or '.', ', '.join(a.name for a in node.names)))
+        elif isinstance(node, _ast.Assign):
+            for t in node.targets:
+                if isinstance(t, _ast.Name):
+                    result.append('L%d: %s = <%s>' % (node.lineno, t.id, type(node.value).__name__))
+    return '\\n'.join(result) if result else None
+
+
+def extract_js_signatures(source, max_lines=300):
+    import re
+    lines = source.split('\\n')
+    if len(lines) <= max_lines:
+        return None
+    result = []
+    for i, line in enumerate(lines):
+        l = line.strip()
+        if not l or l.startswith('//') or l.startswith('*') or l.startswith('"""') or l.startswith("'''"):
+            continue
+        m = re.match(r'^(\s*)(export\s+(default\s+)?)?(async\s+)?function\s+(\*?\s*\w+)\s*\(([^)]*)\)', line)
+        if m:
+            prefix = '%s%s%s' % (m.group(1) or '', m.group(2) or '', m.group(4) or '')
+            result.append('L%d: %sfunction %s(%s)' % (i+1, prefix, m.group(5).strip(), m.group(6).strip()[:80]))
+            continue
+        m = re.match(r'^(\s*)(export\s+(default\s+)?)?(const|let|var)\s+(\w+)\s*=\s*(\([^)]*\)|[^=]+?)\s*=>', line)
+        if m:
+            prefix = '%s%s' % (m.group(1) or '', m.group(2) or '')
+            result.append('L%d: %s%s %s = %s => ...' % (i+1, prefix, m.group(5), m.group(6), m.group(7).strip()[:60]))
+            continue
+        m = re.match(r'^(\s*)(export\s+(default\s+)?)?class\s+(\w+)', line)
+        if m:
+            prefix = '%s%s' % (m.group(1) or '', m.group(2) or '')
+            result.append('L%d: %sclass %s' % (i+1, prefix, m.group(5)))
+            continue
+        m = re.match(r'^(\s+)(async\s+)?(\w+)\s*\(([^)]*)\)\s*\{', line)
+        if m and len(m.group(1)) >= 2:
+            prefix = '%s%s' % (m.group(1), m.group(2) or '')
+            result.append('L%d: %s%s(%s)' % (i+1, prefix, m.group(3), m.group(4).strip()[:80]))
+            continue
+        if re.match(r'^(import|export)\s', l):
+            result.append('L%d: %s' % (i+1, l[:100]))
+    return '\\n'.join(result) if result else None
+
+
+def extract_generic_signatures(source, max_lines=300):
+    lines = source.split('\\n')
+    if len(lines) <= max_lines:
+        return None
+    result = []
+    for i, line in enumerate(lines):
+        l = line.strip()
+        if not l or l.startswith('#') or l.startswith('//'):
+            continue
+        if re.match(r'^(function|class|def|pub\s+fn|fn\s|module|impl|trait|struct|enum|interface|type)\s', l):
+            result.append('L%d: %s' % (i+1, l[:120]))
+    return '\\n'.join(result) if result else None    
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def handle_one_request(self):
@@ -5033,6 +5320,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_json(200, {"url": url, "error": "HTTP " + str(e.code) + ": " + e.reason, "content": err, "mode": "raw"})
             except Exception as e:
                 self.send_json(500, {"error": type(e).__name__ + ": " + str(e)})
+        elif path == '/ast_signatures':
+            try:
+                body = self.read_body()
+                source = body.get("source", "")
+                language = body.get("language", "").lower().strip()
+                if not source or len(source) > 1000000:
+                    self.send_json(400, {"error": "Source empty or too large (>1MB)"})
+                    return
+                lang_map = {"py": extract_python_signatures, "js": extract_js_signatures, "jsx": extract_js_signatures, "ts": extract_js_signatures, "tsx": extract_js_signatures, "mjs": extract_js_signatures, "cjs": extract_js_signatures, "rs": extract_generic_signatures, "go": extract_generic_signatures, "rb": extract_generic_signatures, "java": extract_generic_signatures, "c": extract_generic_signatures, "cpp": extract_generic_signatures, "h": extract_generic_signatures}
+                extractor = lang_map.get(language, extract_generic_signatures)
+                outline = extractor(source)
+                self.send_json(200, {"outline": outline, "total_lines": len(source.split('\\n')), "language": language})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
         else:
             self.send_json(404, {"error": "not found"})
 
@@ -5113,6 +5414,7 @@ if __name__ == "__main__":
       currentPlan: null,
       planExecuting: false,
       planStepIndex: -1,
+      smartContextThreshold: 0,
       modelCtxOverride: 0,       // 0 = use model default
       modelFlashAttn: true,
       modelKvOffload: true,
@@ -5167,6 +5469,8 @@ edit_file uses search/replace blocks. Rules:
 
 ═══ FILE READING STRATEGY ═══
 
+{{SMART_CONTEXT_SECTION}}
+
 DO NOT read entire files unless the file is small (<100 lines) or you genuinely need all of it.
 
 - Image files (marked [IMAGE] in list_directory) — read them with read_file, NOT read_file_lines. You will see the actual image visually.
@@ -5175,6 +5479,7 @@ DO NOT read entire files unless the file is small (<100 lines) or you genuinely 
 - Use list_directory and search_files to understand structure before reading anything
 - When you first open a project, start with list_directory (recursive) then read key config/entry files only
 - If you read a file and it's truncated, switch to read_file_lines for the section you need
+
 
 ═══ SHELL EXECUTION ═══
 
@@ -5762,6 +6067,28 @@ Python command: {{PYTHON_CMD}}`;
       } else {
         tools.push({ type: 'function', function: { name: 'execute_command', description: 'Limited virtual shell: ls, cat, head, tail, wc, grep, find, echo, mkdir, touch, pwd, tree, file, diff. Start companion for real shell + web search.', parameters: { type: 'object', properties: { command: { type: 'string', description: 'Virtual shell command' } }, required: ['command'] } } });
       }
+
+      tools.push({
+        type: 'function',
+        function: {
+          name: 'spawn_sub_agent',
+          description: 'Spawn a sub-agent to handle a focused sub-task independently. The sub-agent runs with restricted tools and returns a summary. Its intermediate tool calls are hidden from the user — only the final summary appears.\n\nUse for:\n- Reading multiple files to understand a module before making changes\n- Searching for patterns across a codebase\n- Gathering context (schema, APIs, config) before implementing\n\nThe sub-agent has its own context — it keeps your main context clean.\n\nDefault tools (read-only): read_file, read_file_lines, list_directory, search_files, grep\nAdd "think" for reasoning, or write tools (edit_file, write_file) if the sub-agent should make changes.',
+          parameters: {
+            type: 'object',
+            properties: {
+              task: { type: 'string', description: 'Clear description of what the sub-agent should accomplish' },
+              tools: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Which tools the sub-agent can use. Defaults to [read_file, read_file_lines, list_directory, search_files, grep]'
+              },
+              max_iterations: { type: 'number', description: 'Max tool-call rounds (default 8, max 20)' }
+            },
+            required: ['task']
+          }
+        }
+      });
+
       return tools;
     }
 
@@ -5875,7 +6202,106 @@ Python command: {{PYTHON_CMD}}`;
         for (const [k] of state.fileCache) { if (total <= MAX_CACHE_BYTES * 0.7) break; total -= state.fileCache.get(k).length; state.fileCache.delete(k); }
       }
     }
+
+    function isSkippedPath(raw) {
+      if (!raw) return false;
+      const segs = raw.replace(/\\/g, '/').split('/').filter(Boolean);
+      if (!segs.length) return false;
+      const fileName = segs[segs.length - 1];
+      return SKIP.has(fileName) || SKIP.has(segs[0]);
+    }
+
+    /* ═══════════════ SMART CONTEXT INJECTION ═══════════════ */
+
+    function extractSignaturesJs(source, language) {
+      const lines = source.split('\n');
+      const result = [];
+      const seen = new Set();
+
+      function add(idx, text) {
+        const key = idx + ':' + text;
+        if (seen.has(key)) return;
+        seen.add(key);
+        result.push('L' + (idx + 1) + ': ' + text);
+      }
+
+      if (language === 'py') {
+        for (let i = 0; i < lines.length; i++) {
+          const raw = lines[i];
+          const indent = raw.match(/^(\s*)/)[1];
+          const trimmed = raw.trim();
+          if (!trimmed || trimmed.startsWith('#')) continue;
+          let m = trimmed.match(/^(async\s+)?def\s+(\w+)\s*\(([^)]*)\)/);
+          if (m) { add(i, indent + (m[1] || '') + 'def ' + m[2] + '(' + m[3].slice(0, 80) + ')'); continue; }
+          m = trimmed.match(/^class\s+(\w+)(?:\(([^)]*)\))?(?:\s*:)?/);
+          if (m) { add(i, indent + 'class ' + m[1] + (m[2] ? '(' + m[2] + ')' : '')); continue; }
+          m = trimmed.match(/^@(\w+)/);
+          if (m) { add(i, indent + '@' + m[1]); continue; }
+          if (/^(import|from)\s/.test(trimmed)) { add(i, trimmed.slice(0, 100)); }
+        }
+      } else if (['js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs'].includes(language)) {
+        for (let i = 0; i < lines.length; i++) {
+          const raw = lines[i];
+          const indent = raw.match(/^(\s*)/)[1];
+          const trimmed = raw.trim();
+          if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) continue;
+          let m = raw.match(/^(\s*)(export\s+(?:default\s+)?)?(async\s+)?function\s+(\*?\s*\w+)\s*\(([^)]*)\)/);
+          if (m) { add(i, indent + (m[2] || '') + (m[3] || '') + 'function ' + m[4].trim() + '(' + m[5].trim().slice(0, 80) + ')'); continue; }
+          m = raw.match(/^(\s*)(export\s+(?:default\s+)?)?(const|let|var)\s+(\w+)\s*=\s*(\([^)]*\)|[^\s=]+?)\s*=>/);
+          if (m) { add(i, indent + (m[2] || '') + m[3] + ' ' + m[4] + ' = ' + m[5].trim().slice(0, 60) + ' => ...'); continue; }
+          m = raw.match(/^(\s*)(export\s+(?:default\s+)?)?class\s+(\w+)/);
+          if (m) { add(i, indent + (m[2] || '') + 'class ' + m[3]); continue; }
+          if (indent.length >= 2) {
+            m = trimmed.match(/^(async\s+)?(\w+)\s*\(([^)]*)\)\s*\{/);
+            if (m) { add(i, indent + (m[1] || '') + m[2] + '(' + m[3].trim().slice(0, 80) + ')'); continue; }
+            m = trimmed.match(/^(get|set)\s+(\w+)\s*\(/);
+            if (m) { add(i, indent + m[1] + ' ' + m[2] + '(...)'); continue; }
+          }
+          if (/^(import|export)\s/.test(trimmed)) { add(i, trimmed.slice(0, 100)); }
+        }
+      } else {
+        for (let i = 0; i < lines.length; i++) {
+          const trimmed = lines[i].trim();
+          if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('//')) continue;
+          if (/^(function|class|def|pub\s+fn|fn\s|module|impl|trait|struct|enum|interface|type|const|let|var)\s/.test(trimmed)) {
+            add(i, trimmed.slice(0, 120));
+          }
+        }
+      }
+
+      return result.length > 0 ? result.join('\n') : null;
+    }
+
+    async function getFileSkeleton(source, language, filePath, totalLines) {
+      /* Try companion for accurate AST-based extraction */
+      if (state.compConnected && source.length <= 1000000) {
+        try {
+          const res = await fetch(`${state.compUrl}/ast_signatures`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source, language }),
+            signal: AbortSignal.timeout(5000)
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.outline) {
+              return `File: ${filePath} (${totalLines} lines → showing skeleton)\nUse read_file_lines to read specific sections.\n═════════════════════════════════════════\n\n${data.outline}`;
+            }
+          }
+        } catch { /* fallback to JS extraction */ }
+      }
+
+      /* Fallback: JS regex extraction */
+      const outline = extractSignaturesJs(source, language);
+      if (outline) {
+        return `File: ${filePath} (${totalLines} lines → showing skeleton, JS-fallback extraction)\nUse read_file_lines to read specific sections.\n═════════════════════════════════════════\n\n${outline}`;
+      }
+
+      return null;
+    }
+
     function requireWorkspace() { if (!state.dirHandle) throw new Error('No workspace directory open'); }
+    
 
     async function resolvePath(raw) {
       requireWorkspace(); const segs = sanitizePath(raw); let h = state.dirHandle;
@@ -5899,13 +6325,10 @@ Python command: {{PYTHON_CMD}}`;
         catch { previewUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(text); }
         return {
           output: `SVG: ${rel}\nSize: ${text.length} chars, ${text.split('\n').length} lines\n---\n${text}`,
-          _svgPreviewUrl: previewUrl,
-          _svgText: text,
-          _svgPath: rel
+          _svgPreviewUrl: previewUrl, _svgText: text, _svgPath: rel
         };
       }
 
-      /* ── Raster image files: return base64 for vision ── */
       if (f.type && f.type.startsWith('image/')) {
         const maxB = 10 * 1024 * 1024;
         if (f.size > maxB) return { output: `Image: ${rel}\nType: ${f.type}\nSize: ${(f.size / 1024 / 1024).toFixed(1)} MB\n⚠ Too large to view (max 10 MB)...` };
@@ -5916,14 +6339,28 @@ Python command: {{PYTHON_CMD}}`;
         } catch (e) { return { output: `Image: ${rel}\nType: ${f.type}\nError reading image: ${e.message}` }; }
       }
 
-      /* ── Text files: existing logic ── */
+      /* ── Text files ── */
       const maxB = state.maxReadKB * 1024;
       if (f.size > maxB) { const p = await f.slice(0, maxB).text(); cacheSet(rel, p); return { output: `File: ${rel}\nSize: ${(f.size / 1024).toFixed(1)} KB\n⚠ TRUNCATED: first ${(maxB / f.size * 100).toFixed(0)}%\n---\n${p}\n\n[Use read_file_lines for specific sections]` }; }
-      const c = await f.text(); cacheSet(rel, c);
-      return { output: `File: ${rel}\nSize: ${c.length} chars, ${c.split('\n').length} lines\n---\n${c}` };
+      const text = await f.text();
+      cacheSet(rel, text);
+
+      /* ── Smart Context Injection ── */
+      if (state.smartContextThreshold > 0) {
+        const lineCount = text.split('\n').length;
+        if (lineCount > state.smartContextThreshold) {
+          const ext = rel.split('.').pop().toLowerCase();
+          const skeleton = await getFileSkeleton(text, ext, rel, lineCount);
+          if (skeleton) return { output: skeleton };
+        }
+      }
+
+      return { output: `File: ${rel}\nSize: ${text.length} chars, ${text.split('\n').length} lines\n---\n${text}` };
     }
 
     async function readFileLinesSafe(rel, startLine, endLine) {
+      requireWorkspace()
+      if (isSkippedPath(rel)) return { output: `File "${rel}" is filtered by workspace rules and cannot be read.` };
       const h = await resolvePath(rel); if (h.kind !== 'file') throw new Error(`"${rel}" is a directory`);
       const f = await h.getFile();
 
@@ -5947,6 +6384,7 @@ Python command: {{PYTHON_CMD}}`;
 
     async function viewImageSafe(rel) {
       requireWorkspace();
+      if (isSkippedPath(rel)) return { output: `"${rel}" is filtered by workspace rules.` };
       const h = await resolvePath(rel);
       if (h.kind !== 'file') return { output: `"${rel}" is not a file` };
       const f = await h.getFile();
@@ -6011,6 +6449,7 @@ Python command: {{PYTHON_CMD}}`;
 
     async function editFileSafe(rel, edits, dryRun = false) {
       requireWorkspace(); const segs = sanitizePath(rel);
+      if (isSkippedPath(rel)) return { output: `File "${rel}" is filtered by workspace rules and cannot be edited.` };      
       let dir = state.dirHandle;
       for (let i = 0; i < segs.length - 1; i++) dir = await dir.getDirectoryHandle(segs[i], { create: true });
       const fh = await dir.getFileHandle(segs[segs.length - 1], { create: false });
@@ -6111,6 +6550,7 @@ Python command: {{PYTHON_CMD}}`;
 
     async function writeFileSafe(rel, content, dryRun = false) {
       requireWorkspace(); const segs = sanitizePath(rel);
+      if (isSkippedPath(rel)) return { output: `File "${rel}" is filtered by workspace rules and cannot be written.` };
       let dir = state.dirHandle; for (let i = 0; i < segs.length - 1; i++)dir = await dir.getDirectoryHandle(segs[i], { create: true });
       let prevContent = null;
       try { const eh = await dir.getFileHandle(segs[segs.length - 1]); prevContent = await (await eh.getFile()).text(); } catch { }
@@ -6131,6 +6571,7 @@ Python command: {{PYTHON_CMD}}`;
 
     async function deleteFileSafe(rel, recursive) {
       requireWorkspace(); const segs = sanitizePath(rel);
+      if (isSkippedPath(rel)) return `File "${rel}" is filtered by workspace rules and cannot be deleted.`;      
       let dir = state.dirHandle; for (let i = 0; i < segs.length - 1; i++)dir = await dir.getDirectoryHandle(segs[i]);
       const name = segs[segs.length - 1];
       await dir.removeEntry(name, { recursive: !!recursive });
@@ -6139,6 +6580,7 @@ Python command: {{PYTHON_CMD}}`;
     }
     async function moveFileSafe(source, destination) {
       requireWorkspace();
+      if (isSkippedPath(source) || isSkippedPath(destination)) return 'Source or destination is filtered by workspace rules.';      
       const srcSegs = sanitizePath(source), dstSegs = sanitizePath(destination);
       let srcDir = state.dirHandle; for (let i = 0; i < srcSegs.length - 1; i++)srcDir = await srcDir.getDirectoryHandle(srcSegs[i]);
       const srcName = srcSegs[srcSegs.length - 1];
@@ -6503,9 +6945,10 @@ Python command: {{PYTHON_CMD}}`;
             if (!args.path) return { output: 'Error: "path" is required for read_file_lines' };
             result = await readFileLinesSafe(args.path, args.start_line, args.end_line); break;
           case 'edit_file':
-            if (!args.path) return { output: 'Error: "path" is required for edit_file' };
-            if (!Array.isArray(args.edits) || !args.edits.length) return { output: 'Error: "edits" must be a non-empty array of {old_text, new_text} objects' };
-            for (let i = 0; i < args.edits.length; i++) { if (!args.edits[i].old_text) return { output: 'Error: edits[' + i + '].old_text is missing or empty' }; }
+            if (args._parseError) return { output: `Error: edit_file received invalid arguments — ${args._parseError}\n\nFix: Provide "path" and "edits" as valid JSON. Example:\nedit_file({\n  "path": "src/example.py",\n  "edits": [{\n    "old_text": "old line",\n    "new_text": "new line"\n  }]\n})` };
+            if (!args.path) return { output: 'Error: "path" is required for edit_file. You must include the file path.\n\nExample:\nedit_file({\n  "path": "src/example.py",\n  "edits": [{"old_text": "...", "new_text": "..."}]\n})' };
+            if (!Array.isArray(args.edits) || !args.edits.length) return { output: 'Error: "edits" must be a non-empty array of {old_text, new_text} objects.\n\nExample:\nedit_file({\n  "path": "src/example.py",\n  "edits": [\n    {"old_text": "line to find", "new_text": "replacement line"},\n    {"old_text": "another line", "new_text": "another replacement"}\n  ]\n})' };
+            for (let i = 0; i < args.edits.length; i++) { if (!args.edits[i].old_text) return { output: 'Error: edits[' + i + '].old_text is missing or empty. Every edit must have an "old_text" field with the exact text to find.' }; }
             result = await editFileSafe(args.path, args.edits, state.requireEditApproval);
             if (!result._pendingApproval && !String(result.output).includes('ERROR')) {
               debouncedFileTreeRefresh();
@@ -6516,8 +6959,9 @@ Python command: {{PYTHON_CMD}}`;
             }
             break;
           case 'write_file':
-            if (!args.path) return { output: 'Error: "path" is required for write_file' };
-            if (args.content === undefined || args.content === null) return { output: 'Error: "content" is required for write_file' };
+            if (args._parseError) return { output: `Error: write_file received invalid arguments — ${args._parseError}\n\nFix: Provide both "path" and "content" as valid JSON. Example:\nwrite_file({\n  "path": "src/example.py",\n  "content": "print(\\"hello\\")"\n})\n\nIf the file is very large (>50KB), use edit_file on an existing file instead, or split into multiple smaller write_file calls.` };
+            if (!args.path) return { output: 'Error: "path" is required for write_file. You must include the file path.\n\nExample:\nwrite_file({\n  "path": "src/example.py",\n  "content": "your code here"\n})' };
+            if (args.content === undefined || args.content === null) return { output: 'Error: "content" is required for write_file. You must include the file content.\n\nExample:\nwrite_file({\n  "path": "src/example.py",\n  "content": "your code here"\n})\n\nIf the content is extremely long, it may have been truncated. Try writing a smaller file or using edit_file.' };
             result = await writeFileSafe(args.path, args.content, state.requireEditApproval);
             if (!result._pendingApproval && !String(result.output).includes('ERROR')) {
               debouncedFileTreeRefresh();
@@ -6619,6 +7063,18 @@ Python command: {{PYTHON_CMD}}`;
           case 'think':
             if (!args.thought) return { output: 'Error: "thought" is required for think' };
             result = { output: args.thought }; break;
+            
+          case 'spawn_sub_agent':
+            if (!args.task) return { output: 'Error: "task" is required for spawn_sub_agent' };
+            {
+              if (isSkippedPath(args.task)) return { output: 'Task references a filtered file.' };
+              const subResult = await runSubAgent(args.task, args.tools, args.max_iterations, signal, panel);
+              result = {
+                output: `[Sub-agent: ${subResult.iterations} rounds, ${subResult.log.length} tool calls, ${(subResult.duration / 1000).toFixed(1)}s${subResult.hitLimit ? ' — hit iteration limit' : ''}${subResult.error ? ' — ERROR' : ''}]\n${subResult.summary}`,
+                _subAgentData: subResult
+              };
+            }
+            break;
           default: result = { output: 'Unknown tool: ' + name };
         }
         return result;
@@ -6819,6 +7275,10 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 - You get a soft warning at iteration 12 and compact at iteration 20 — prioritize finishing critical work
 - You are NEVER truly "stuck" — even after compaction, the progress file preserves all context`;
 
+      const smartContextSection = state.smartContextThreshold > 0
+        ? `═══ SMART CONTEXT INJECTION ═══\nFiles larger than ${state.smartContextThreshold} lines are automatically reduced to their structure skeleton (function/class signatures with line numbers). This saves significant context on large files.\nTo read specific sections, use read_file_lines with start_line and end_line based on the line numbers in the skeleton.\nExample: If skeleton shows "L45: def validate(self):" and "L58:   ...", use read_file_lines path="src/auth.py" start_line=45 end_line=58.\nFor small files (under the threshold), read_file returns the full content as normal.\n`
+        : '';
+
       const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
       const sysVal = document.getElementById('s-sys-prompt').value || DEFAULT_SYS;
       const cacheKey = state.model + '|' + state.dirName + '|' + state.projectType + '|' + sysVal.length + '|' + state.compConnected + '|' + state.visionCapable;
@@ -6837,7 +7297,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           .replace('{{WORKING_DIR}}', state.dirName || '(none)')
           .replace('{{PROJECT_INFO}}', projInfo)
           .replace('{{WORKSPACE_AWARENESS}}', state.dirName ? `═══ WORKSPACE AWARENESS ═══\nYou are operating INSIDE the project directory \`${state.dirName}\` on a ${state.compInfo?.platform || (navigator.userAgent.includes('Win') ? 'Windows' : 'Linux/Mac')} system.\n- DO NOT create a nested folder named \`${state.dirName}\` inside the current workspace.\n- Write files directly to the current directory (e.g., "src/main.js" NOT "${state.dirName}/src/main.js").\n` : '')
-          .replace('{{PYTHON_CMD}}', pythonCmd);
+          .replace('{{PYTHON_CMD}}', pythonCmd)
+          .replace('{{SMART_CONTEXT_SECTION}}', smartContextSection);
       }
 
       const apiMsgs = [{ role: 'system', content: state._sysPromptCacheText }, ...messages.map(m => {
@@ -6919,6 +7380,244 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       }
 
       return { content, toolCalls: toolCalls.filter(Boolean) };
+    }
+
+        /* ═══════════════ SUB-AGENT CHAT ═══════════════ */
+    async function subAgentChat(messages, tools, abortSignal) {
+      const apiMsgs = messages.map(m => {
+        if (m._images && m._images.length) {
+          const parts = [];
+          if (m.content) parts.push({ type: 'text', text: m.content });
+          parts.push(...m._images);
+          return { role: m.role, content: parts };
+        }
+        return m;
+      });
+
+      const res = await fetch(`${state.apiUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: state.model,
+          messages: apiMsgs,
+          tools: tools,
+          stream: true,
+          temperature: 0.2,
+          max_tokens: Math.min(state.maxTokens, 8000)
+        }),
+        signal: abortSignal
+      });
+
+      if (!res.ok) {
+        const errRaw = await res.text().catch(() => res.statusText);
+        let err = errRaw;
+        if (err.includes('<!DOCTYPE') || err.includes('<html')) {
+          const tmp = document.createElement('DIV'); tmp.innerHTML = err;
+          err = tmp.textContent || tmp.innerText || 'Unknown error';
+          err = err.trim().replace(/\s+/g, ' ');
+        }
+        if (err.length > 300) err = err.slice(0, 300) + '...';
+        throw new Error(`API ${res.status}: ${err}`);
+      }
+
+      const reader = res.body.getReader(), dec = new TextDecoder();
+      let buf = '', content = '', toolCalls = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop();
+        for (const line of lines) {
+          const t = line.trim();
+          if (!t.startsWith('data:')) continue;
+          const d = t.slice(5).trim();
+          if (d === '[DONE]') continue;
+          try {
+            const chunk = JSON.parse(d);
+            const delta = chunk.choices?.[0]?.delta;
+            if (!delta) continue;
+            if (delta.content) content += delta.content;
+            if (delta.tool_calls) {
+              for (const tc of delta.tool_calls) {
+                const idx = tc.index ?? 0;
+                if (!toolCalls[idx]) toolCalls[idx] = { id: tc.id || '', type: 'function', function: { name: '', arguments: '' } };
+                if (tc.id) toolCalls[idx].id = tc.id;
+                if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
+                if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
+              }
+            }
+          } catch { /* skip malformed */ }
+        }
+      }
+
+      return { content, toolCalls: toolCalls.filter(Boolean) };
+    }
+
+    async function runSubAgent(task, allowedTools, maxIter, parentSignal, parentPanel) {
+      const defaultTools = ['read_file', 'read_file_lines', 'list_directory', 'search_files', 'grep'];
+      const tools = allowedTools && allowedTools.length ? allowedTools : defaultTools;
+      const maxIterations = Math.min(Math.max(maxIter || 8, 1), 20);
+      const startTime = performance.now();
+
+      const validToolNames = new Set(getToolDefs().map(t => t.function.name));
+      const invalidTools = tools.filter(t => !validToolNames.has(t));
+      const effectiveTools = tools.filter(t => validToolNames.has(t));
+
+      const hasWriteTools = effectiveTools.some(t => ['edit_file', 'write_file', 'delete_file', 'move_file'].includes(t));
+
+      const subSysPrompt =
+        `You are a focused sub-agent. Complete the assigned task using only the allowed tools.
+Return a concise but thorough summary of your findings when done.${hasWriteTools ? '' : ' Do NOT make any file changes.'}
+
+Allowed tools: ${effectiveTools.join(', ')}${invalidTools.length ? '\nUnavailable (ignored): ' + invalidTools.join(', ') : ''}
+
+Rules:
+- Be thorough — read enough files to give a complete answer
+- Include specific details: file names, line numbers, function names, key code snippets
+- Structure your summary with headers and bullet points for readability
+- If you can't find something, say so explicitly rather than guessing
+- Minimize tool calls — prefer targeted reads over browsing everything
+- When done gathering information, write your final summary and stop calling tools`;
+
+      const subMessages = [
+        { role: 'system', content: subSysPrompt },
+        { role: 'user', content: task + (state.dirName ? '\n\nWorking directory: ' + state.dirName : '') }
+      ];
+
+      let iterations = 0;
+      const log = [];
+      const subAbort = new AbortController();
+
+      if (parentSignal) {
+        parentSignal.addEventListener('abort', () => subAbort.abort(), { once: true });
+      }
+
+      const allTools = getToolDefs();
+      const filteredTools = allTools.filter(t => effectiveTools.includes(t.function.name));
+
+      function updatePanelStatus(text, cls) {
+        if (!parentPanel || !parentPanel.el) return;
+        const st = parentPanel.el.querySelector('.tool-status');
+        if (st) { st.className = 'tool-status ' + cls; st.textContent = text; }
+      }
+
+      while (iterations < maxIterations) {
+        if (subAbort.signal.aborted) break;
+        iterations++;
+        updatePanelStatus(`Round ${iterations}/${maxIterations}`, 'run');
+
+        let content = '', toolCalls = [];
+
+        try {
+          const result = await subAgentChat(subMessages, filteredTools, subAbort.signal);
+          content = result.content;
+          toolCalls = result.toolCalls;
+        } catch (e) {
+          if (e.name === 'AbortError') break;
+          const duration = performance.now() - startTime;
+          updatePanelStatus('Error', 'err');
+          return { summary: 'Sub-agent error: ' + e.message, log, iterations, error: true, hitLimit: false, duration, tools: effectiveTools, task };
+        }
+
+        const assistantMsg = { role: 'assistant', content: content || null };
+        if (toolCalls.length) assistantMsg.tool_calls = toolCalls;
+        subMessages.push(assistantMsg);
+
+        const validTcs = toolCalls.filter(tc => effectiveTools.includes(tc.function.name));
+        const invalidTcs = toolCalls.filter(tc => !effectiveTools.includes(tc.function.name));
+
+        if (!validTcs.length) break;
+
+        const results = await Promise.all(validTcs.map(async tc => {
+          const name = tc.function.name;
+          try {
+            const result = await executeTool(name, tc.function.arguments, subAbort.signal, null);
+            const outText = (typeof result === 'string') ? result : (result?.output || '');
+            log.push({ tool: name, args: tc.function.arguments.slice(0, 120), output: outText.slice(0, 300), success: !outText.includes('Error:') && !outText.includes('ERROR') });
+            return { tc, output: outText };
+          } catch (e) {
+            log.push({ tool: name, args: tc.function.arguments.slice(0, 120), output: e.message, success: false });
+            return { tc, output: 'Error: ' + e.message };
+          }
+        }));
+
+        for (const r of results) {
+          subMessages.push({ role: 'tool', tool_call_id: r.tc.id, content: r.output });
+        }
+
+        for (const tc of invalidTcs) {
+          log.push({ tool: tc.function.name, args: '', output: 'Not allowed', success: false });
+          subMessages.push({ role: 'tool', tool_call_id: tc.id, content: `Error: Tool "${tc.function.name}" is not in the allowed list for this sub-agent.` });
+        }
+      }
+
+      const duration = performance.now() - startTime;
+      const lastAssistant = [...subMessages].reverse().find(m => m.role === 'assistant');
+      const endedWithTools = lastAssistant?.tool_calls?.some(tc => effectiveTools.includes(tc.function.name));
+      const hitLimit = iterations >= maxIterations && endedWithTools;
+
+      updatePanelStatus('Done', 'ok');
+
+      return {
+        summary: lastAssistant?.content || '(Sub-agent completed without producing a summary)',
+        log,
+        iterations,
+        error: false,
+        hitLimit,
+        duration,
+        tools: effectiveTools,
+        task
+      };
+    }
+
+    function showSubAgentPanel(data) {
+      const el = document.createElement('div');
+      el.className = 'sub-agent-panel';
+
+      const statusClass = data.error ? 'error' : data.hitLimit ? 'limit' : 'done';
+      const statusText = data.error ? 'Error' : data.hitLimit ? 'Limit' : 'Done';
+      const durationStr = (data.duration / 1000).toFixed(1) + 's';
+      const taskDisplay = data.task.length > 80 ? data.task.slice(0, 77) + '...' : data.task;
+
+      let logHtml = '';
+      if (data.log && data.log.length) {
+        logHtml = data.log.map(entry => {
+          const cls = entry.success ? 'sub-agent-log-ok' : 'sub-agent-log-err';
+          const icon = entry.success ? '✓' : '✗';
+          return `<div class="sub-agent-log-entry"><span class="sub-agent-log-tool">${esc(entry.tool)}</span><span class="${cls}">${icon}</span><span class="sub-agent-log-output" title="${esc(entry.output)}">${esc(entry.output)}</span></div>`;
+        }).join('');
+      }
+
+      el.innerHTML = `
+        <div class="sub-agent-hdr" onclick="toggleSubAgentDetails(this)">
+          <i class="fas fa-sitemap sub-agent-icon"></i>
+          <span class="sub-agent-label">Sub-Agent</span>
+          <span class="sub-agent-tools-tag">${data.tools.length} tools</span>
+          <span class="sub-agent-task" title="${esc(data.task)}">"${esc(taskDisplay)}"</span>
+          <span class="sub-agent-status ${statusClass}">${statusText}</span>
+          <span class="sub-agent-meta">${data.iterations}r · ${data.log.length} calls · ${durationStr}</span>
+          <button class="sub-agent-toggle">Details</button>
+        </div>
+        <div class="sub-agent-summary">${renderMd(data.summary)}</div>
+        <div class="sub-agent-details"><div class="sub-agent-log">${logHtml || '<div style="padding:8px;color:var(--tx-4);font-style:italic">No tool calls logged</div>'}</div></div>`;
+
+      $msg().appendChild(el);
+      scrollBottom();
+
+      el.querySelectorAll('.sub-agent-summary pre code').forEach(b => {
+        if (!b.dataset.hljs) { hljs.highlightElement(b); b.dataset.hljs = '1'; }
+      });
+      addCopyBtns(el.querySelector('.sub-agent-summary'));
+    }
+
+    function toggleSubAgentDetails(hdrEl) {
+      const panel = hdrEl.closest('.sub-agent-panel');
+      const details = panel.querySelector('.sub-agent-details');
+      const toggleBtn = hdrEl.querySelector('.sub-agent-toggle');
+      details.classList.toggle('open');
+      toggleBtn.textContent = details.classList.contains('open') ? 'Hide' : 'Details';
     }
 
 
@@ -7313,7 +8012,19 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     }
 
     function safeParseArgs(argsStr) {
-      try { return JSON.parse(argsStr); } catch { return {}; }
+      if (!argsStr || typeof argsStr !== 'string' || !argsStr.trim()) return { _parseError: 'empty arguments' };
+      try { return JSON.parse(argsStr); } catch {
+        /* Check if it looks like truncated JSON (missing closing brace/bracket) */
+        const trimmed = argsStr.trim();
+        const opens = (trimmed.match(/\{/g) || []).length;
+        const closes = (trimmed.match(/\}/g) || []).length;
+        const bracketOpens = (trimmed.match(/\[/g) || []).length;
+        const bracketCloses = (trimmed.match(/\]/g) || []).length;
+        if (opens > closes || bracketOpens > bracketCloses) {
+          return { _parseError: 'truncated JSON — arguments were cut off mid-stream. The file content was likely too large for a single tool call. Split into smaller writes or use edit_file instead.' };
+        }
+        return { _parseError: 'malformed JSON — could not parse arguments: ' + trimmed.slice(0, 80) };
+      }
     }
 
     function findParentToolCall(toolMsgOrIndex) {
@@ -7679,41 +8390,115 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             updateToolResult(toolPanels[i], outText);
             if (searchData) showSearchPanel(searchData);
 
-            /* ── Inline approval: show diff + buttons right on the tool panel ── */
+            /* ── Inline approval: show diff + buttons as a standalone panel ── */
             if (result._pendingApproval) {
               const approved = await new Promise((resolve) => {
-                const bar = document.createElement('div');
-                bar.className = 'diff-approval-bar';
                 let decided = false;
                 const onDecide = (val) => { if (decided) return; decided = true; resolve(val); };
-                bar.querySelector?.('.da-btn.accept')?.addEventListener?.('click', () => {}); // noop - replaced by innerHTML below
+
+                const wrapper = document.createElement('div');
+                wrapper.className = 'diff-panel pending';
+                wrapper.style.border = '2px solid rgba(234, 179, 8, .45)';
+
+                /* ── Header with pulsing "waiting" indicator ── */
                 const isnew = result._pendingIsNewFile;
-                const label = isnew ? 'Create this file?' : 'Apply this edit?';
-                bar.innerHTML = '<span class="da-label">' + label + '</span><button class="da-btn accept"><i class="fas fa-check"></i> Accept</button><button class="da-btn reject"><i class="fas fa-xmark"></i> Reject</button>';
-                bar.querySelector('.da-btn.accept').onclick = () => {
-                  onDecide(true);
-                  bar.innerHTML = '<span class="da-label" style="color:var(--green)">✓ Accepted</span>';
-                };
-                bar.querySelector('.da-btn.reject').onclick = () => {
-                  onDecide(false);
-                  bar.innerHTML = '<span class="da-label" style="color:var(--red)">✗ Rejected</span>';
-                };
+                const hdr = document.createElement('div');
+                hdr.className = 'diff-hdr';
+                hdr.style.background = 'rgba(234, 179, 8, .06)';
+                const waitingId = 'approval-wait-' + Date.now();
+                hdr.innerHTML = `<i class="fas fa-hourglass-half" id="${waitingId}" style="color:var(--yellow);animation:pulse 1s infinite;font-size:10px"></i><span style="color:var(--yellow);font-weight:700;font-size:11px">${isnew ? 'New file awaiting approval' : 'Edit awaiting approval'}</span><span style="flex:1"></span><span style="font-size:10px;color:var(--tx-4);font-family:'JetBrains Mono',monospace">${esc(result._pendingPath)}</span>`;
+                wrapper.appendChild(hdr);
+
+                /* ── Diff or file preview ── */
                 if (diff) {
-                  const dEl = showDiffPanel(diff);
-                  dEl.classList.add('pending');
-                  dEl.appendChild(bar);
+                  const { compact: displayLines } = compactDiffLines(diff.lines, 2, 2);
+                  let linesHtml = displayLines.map(l => {
+                    if (l.type === 'ellipsis') return `<div class="diff-line ellipsis">···</div>`;
+                    return `<div class="diff-line ${l.type}">${esc(l.text)}</div>`;
+                  }).join('');
+                  const content = document.createElement('div');
+                  content.className = 'diff-content';
+                  content.style.maxHeight = '260px';
+                  content.innerHTML = linesHtml;
+                  wrapper.appendChild(content);
                 } else if (isnew) {
-                  const nfp = document.createElement('div');
-                  nfp.className = 'new-file-pending';
-                  nfp.innerHTML = '<div class="nfp-hdr"><i class="fas fa-file-circle-plus"></i> ' + esc(result._pendingPath) + ' <span style="margin-left:auto;color:var(--green)">' + result._pendingNewContent.length + ' chars · ' + result._pendingNewContent.split('\n').length + ' lines</span></div><div class="nfp-preview">' + esc(result._pendingNewContent.slice(0, 3000)) + (result._pendingNewContent.length > 3000 ? '\n... (truncated)' : '') + '</div>';
-                  nfp.appendChild(bar);
-                  $msg().appendChild(nfp);
-                } else {
-                  toolPanels[i].el.appendChild(bar);
+                  const preview = document.createElement('div');
+                  preview.className = 'new-file-pending';
+                  preview.style.border = 'none';
+                  preview.style.borderRadius = '0';
+                  const chars = result._pendingNewContent.length;
+                  const lines = result._pendingNewContent.split('\n').length;
+                  preview.innerHTML = `<div class="nfp-hdr"><i class="fas fa-file-circle-plus"></i> ${esc(result._pendingPath)} <span style="margin-left:auto;color:var(--green)">${chars} chars · ${lines} lines</span></div><div class="nfp-preview">${esc(result._pendingNewContent.slice(0, 4000))}${chars > 4000 ? '\n\n... (truncated for display)' : ''}</div>`;
+                  wrapper.appendChild(preview);
                 }
-                scrollBottom();
+
+                /* ── Approval buttons — always visible, not nested ── */
+                const bar = document.createElement('div');
+                bar.className = 'diff-approval-bar';
+                bar.style.background = 'rgba(234, 179, 8, .06)';
+                bar.style.borderTop = '1px solid rgba(234, 179, 8, .25)';
+                bar.style.padding = '10px 12px';
+                bar.innerHTML = `<span class="da-label" style="font-size:12px">${isnew ? 'Create this file?' : 'Apply this edit?'}</span><button class="da-btn accept" style="padding:6px 16px;font-size:11px"><i class="fas fa-check"></i> Accept</button><button class="da-btn reject" style="padding:6px 16px;font-size:11px"><i class="fas fa-xmark"></i> Reject</button>`;
+
+                const acceptBtn = bar.querySelector('.da-btn.accept');
+                const rejectBtn = bar.querySelector('.da-btn.reject');
+
+                acceptBtn.onclick = () => {
+                  onDecide(true);
+                  wrapper.style.border = '2px solid rgba(34, 197, 94, .35)';
+                  wrapper.classList.remove('pending');
+                  const waitIcon = document.getElementById(waitingId);
+                  if (waitIcon) { waitIcon.className = 'fas fa-check-circle'; waitIcon.style.color = 'var(--green)'; waitIcon.style.animation = 'none'; }
+                  hdr.querySelector('span[style*="yellow"]').style.color = 'var(--green)';
+                  hdr.querySelector('span[style*="yellow"]').textContent = isnew ? 'File created' : 'Edit applied';
+                  bar.innerHTML = '<span class="da-label" style="color:var(--green);font-size:12px"><i class="fas fa-check"></i> Accepted</span>';
+                  acceptBtn.replaceWith(acceptBtn.cloneNode(true));
+                  rejectBtn.replaceWith(rejectBtn.cloneNode(true));
+                };
+
+                rejectBtn.onclick = () => {
+                  onDecide(false);
+                  wrapper.style.border = '2px solid rgba(239, 68, 68, .35)';
+                  wrapper.style.opacity = '.5';
+                  wrapper.style.pointerEvents = 'none';
+                  const waitIcon = document.getElementById(waitingId);
+                  if (waitIcon) { waitIcon.className = 'fas fa-xmark-circle'; waitIcon.style.color = 'var(--red)'; waitIcon.style.animation = 'none'; }
+                  hdr.querySelector('span[style*="yellow"]').style.color = 'var(--red)';
+                  hdr.querySelector('span[style*="yellow"]').textContent = isnew ? 'File rejected' : 'Edit rejected';
+                  bar.innerHTML = '<span class="da-label" style="color:var(--red);font-size:12px"><i class="fas fa-xmark"></i> Rejected</span>';
+                  acceptBtn.replaceWith(acceptBtn.cloneNode(true));
+                  rejectBtn.replaceWith(rejectBtn.cloneNode(true));
+                };
+
+                wrapper.appendChild(bar);
+
+                /* ── Always append directly to $msg(), never nested inside another panel ── */
+                $msg().appendChild(wrapper);
+
+                /* ── Force scroll — override autoScroll pause, guarantee visibility ── */
+                state.autoScroll = true;
+                updateScrollLockBtn();
+                requestAnimationFrame(() => {
+                  requestAnimationFrame(() => {
+                    wrapper.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                  });
+                });
+
+                /* ── Handle abort while waiting ── */
                 if (toolAbortCtrls[i].signal) {
-                  const h = () => { if (!decided) { decided = true; resolve(false); } toolAbortCtrls[i].signal.removeEventListener('abort', h); };
+                  const h = () => {
+                    if (!decided) {
+                      decided = true;
+                      resolve(false);
+                      wrapper.style.border = '2px solid rgba(239, 68, 68, .35)';
+                      wrapper.style.opacity = '.5';
+                      wrapper.style.pointerEvents = 'none';
+                      const waitIcon = document.getElementById(waitingId);
+                      if (waitIcon) { waitIcon.className = 'fas fa-ban'; waitIcon.style.color = 'var(--red)'; waitIcon.style.animation = 'none'; }
+                      bar.innerHTML = '<span class="da-label" style="color:var(--red);font-size:12px"><i class="fas fa-stop"></i> Cancelled</span>';
+                    }
+                    toolAbortCtrls[i].signal.removeEventListener('abort', h);
+                  };
                   toolAbortCtrls[i].signal.addEventListener('abort', h);
                 }
               });
@@ -7722,21 +8507,20 @@ Use git_diff to review changes before committing. git_diff without arguments sho
                 const actual = result._pendingIsNewFile
                   ? await applyPendingWrite(result)
                   : await applyPendingEdit(result);
-                const args = safeParseArgs(tc.function.arguments);
-                if (args.path) {
-                  if (result._pendingIsNewFile) sessionChanges.created.add(args.path); else sessionChanges.modified.add(args.path);
-                  rpState.addChange(args.path, result._pendingIsNewFile ? 'created' : 'modified', actual.diff);
-                  previewFile(args.path);
+                const tArgs = safeParseArgs(tc.function.arguments);
+                if (tArgs.path) {
+                  if (result._pendingIsNewFile) sessionChanges.created.add(tArgs.path); else sessionChanges.modified.add(tArgs.path);
+                  rpState.addChange(tArgs.path, result._pendingIsNewFile ? 'created' : 'modified', actual.diff);
+                  previewFile(tArgs.path);
                   debouncedFileTreeRefresh();
-                  if (state.compConnected && (args.path.endsWith('.py') || args.path.endsWith('.js'))) {
-                    const ck = await execViaCompanion(args.path.endsWith('.py') ? 'python -m py_compile "' + args.path + '"' : 'node -c "' + args.path + '"', 15);
+                  if (state.compConnected && (tArgs.path.endsWith('.py') || tArgs.path.endsWith('.js'))) {
+                    const ck = await execViaCompanion(tArgs.path.endsWith('.py') ? 'python -m py_compile "' + tArgs.path + '"' : 'node -c "' + tArgs.path + '"', 15);
                     if (typeof ck === 'string' && ck.trim()) actual.output += '\n\n⚠️ SYNTAX CHECK:\n' + ck.trim();
                   }
                 }
                 updateToolResult(toolPanels[i], actual.output);
                 return { tc, outText: actual.output, diff: actual.diff, searchData: null };
               } else {
-                if (diff) { const dEl = toolPanels[i].el.nextSibling; if (dEl && dEl.classList.contains('diff-panel')) dEl.classList.add('rejected'); }
                 updateToolStatus(toolPanels[i], 'err');
                 updateToolResult(toolPanels[i], 'Rejected — try a different approach.');
                 return { tc, outText: 'Edit to "' + result._pendingPath + '" rejected by user. Do NOT retry this exact edit.', diff: null, searchData: null, rejected: true };
@@ -7845,14 +8629,31 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             }
           }
 
-          if (toolCallHistory.length >= 3) {
-            const r = toolCallHistory.slice(-3);
-            if (r[0].sig === r[1].sig && r[1].sig === r[2].sig && !r[0].success && !r[1].success && !r[2].success) {
-              const wEl = document.createElement('div'); wEl.className = 'health-warning';
-              wEl.innerHTML = '<i class="fas fa-triangle-exclamation"></i><span>Agent stuck in a loop — same tool call failed 3 times. Intervening...</span>';
-              $msg().appendChild(wEl); scrollBottom();
-              state.messages.push({ role: 'user', content: '[SYSTEM: Your last 3 tool calls were identical and all failed: "' + r[0].sig + '". Stop repeating this. BEFORE trying again, use web_search to look up the error or problem. Research the solution, then try a different approach. If search doesn\'t help, ask the user.]' });
-              state.messages.push({ role: 'assistant', content: 'Understood. I was stuck in a failure loop. Let me try a completely different approach.' });
+          /* Detect repeated missing-argument errors — LLM keeps forgetting params */
+          if (toolCallHistory.length >= 2) {
+            const recent = toolCallHistory.slice(-4);
+            const missingArgErrors = recent.filter(r =>
+              !r.success &&
+              (r.sig.includes('"path" is required') ||
+               r.sig.includes('"content" is required') ||
+               r.sig.includes('"edits" must be') ||
+               r.sig.includes('"command" is required') ||
+               r.sig.includes('"query" is required') ||
+               r.sig.includes('"task" is required') ||
+               r.sig.includes('invalid arguments') ||
+               r.sig.includes('truncated JSON'))
+            );
+            if (missingArgErrors.length >= 2) {
+              const lastErr = recent.filter(r => !r.success).slice(-1)[0];
+              const wEl = document.createElement('div');
+              wEl.className = 'health-warning';
+              wEl.innerHTML = '<i class="fas fa-triangle-exclamation"></i><span>Agent repeatedly sending malformed tool calls — injecting format reminder</span>';
+              $msg().appendChild(wEl);
+              scrollBottom();
+              state.messages.push({
+                role: 'user',
+                content: '[SYSTEM: You have sent ' + missingArgErrors.length + ' tool calls with missing or malformed arguments. This usually means the argument JSON is too long and getting truncated, or you are forgetting required fields.\n\nRULES:\n1. Every tool call MUST have ALL required parameters as valid JSON\n2. If a file is very large (>30KB), do NOT use write_file with the full content — use edit_file instead with small search/replace blocks\n3. Double-check your JSON: every { has a matching }, every " has a matching "\n4. Last error was: "' + lastErr.sig + '"\n\nDo NOT retry the same broken call. Fix the argument format first.]'
+              });
               toolCallHistory.length = 0;
             }
           }
@@ -7915,6 +8716,15 @@ Use git_diff to review changes before committing. git_diff without arguments sho
               prev.innerHTML = '<div class="img-label"><i class="fas fa-image" style="color:var(--accent)"></i>' + path + '</div><img src="' + panel.el._previewDataUrl + '" onclick="openImgViewer(this.src)" alt="' + path + '">';
               panel.el.appendChild(prev);
             }
+
+            /* ── Sub-agent panels ── */
+            if (panel.el._subAgentData && !panel.el.querySelector('.sub-agent-panel')) {
+              showSubAgentPanel(panel.el._subAgentData);
+              const res = panel.el.querySelector('.tool-result');
+              if (res) res.style.display = 'none';
+              continue;
+            }
+
             const imgUrl = panel.el._screenshotDataUrl || panel.el._imageDataUrl;
             if (!imgUrl || panel.el._svgPreviewUrl) continue;
             if (!panel.el.querySelector('.screenshot-preview')) {
@@ -8877,6 +9687,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         if (s.requireEditApproval !== undefined) state.requireEditApproval = s.requireEditApproval;
         if (s.autoVerifyCommand !== undefined) state.autoVerifyCommand = s.autoVerifyCommand;
         if (s.autoVerifyMaxRetries !== undefined) state.autoVerifyMaxRetries = s.autoVerifyMaxRetries;
+        if (s.smartContextThreshold !== undefined) state.smartContextThreshold = s.smartContextThreshold;        
       } catch { }
       renderSysProfiles();
       // ADD THESE TWO LINES — sync loaded settings to UI and meter on startup:
@@ -8900,7 +9711,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           sysPromptProfiles: state.sysPromptProfiles,
           requireEditApproval: state.requireEditApproval,
           autoVerifyCommand: state.autoVerifyCommand,
-          autoVerifyMaxRetries: state.autoVerifyMaxRetries
+          autoVerifyMaxRetries: state.autoVerifyMaxRetries,
+          smartContextThreshold: state.smartContextThreshold          
         }));
       } catch { }
     }
@@ -8920,6 +9732,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       document.getElementById('s-require-approval').checked = state.requireEditApproval;
       document.getElementById('s-auto-verify').value = state.autoVerifyCommand || '';
       document.getElementById('s-auto-verify-retries').value = state.autoVerifyMaxRetries;
+      document.getElementById('s-smart-context').value = state.smartContextThreshold;
       if (!document.getElementById('s-sys-prompt').value) document.getElementById('s-sys-prompt').value = DEFAULT_SYS;
 
       // Add preview of resolved prompt
@@ -8959,6 +9772,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       state.requireEditApproval = document.getElementById('s-require-approval').checked;
       state.autoVerifyCommand = document.getElementById('s-auto-verify').value.trim();
       state.autoVerifyMaxRetries = Math.max(1, parseInt(document.getElementById('s-auto-verify-retries').value) || 3);
+      state.smartContextThreshold = Math.max(0, parseInt(document.getElementById('s-smart-context').value) || 0);
       persistSettings(); closeSettings(); showToast('Settings saved', 'ok');
       testConnection(); updateContextMeter();
     }
