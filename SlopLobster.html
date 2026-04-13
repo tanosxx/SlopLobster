@@ -1618,6 +1618,280 @@
       margin-left: 4px
     }
 
+    .plan-panel {
+      width: 100%;
+      max-width: 860px;
+      flex-shrink: 0;
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      margin: 8px 0;
+      animation: msgIn .25s ease-out
+    }
+
+    .plan-panel.completed {
+      border-color: rgba(34, 197, 94, .25)
+    }
+
+    .plan-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, .01)
+    }
+
+    .plan-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--tx-0);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 1
+    }
+
+    .plan-title i {
+      color: var(--accent)
+    }
+
+    .plan-header-actions {
+      display: flex;
+      gap: 6px
+    }
+
+    .plan-btn {
+      padding: 5px 12px;
+      border-radius: 5px;
+      border: 1px solid;
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: 'Space Grotesk', sans-serif;
+      transition: .12s;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap
+    }
+
+    .plan-btn.execute {
+      background: var(--accent);
+      color: var(--bg-0);
+      border-color: var(--accent)
+    }
+
+    .plan-btn.execute:hover {
+      background: var(--accent-h)
+    }
+
+    .plan-btn.execute:disabled {
+      opacity: .4;
+      cursor: not-allowed
+    }
+
+    .plan-btn.cancel {
+      background: none;
+      color: var(--tx-3);
+      border-color: var(--border-l)
+    }
+
+    .plan-btn.cancel:hover {
+      color: var(--red);
+      border-color: rgba(239, 68, 68, .3);
+      background: rgba(239, 68, 68, .08)
+    }
+
+    .plan-progress {
+      height: 3px;
+      background: var(--bg-3);
+      overflow: hidden
+    }
+
+    .plan-progress-fill {
+      height: 100%;
+      background: var(--accent);
+      transition: width .4s ease;
+      width: 0%
+    }
+
+    .plan-progress-fill.complete {
+      background: var(--green)
+    }
+
+    .plan-steps {
+      padding: 4px 0
+    }
+
+    .plan-step {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      cursor: default;
+      transition: background .1s
+    }
+
+    .plan-step:hover {
+      background: var(--bg-3)
+    }
+
+    .plan-step-indicator {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 2px solid var(--border-l);
+      flex-shrink: 0;
+      display: grid;
+      place-items: center;
+      font-size: 8px;
+      color: transparent;
+      transition: all .2s
+    }
+
+    .plan-step-indicator.done {
+      background: var(--green);
+      border-color: var(--green);
+      color: var(--bg-0)
+    }
+
+    .plan-step-indicator.running {
+      border-color: var(--accent);
+      background: var(--accent-glow);
+      color: var(--accent);
+      animation: pulse 1.2s infinite
+    }
+
+    .plan-step-indicator.failed {
+      background: var(--red);
+      border-color: var(--red);
+      color: var(--bg-0)
+    }
+
+    .plan-step-indicator.stopped {
+      background: var(--tx-4);
+      border-color: var(--tx-4);
+      color: var(--bg-0)
+    }
+
+    .plan-step-num {
+      font-size: 9px;
+      color: var(--tx-4);
+      font-family: 'JetBrains Mono', monospace;
+      min-width: 14px
+    }
+
+    .plan-step-desc {
+      flex: 1;
+      font-size: 12px;
+      color: var(--tx-1);
+      line-height: 1.4
+    }
+
+    .plan-step.done .plan-step-desc {
+      color: var(--tx-3);
+      text-decoration: line-through;
+      text-decoration-color: var(--tx-4)
+    }
+
+    .plan-step.running .plan-step-desc {
+      color: var(--tx-0);
+      font-weight: 600
+    }
+
+    .plan-step-run {
+      background: none;
+      border: 1px solid transparent;
+      color: var(--tx-4);
+      cursor: pointer;
+      font-size: 9px;
+      padding: 3px 6px;
+      border-radius: 4px;
+      transition: .12s;
+      opacity: 0;
+      flex-shrink: 0
+    }
+
+    .plan-step:hover .plan-step-run {
+      opacity: 1
+    }
+
+    .plan-step-run:hover {
+      color: var(--accent);
+      background: var(--accent-glow);
+      border-color: rgba(232, 160, 35, .15)
+    }
+
+    .plan-step-run:disabled {
+      opacity: 0 !important;
+      cursor: not-allowed
+    }
+
+    .plan-slim-banner {
+      padding: 6px 14px;
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--teal);
+      background: rgba(45, 212, 191, .04);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 6px
+    }
+
+    .plan-slim-banner i {
+      font-size: 9px
+    }
+
+    .plan-toggle-btn {
+      background: none;
+      border: 1px solid transparent;
+      color: var(--tx-4);
+      cursor: pointer;
+      padding: 5px 7px;
+      border-radius: 6px;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: .15s;
+      position: relative
+    }
+
+    .plan-toggle-btn:hover:not(:disabled) {
+      background: var(--bg-3);
+      color: var(--tx-1)
+    }
+
+    .plan-toggle-btn:disabled {
+      opacity: .2;
+      cursor: not-allowed
+    }
+
+    .plan-toggle-btn.active {
+      color: var(--accent);
+      background: var(--accent-glow);
+      border-color: rgba(232, 160, 35, .15)
+    }
+
+    .plan-toggle-btn .plan-badge {
+      font-size: 7px;
+      padding: 0 4px;
+      line-height: 16px;
+      border-radius: 3px;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+      background: var(--accent);
+      color: var(--bg-0);
+      display: none
+    }
+
+    .plan-toggle-btn.active .plan-badge {
+      display: inline
+    }
+
     /* ── Search panel ── */
     .search-panel {
       background: var(--bg-2);
@@ -3950,6 +4224,7 @@
               <span><b>/compact</b> context</span>
               <span><b>Esc</b> stop</span>
               <span><b>Ctrl+B</b> sidebar</span>
+              <span><b>Ctrl+Shift+P</b> plan mode</span>
             </div>
           </div>
         </div>
@@ -4010,6 +4285,7 @@
           <button class="input-action-btn" id="screenshot-btn" disabled onclick="userScreenshot()"
             title="Send screenshot to model"><i class="fas fa-camera"></i><span id="vision-badge"
               class="vision-badge off">text</span></button>
+          <button class="plan-toggle-btn" id="plan-toggle-btn" onclick="togglePlanMode()" title="Plan Mode: break task into steps before executing"><i class="fas fa-list-check"></i><span class="plan-badge">PLAN</span></button>
           <button class="input-action-btn" id="attach-btn" onclick="document.getElementById('file-input').click()"
             title="Attach file or drop here"><i class="fas fa-paperclip"></i></button>
           <input type="file" id="file-input" multiple style="display:none" onchange="handleFileAttach(this.files)">
@@ -4833,6 +5109,10 @@ if __name__ == "__main__":
       autoVerifyCommand: '',
       autoVerifyMaxRetries: 3,
       _autoVerifyRetries: 0,
+      planMode: false,
+      currentPlan: null,
+      planExecuting: false,
+      planStepIndex: -1,
       modelCtxOverride: 0,       // 0 = use model default
       modelFlashAttn: true,
       modelKvOffload: true,
@@ -8345,6 +8625,10 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       modifiedFiles.clear();
       state.pendingImages = [];
       state.originalTask = null;
+      state.originalTask = null;
+      state.currentPlan = null;
+      state.planExecuting = false;
+      state.planStepIndex = -1;
       toolCallHistory.length = 0;
       toolCallHistory.length = 0;
       state._autoVerifyRetries = 0;
@@ -8795,11 +9079,11 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
     async function handleSend() {
       if (state.running) { state.abortCtrl?.abort(); state.running = false; updateSendBtn(); return; }
+      if (state.running) { state.abortCtrl?.abort(); state.running = false; state.planExecuting = false; updateSendBtn(); return; }
       const inp = document.getElementById('msg-input'), t = inp.value.trim();
       if (!t && !state.pendingImages.length) return;
       if (t.startsWith('/') && !state.pendingImages.length) { handleCmd(t); inp.value = ''; inp.style.height = 'auto'; updateSendBtn(); return; }
 
-      /* Warn if images but no vision */
       if (state.pendingImages.length && !state.visionCapable) {
         showToast('Current model does not support images — images will not be sent', 'warn');
       }
@@ -8819,7 +9103,6 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         msg._images = images.map(img => ({ type: 'image_url', image_url: { url: img.dataUrl } }));
       }
 
-      /* Show user message with image thumbnails */
       switchToChat();
       const el = createMsgEl('user', t || '[Image(s) attached]');
       if (images.length) {
@@ -8827,12 +9110,17 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         el.querySelector('.msg-content').innerHTML += (t ? '\n\n' : '') + `<div class="msg-img-grid">${imgHtml}</div>`;
       }
       $msg().appendChild(el); scrollBottom();
-
       state.messages.push(msg);
-      // Capture original task before any compaction can lose it
       if (!state.originalTask && t) state.originalTask = t;
+      updateSendBtn(); updateContextMeter();
 
-      updateSendBtn(); updateContextMeter(); agentLoop();
+      /* ── Plan mode: generate plan instead of executing ── */
+      if (state.planMode && t) {
+        await handlePlanRequest(t);
+        return;
+      }
+
+      agentLoop();
     }
 
     async function userScreenshot() {
@@ -8875,6 +9163,397 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       updateSendBtn(); inp.focus();
       showToast('Prompt ready — edit the description and press Enter', 'info');
     }
+
+        /* ═══════════════ PLAN MODE ═══════════════ */
+
+    function togglePlanMode() {
+      state.planMode = !state.planMode;
+      const btn = document.getElementById('plan-toggle-btn');
+      btn.classList.toggle('active', state.planMode);
+      const inp = document.getElementById('msg-input');
+      inp.placeholder = state.planMode
+        ? 'Describe a task to plan (steps will be generated before execution)...'
+        : 'Ask SlopLobster to do something... (drop files or paste images)';
+      showToast(state.planMode ? 'Plan mode ON — your task will be broken into steps' : 'Plan mode OFF', 'info');
+    }
+
+    async function handlePlanRequest(userText) {
+      const thinkingEl = showThinking();
+      thinkingEl.querySelector('.thinking-dots').previousSibling && (thinkingEl.innerHTML = '<div class="thinking-dots"><span></span><span></span><span></span></div> Generating plan...');
+
+      const toolNames = getToolDefs().map(t => t.function.name).join(', ');
+      const planSysPrompt = `You are a planning assistant. Break the user's task into specific, actionable steps.
+
+Available tools: ${toolNames}
+
+Rules:
+- Each step must be a single, focused action
+- Include specific file paths when relevant
+- Order logically: read before edit, edit before test
+- Typically 3-12 steps
+- Do NOT include a final "done" or "summary" step
+
+Output ONLY steps in this EXACT format (one per line):
+STEP: <description>
+STEP: <description>
+
+Example:
+STEP: Read src/auth.py to understand current authentication
+STEP: Add validate_jwt() function to src/auth.py
+STEP: Update /login endpoint in src/routes.py to use validate_jwt
+STEP: Run pytest to verify changes`;
+
+      try {
+        state.abortCtrl = new AbortController();
+        const res = await fetch(`${state.apiUrl}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: state.model,
+            messages: [
+              { role: 'system', content: planSysPrompt },
+              { role: 'user', content: userText + (state.dirName ? '\n\nWorking directory: ' + state.dirName : '') }
+            ],
+            stream: false,
+            temperature: 0.3,
+            max_tokens: 2000
+          }),
+          signal: state.abortCtrl.signal
+        });
+
+        if (!res.ok) {
+          const err = await res.text().catch(() => res.statusText);
+          throw new Error('API ' + res.status + ': ' + err.slice(0, 200));
+        }
+
+        const data = await res.json();
+        const text = data.choices?.[0]?.message?.content || '';
+        if (thinkingEl.parentNode) thinkingEl.remove();
+
+        /* Parse steps */
+        const steps = [];
+        const regex1 = /^STEP:\s*(.+)$/gm;
+        let match;
+        while ((match = regex1.exec(text)) !== null) {
+          steps.push({ description: match[1].trim(), status: 'pending' });
+        }
+
+        /* Fallback: ## Step N: format */
+        if (steps.length === 0) {
+          const regex2 = /^##\s*Step\s+\d+:\s*(.+)$/gm;
+          while ((match = regex2.exec(text)) !== null) {
+            steps.push({ description: match[1].trim(), status: 'pending' });
+          }
+        }
+
+        /* Fallback: numbered list 1. 2. 3. */
+        if (steps.length === 0) {
+          const regex3 = /^\d+[.)]\s+(.+)$/gm;
+          while ((match = regex3.exec(text)) !== null) {
+            const desc = match[1].trim();
+            if (desc.length > 5 && desc.length < 200) {
+              steps.push({ description: desc, status: 'pending' });
+            }
+          }
+        }
+
+        if (steps.length < 2) {
+          appendMsg('system', 'Could not generate a structured plan (got ' + steps.length + ' step' + (steps.length !== 1 ? 's' : '') + '). Falling back to normal execution.');
+          agentLoop();
+          return;
+        }
+
+        state.currentPlan = { steps, originalText: text };
+        renderPlanPanel(steps);
+
+      } catch (e) {
+        if (thinkingEl.parentNode) thinkingEl.remove();
+        if (e.name === 'AbortError') { appendMsg('system', 'Plan generation cancelled.'); return; }
+        appendMsg('system', 'Plan generation failed: ' + e.message + ' — falling back to normal execution.');
+        agentLoop();
+      }
+    }
+
+    function renderPlanPanel(steps) {
+      /* Remove old plan panel if exists */
+      const old = document.getElementById('plan-panel');
+      if (old) old.remove();
+
+      const el = document.createElement('div');
+      el.className = 'plan-panel';
+      el.id = 'plan-panel';
+
+      let stepsHtml = '';
+      steps.forEach((s, i) => {
+        stepsHtml += `<div class="plan-step" id="plan-step-${i}">
+          <div class="plan-step-indicator" id="plan-ind-${i}"></div>
+          <span class="plan-step-num">${i + 1}</span>
+          <span class="plan-step-desc">${esc(s.description)}</span>
+          <button class="plan-step-run" id="plan-run-${i}" onclick="executeSinglePlanStep(${i})" title="Run just this step"><i class="fas fa-play"></i></button>
+        </div>`;
+      });
+
+      el.innerHTML = `<div class="plan-header">
+        <span class="plan-title"><i class="fas fa-list-check"></i> Plan <span id="plan-count">(${steps.length} steps)</span></span>
+        <div class="plan-header-actions">
+          <button class="plan-btn execute" id="plan-execute-btn" onclick="executeAllPlanSteps()"><i class="fas fa-play"></i> Execute All</button>
+          <button class="plan-btn cancel" onclick="discardPlan()" title="Discard plan"><i class="fas fa-xmark"></i></button>
+        </div>
+      </div>
+      <div class="plan-progress"><div class="plan-progress-fill" id="plan-progress-fill"></div></div>
+      <div class="plan-steps">${stepsHtml}</div>
+      <div class="plan-slim-banner" id="plan-slim-banner" style="display:none"><i class="fas fa-compress"></i> Context slimmed between steps for efficiency</div>`;
+
+      $msg().appendChild(el);
+      scrollBottom();
+    }
+
+    function updatePlanStep(idx, status) {
+      if (!state.currentPlan) return;
+      state.currentPlan.steps[idx].status = status;
+
+      const stepEl = document.getElementById('plan-step-' + idx);
+      const indEl = document.getElementById('plan-ind-' + idx);
+      const runBtn = document.getElementById('plan-run-' + idx);
+      if (!stepEl || !indEl) return;
+
+      stepEl.className = 'plan-step ' + status;
+      indEl.className = 'plan-step-indicator ' + status;
+
+      if (status === 'done') indEl.innerHTML = '<i class="fas fa-check"></i>';
+      else if (status === 'running') indEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+      else if (status === 'failed') indEl.innerHTML = '<i class="fas fa-xmark"></i>';
+      else if (status === 'stopped') indEl.innerHTML = '<i class="fas fa-pause"></i>';
+      else indEl.innerHTML = '';
+
+      if (runBtn) runBtn.disabled = (status !== 'pending');
+
+      /* Update progress bar */
+      const total = state.currentPlan.steps.length;
+      const done = state.currentPlan.steps.filter(s => s.status === 'done').length;
+      const fill = document.getElementById('plan-progress-fill');
+      if (fill) {
+        fill.style.width = (done / total * 100) + '%';
+        if (done === total) fill.classList.add('complete');
+      }
+
+      scrollBottom();
+    }
+
+    function updatePlanProgress() {
+      if (!state.currentPlan) return;
+      const total = state.currentPlan.steps.length;
+      const done = state.currentPlan.steps.filter(s => s.status === 'done').length;
+      const fill = document.getElementById('plan-progress-fill');
+      if (fill) {
+        fill.style.width = (done / total * 100) + '%';
+        if (done === total) fill.classList.add('complete');
+      }
+    }
+
+    function discardPlan() {
+      if (state.planExecuting) {
+        state.abortCtrl?.abort();
+        state.running = false;
+        state.planExecuting = false;
+        updateSendBtn();
+      }
+      const panel = document.getElementById('plan-panel');
+      if (panel) panel.remove();
+      state.currentPlan = null;
+      state.planStepIndex = -1;
+      /* Remove the user message that triggered planning (last one) */
+      if (state.messages.length && state.messages[state.messages.length - 1].role === 'user') {
+        state.messages.pop();
+      }
+      updateContextMeter();
+      saveCurrentConv();
+      showToast('Plan discarded', 'info');
+    }
+
+    function slimStepMessages(startIdx, endIdx) {
+      let slimmed = 0;
+      for (let i = Math.max(0, startIdx); i < Math.min(endIdx, state.messages.length); i++) {
+        const m = state.messages[i];
+        if (m.role !== 'tool' || m._slimmed) continue;
+
+        const parent = findParentToolCall(i);
+        if (!parent) continue;
+        const name = parent.function.name;
+        const args = safeParseArgs(parent.function.arguments);
+        const orig = m.content || '';
+
+        let summary = '';
+        if (name === 'read_file' || name === 'read_file_lines') {
+          const lineCount = orig.split('\n').length;
+          summary = 'read_file ' + (args.path || '?') + ': reviewed (' + lineCount + ' lines)';
+        } else if (name === 'edit_file') {
+          summary = orig.includes('ERROR') ? 'edit_file ' + (args.path || '?') + ': FAILED' : 'edit_file ' + (args.path || '?') + ': applied';
+        } else if (name === 'write_file') {
+          summary = 'write_file ' + (args.path || '?') + ': created (' + (args.content || '').length + ' chars)';
+        } else if (name === 'execute_command') {
+          const em = orig.match(/\[exit code:\s*(\d+)\]/);
+          summary = 'exec "' + (args.command || '').slice(0, 80) + '": exit ' + (em ? em[1] : '?');
+        } else if (name === 'list_directory') {
+          summary = 'list_directory: ' + orig.split('\n').filter(l => l.trim()).length + ' entries';
+        } else if (name === 'grep' || name === 'search_files') {
+          summary = name + ' "' + (args.pattern || args.query || '').slice(0, 60) + '": results found';
+        } else if (name === 'web_search') {
+          summary = 'search "' + (args.query || '').slice(0, 60) + '": results found';
+        } else if (name === 'fetch_url') {
+          summary = 'fetch_url ' + (args.url || '?').slice(0, 80) + ': fetched';
+        } else if (name === 'think') {
+          summary = '(thought: ' + orig.length + ' chars)';
+        } else {
+          summary = name + ': ' + (orig.length > 120 ? orig.slice(0, 120) + '...' : orig);
+        }
+
+        m.content = summary;
+        m._slimmed = true;
+        slimmed++;
+      }
+
+      const banner = document.getElementById('plan-slim-banner');
+      if (banner && slimmed > 0) {
+        banner.style.display = 'flex';
+        const saved = estimateConvTokens();
+        updateContextMeter();
+        const after = estimateConvTokens();
+        if (saved - after > 100) {
+          banner.innerHTML = '<i class="fas fa-compress"></i> Slimmed ' + slimmed + ' tool results — saved ~' + formatTok(saved - after);
+        }
+      }
+    }
+
+    async function executeSinglePlanStep(idx) {
+      if (state.running || !state.currentPlan) return;
+      state.planExecuting = true;
+      updateSendBtn();
+
+      updatePlanStep(idx, 'running');
+      const stepMsgIdx = state.messages.length;
+
+      state.messages.push({
+        role: 'user',
+        content: '[PLAN STEP ' + (idx + 1) + ' of ' + state.currentPlan.steps.length + ']\n' +
+                 'Task: ' + state.currentPlan.steps[idx].description + '\n\n' +
+                 'Complete ONLY this step. When done, briefly summarize what you did.'
+      });
+      updateContextMeter();
+
+      await agentLoop();
+
+      if (state.planExecuting) {
+        updatePlanStep(idx, 'done');
+        slimStepMessages(stepMsgIdx, state.messages.length);
+      }
+
+      state.planExecuting = false;
+      updateSendBtn();
+      saveCurrentConv();
+      updatePlanProgress();
+    }
+
+    async function executeAllPlanSteps() {
+      if (!state.currentPlan || state.planExecuting) return;
+      const plan = state.currentPlan;
+      const startIdx = plan.steps.findIndex(s => s.status === 'pending');
+      if (startIdx < 0) return;
+
+      state.planExecuting = true;
+      updateSendBtn();
+
+      const execBtn = document.getElementById('plan-execute-btn');
+      if (execBtn) { execBtn.disabled = true; execBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Executing...'; }
+
+      for (let i = startIdx; i < plan.steps.length; i++) {
+        if (!state.planExecuting) {
+          updatePlanStep(i, 'stopped');
+          break;
+        }
+
+        updatePlanStep(i, 'running');
+        const stepMsgIdx = state.messages.length;
+
+        /* Build completed-steps summary for context continuity */
+        const completed = plan.steps.slice(0, i).filter(s => s.status === 'done');
+        const completedText = completed.length
+          ? 'Previously completed:\n' + completed.map((s, j) => {
+              const origIdx = plan.steps.indexOf(s);
+              return '  \u2713 Step ' + (origIdx + 1) + ': ' + s.description;
+            }).join('\n') + '\n\n'
+          : '';
+
+        state.messages.push({
+          role: 'user',
+          content: '[PLAN STEP ' + (i + 1) + ' of ' + plan.steps.length + ']\n' +
+                   'Task: ' + plan.steps[i].description + '\n\n' +
+                   completedText +
+                   'Complete ONLY this step. When done, briefly summarize. Do NOT proceed to the next step.'
+        });
+        updateContextMeter();
+
+        /* Run agent loop — exits when LLM stops calling tools */
+        await agentLoop();
+
+        if (!state.planExecuting) {
+          updatePlanStep(i, 'stopped');
+          break;
+        }
+
+        updatePlanStep(i, 'done');
+
+        /* Slim tool results from this step to save context for next step */
+        slimStepMessages(stepMsgIdx, state.messages.length);
+
+        /* Context management between steps */
+        if (i < plan.steps.length - 1) {
+          const pct = getContextPct();
+          if (pct > state.autoCompactPct * 0.8) {
+            const saved = await saveProgressToWorkspace('plan step context limit (' + Math.round(pct) + '%)');
+            await progressCompact(saved);
+            state.messages.push({
+              role: 'user',
+              content: '[PLAN CONTINUED — step ' + (i + 1) + ' of ' + plan.steps.length + ' completed. Continue with remaining steps. Do NOT re-do completed steps.]'
+            });
+          }
+        }
+      }
+
+      state.planExecuting = false;
+      updateSendBtn();
+      saveCurrentConv();
+
+      /* Update UI */
+      const panel = document.getElementById('plan-panel');
+      const allDone = plan.steps.every(s => s.status === 'done');
+      if (allDone && panel) {
+        panel.classList.add('completed');
+        if (execBtn) { execBtn.innerHTML = '<i class="fas fa-check"></i> Complete'; execBtn.disabled = true; }
+        updatePlanProgress();
+        appendMsg('system', 'Plan completed — all ' + plan.steps.length + ' steps finished.');
+      } else if (execBtn) {
+        const remaining = plan.steps.filter(s => s.status === 'pending').length;
+        if (remaining > 0) {
+          execBtn.disabled = false;
+          execBtn.innerHTML = '<i class="fas fa-play"></i> Resume (' + remaining + ' left)';
+          execBtn.onclick = () => executeAllPlanSteps();
+        } else {
+          execBtn.disabled = true;
+          execBtn.innerHTML = '<i class="fas fa-check"></i> Done';
+        }
+      }
+    }
+
+    /* ── Override agentLoop exit to handle plan step boundaries ── */
+    const _originalAgentLoop = agentLoop;
+    agentLoop = function () {
+      return _originalAgentLoop().then(() => {
+        /* If we're in plan execution and agentLoop finished normally (not aborted),
+           the plan step is considered done — but we don't mark it here because
+           executeAllPlanSteps handles the marking after slimStepMessages */
+      });
+    };
 
     function toggleSidebar() { document.getElementById('sidebar').classList.toggle('collapsed'); }
 
@@ -9323,6 +10002,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         if (e.ctrlKey && e.key === ',') { e.preventDefault(); openSettings(); }
         if (e.ctrlKey && e.shiftKey && e.key === 'E') { e.preventDefault(); exportConversation(); }
         if (e.ctrlKey && e.shiftKey && e.key === 'M') { e.preventDefault(); smartCompact(); }
+        if (e.ctrlKey && e.shiftKey && e.key === 'P') { e.preventDefault(); togglePlanMode(); }
         if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) { e.preventDefault(); inp.focus(); }
       });
 
