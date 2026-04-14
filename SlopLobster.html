@@ -3678,22 +3678,6 @@
     }
 
     .right-panel {
-      width: 400px;
-      flex-shrink: 0;
-      background: var(--bg-1);
-      border-left: 1px solid var(--border);
-      display: flex;
-      flex-direction: column;
-      transition: width .25s ease, border-color .25s ease
-    }
-
-    .right-panel.collapsed {
-      width: 0;
-      border-left-color: transparent;
-      overflow: hidden
-    }
-
-    .right-panel {
       position: relative;
       width: 400px;
       flex-shrink: 0;
@@ -3701,7 +3685,13 @@
       border-left: 1px solid var(--border);
       display: flex;
       flex-direction: column;
-      transition: width .25s ease, border-color .25s ease
+      transition: width .25s ease, border-color .25s ease;
+    }
+
+    .right-panel.collapsed {
+      width: 0;
+      border-left-color: transparent;
+      overflow: hidden
     }
 
     .rp-resize-handle {
@@ -4407,6 +4397,7 @@
           <div class="comp-info" id="comp-info">
             <div style="color:var(--tx-4)">Not connected</div>
           </div>
+        </div>  
         <div class="file-tree" id="file-tree"></div>
         <div class="sb-section" style="flex-shrink:0">
           <div class="sb-title">Tools</div>
@@ -9410,6 +9401,7 @@ Rules:
     }
 
     async function applyPendingEdit(pr) {
+      requireWorkspace();      
       const segs = sanitizePath(pr._pendingPath);
       let dir = state.dirHandle;
       for (let i = 0; i < segs.length - 1; i++) dir = await dir.getDirectoryHandle(segs[i]);
@@ -9422,6 +9414,7 @@ Rules:
     }
 
     async function applyPendingWrite(pr) {
+      requireWorkspace();      
       const segs = sanitizePath(pr._pendingPath);
       let dir = state.dirHandle;
       for (let i = 0; i < segs.length - 1; i++) dir = await dir.getDirectoryHandle(segs[i], { create: true });
@@ -10719,15 +10712,6 @@ STEP: Run pytest to verify changes`;
       }
     }
 
-    /* ── Override agentLoop exit to handle plan step boundaries ── */
-    const _originalAgentLoop = agentLoop;
-    agentLoop = function () {
-      return _originalAgentLoop().then(() => {
-        /* If we're in plan execution and agentLoop finished normally (not aborted),
-           the plan step is considered done — but we don't mark it here because
-           executeAllPlanSteps handles the marking after slimStepMessages */
-      });
-    };
 
     function toggleSidebar() { document.getElementById('sidebar').classList.toggle('collapsed'); }
 
