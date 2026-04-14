@@ -4286,6 +4286,26 @@
         box-shadow: -8px 0 32px rgba(0, 0, 0, .4)
       }
     }
+
+    .sb-scroll {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      min-height: 0;
+    }
+    .sb-scroll::-webkit-scrollbar {
+      width: 5px
+    }
+    .sb-scroll::-webkit-scrollbar-track {
+      background: transparent
+    }
+    .sb-scroll::-webkit-scrollbar-thumb {
+      background: var(--bg-4);
+      border-radius: 3px
+    }
+    .sb-scroll::-webkit-scrollbar-thumb:hover {
+      background: var(--tx-4)
+    }      
   </style>
 </head>
 
@@ -4365,7 +4385,8 @@
       <button class="hdr-btn" onclick="openSettings()" title="Settings"><i class="fas fa-gear"></i></button>
     </header>
     <div class="content">
-      <aside id="sidebar">
+    <aside id="sidebar">
+      <div class="sb-scroll">
         <div class="sb-section" style="padding-bottom:6px">
           <div class="sb-title">Conversations</div>
         </div>
@@ -4384,21 +4405,13 @@
           <div class="comp-info" id="comp-info">
             <div style="color:var(--tx-4)">Not connected</div>
           </div>
-          <div style="display:flex;gap:5px;margin-top:6px">
-            <button class="sb-btn" style="flex:1" onclick="saveCompanionScript()"><i class="fas fa-download"></i>
-              Save</button>
-            <button class="sb-btn" style="flex:1" onclick="checkCompanion()"><i class="fas fa-plug"></i>
-              Connect</button>
-          </div>
-          <div class="comp-hint">Save <b style="color:var(--tx-2)">SlopLobster-companion.py</b>, run it, click Connect
-          </div>
-        </div>
         <div class="file-tree" id="file-tree"></div>
         <div class="sb-section" style="flex-shrink:0">
           <div class="sb-title">Tools</div>
           <div class="tools-list" id="tools-list"></div>
         </div>
-      </aside>
+      </div>
+    </aside>
       <main>
         <div id="welcome">
           <div class="welcome-orb"></div>
