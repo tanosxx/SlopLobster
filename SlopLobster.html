@@ -10857,47 +10857,173 @@ STEP: Run pytest to verify changes`;
       const el = document.getElementById('rp-cd-' + idx); if (el) el.classList.toggle('open');
     }
 
+    function renderFilePreview() {
+      const f = rpState.activeFile;
+      if (!f) return;
+
+      const ext = f.path.split('.').pop();
+      const langMap = {
+        py: 'python', js: 'javascript', ts: 'typescript', rs: 'rust',
+        go: 'go', html: 'xml', css: 'css', json: 'json', md: 'markdown',
+        sh: 'bash', jsx: 'javascript', tsx: 'typescript',
+        yaml: 'yaml', yml: 'yaml', toml: 'ini', xml: 'xml',
+        sql: 'sql', r: 'r', rb: 'ruby', java: 'java', cpp: 'cpp',
+        c: 'c', h: 'c', cs: 'csharp', php: 'php', swift: 'swift',
+        kt: 'kotlin', dart: 'dart', lua: 'lua', pl: 'perl',
+        dockerfile: 'dockerfile', makefile: 'makefile', cmake: 'cmake'
+      };
+      const lang = langMap[ext] || '';
+      const hlLine = f.highlightLine;
+
+      const lineHtml = f.lines.map((line, i) => {
+        let highlighted;
+        if (lang && hljs.getLanguage(lang)) {
+          try {
+            highlighted = hljs.highlight(line, { language: lang }).value;
+          } catch {
+            highlighted = esc(line);
+          }
+        } else {
+          highlighted = esc(line);
+        }
+        const isHl = hlLine != null && i + 1 === hlLine;
+        return `<div class="rp-file-line${isHl ? ' highlight' : ''}">` +
+          `<span class="rp-file-line-num" data-line="${i + 1}">${i + 1}</span>` +
+          `<span class="rp-file-line-text">${highlighted}</span></div>`;
+      }).join('');
+
+      const previewEl = document.getElementById('rp-file-preview');
+      previewEl.innerHTML =
+        `<div class="rp-file-header">` +
+          `<span class="rp-file-name">${esc(f.path)}</span>` +
+          `<span class="rp-file-meta">${f.lines.length} lines</span>` +
+          `<div class="rp-file-actions">` +
+            `<button class="rp-file-act" data-action="copy-file" title="Copy file"><i class="fas fa-copy"></i></button>` +
+          `</div>` +
+        `</div>` +
+        `<div class="rp-file-code">${lineHtml}</div>` +
+        (f.truncated ? '<div class="rp-file-truncated">File was truncated when read</div>' : '');
+
+      /* ── Event delegation (no inline onclick) ── */
+      previewEl.onclick = function(e) {
+        const lineNum = e.target.closest('.rp-file-line-num');
+        if (lineNum) {
+          const num = parseInt(lineNum.dataset.line, 10);
+          if (num > 0 && num <= f.lines.length) {
+            navigator.clipboard.writeText(f.lines[num - 1]).then(() => {
+              lineNum.style.color = 'var(--green)';
+              setTimeout(() => { lineNum.style.color = ''; }, 800);
+            });
+          }
+          return;
+        }
+        if (e.target.closest('[data-action="copy-file"]')) {
+          navigator.clipboard.writeText(f.content).then(() => showToast('Copied', 'ok'));
+        }
+      };
+    }    
+
     async function previewFile(path, highlightLine) {
       if (!state.dirHandle) { showToast('Open a workspace first', 'warn'); return; }
       if (rpState.activeTab !== 'files') switchRpTab('files');
-      const emptyEl = document.getElementById('rp-files-empty'), previewEl = document.getElementById('rp-file-preview');
+      const emptyEl = document.getElementById('rp-files-empty');
+      const previewEl = document.getElementById('rp-file-preview');
+
+      /* ── PDF: resolve path to get File object for thumbnail rendering ── */
+      if (path.toLowerCase().endsWith('.pdf')) {
+        try {
+          const h = await resolvePath(path);
+          if (h.kind !== 'file') {
+            previewEl.style.display = 'block';
+            emptyEl.style.display = 'none';
+            previewEl.innerHTML = `<div class="rp-empty-state"><i class="fas fa-exclamation-triangle" style="color:var(--red)"></i><span>"${esc(path)}" is not a file</span></div>`;
+            return;
+          }
+          const file = await h.getFile();
+          rpState.activeFile = { content: await extractPdfText(file), isPdf: true };
+          renderPdfPreview(file);
+          emptyEl.style.display = 'none';
+          previewEl.style.display = 'block';
+          return;
+        } catch (e) {
+          previewEl.style.display = 'block';
+          emptyEl.style.display = 'none';
+          previewEl.innerHTML = `<div class="rp-empty-state"><i class="fas fa-exclamation-triangle" style="color:var(--red)"></i><span>${esc(e.message)}</span></div>`;
+          return;
+        }
+      }
+
+      /* ── Text / image / SVG files ── */
       try {
         const result = await readFileSafe(path);
         const header = result.output.split('\n---\n')[0] || '';
-        const content = result.output.includes('\n---\n') ? result.output.split('\n---\n').slice(1).join('\n---\n') : result.output;
-        const lines = content.split('\n');
-        /* ── PDF preview ── */
-        if (isPdfFile(f, path)) {
-          rpState.activeFile = { path, isPdf: true };
-          renderPdfPreview(f);
+        const content = result.output.includes('\n---\n')
+          ? result.output.split('\n---\n').slice(1).join('\n---\n')
+          : result.output;
+
+        /* ── Raster image: show preview instead of code ── */
+        if (result._imageDataUrl) {
+          rpState.activeFile = {
+            path, content: result.output,
+            lines: ['[Image file — see preview]'],
+            isImage: true, imageDataUrl: result._imageDataUrl,
+            truncated: result.output.includes('TRUNCATED'), meta: header
+          };
+          previewEl.innerHTML =
+            `<div class="rp-file-header">` +
+              `<span class="rp-file-name"><i class="fas fa-image" style="color:var(--accent);margin-right:4px"></i>${esc(path)}</span>` +
+              `<span class="rp-file-meta">${result.output.split('\n')[0]}</span>` +
+            `</div>` +
+            `<div class="rp-file-image">` +
+              `<img src="${result._imageDataUrl}" onclick="openImgViewer(this.src)" alt="${esc(path)}">` +
+            `</div>`;
           emptyEl.style.display = 'none';
           previewEl.style.display = 'block';
           return;
         }
-        const isImage = !!result._imageDataUrl;
-        rpState.activeFile = { path, content, lines, isImage, imageDataUrl: result._imageDataUrl, highlightLine: highlightLine || null, truncated: result.output.includes('TRUNCATED'), meta: header };
-        renderFilePreview();
-        emptyEl.style.display = 'none'; previewEl.style.display = 'block';
-      } catch (e) {
-        previewEl.style.display = 'block'; emptyEl.style.display = 'none';
-        previewEl.innerHTML = `<div class="rp-empty-state"><i class="fas fa-exclamation-triangle" style="color:var(--red)"></i><span>${esc(e.message)}</span></div>`;
-      }
-    }
 
-    function renderFilePreview() {
-      const f = rpState.activeFile;
-      if (!f) return;
-      const ext = f.path.split('.').pop();
-      const langMap = { py: 'python', js: 'javascript', ts: 'typescript', rs: 'rust', go: 'go', html: 'xml', css: 'css', json: 'json', md: 'markdown', sh: 'bash', jsx: 'javascript', tsx: 'typescript', yaml: 'yaml', toml: 'ini' };
-      const lang = langMap[ext] || '';
-      const hlLine = f.highlightLine;
-      const lineHtml = f.lines.map((line, i) => {
-        const highlighted = lang ? hljs.highlight(line, { language: lang }).value : esc(line);
-        const isHl = hlLine != null && i + 1 === hlLine;
-        return '<div class="rp-file-line' + (isHl ? ' highlight' : '') + '"><span class="rp-file-line-num" onclick="rpCopyLine(this,' + (i + 1) + ')">' + (i + 1) + '</span><span class="rp-file-line-text">' + highlighted + '</span></div>';
-      }).join('');
-      const previewEl = document.getElementById('rp-file-preview');
-      previewEl.innerHTML = '<div class="rp-file-header"><span class="rp-file-name">' + esc(f.path) + '</span><span class="rp-file-meta">' + f.lines.length + ' lines</span><div class="rp-file-actions"><button class="rp-file-act" onclick="rpCopyFile()" title="Copy file"><i class="fas fa-copy"></i></button></div></div><div class="rp-file-code">' + lineHtml + '</div>' + (f.truncated ? '<div class="rp-file-truncated">File was truncated when read</div>' : '');
+        /* ── SVG: show rendered preview instead of raw XML ── */
+        if (result._svgPreviewUrl) {
+          rpState.activeFile = {
+            path, content: result.output,
+            lines: ['[SVG file — see preview]'],
+            isImage: true, imageDataUrl: result._svgPreviewUrl,
+            truncated: false, meta: header
+          };
+          previewEl.innerHTML =
+            `<div class="rp-file-header">` +
+              `<span class="rp-file-name"><i class="fas fa-bezier-curve" style="color:var(--accent);margin-right:4px"></i>${esc(path)}</span>` +
+              `<span class="rp-file-meta">${result.output.split('\n')[0]}</span>` +
+            `</div>` +
+            `<div class="rp-file-image">` +
+              `<img src="${result._svgPreviewUrl}" onclick="openImgViewer(this.src)" alt="${esc(path)}">` +
+            `</div>`;
+          emptyEl.style.display = 'none';
+          previewEl.style.display = 'block';
+          return;
+        }
+
+        /* ── Text file: render with syntax highlighting ── */
+        const lines = content.split('\n');
+        rpState.activeFile = {
+          path, content, lines,
+          isImage: false, imageDataUrl: null,
+          highlightLine: highlightLine || null,
+          truncated: result.output.includes('TRUNCATED'),
+          meta: header
+        };
+        renderFilePreview();
+        emptyEl.style.display = 'none';
+        previewEl.style.display = 'block';
+      } catch (e) {
+        previewEl.style.display = 'block';
+        emptyEl.style.display = 'none';
+        previewEl.innerHTML =
+          `<div class="rp-empty-state">` +
+            `<i class="fas fa-exclamation-triangle" style="color:var(--red)"></i>` +
+            `<span>${esc(e.message)}</span>` +
+          `</div>`;
+      }
     }
 
     function rpCopyLine(numEl, lineNum) {
