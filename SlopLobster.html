@@ -6557,17 +6557,32 @@ Python command: {{PYTHON_CMD}}`;
 
     async function writeFileSafe(rel, content, dryRun = false) {
       requireWorkspace(); const segs = sanitizePath(rel);
-      if (isSkippedPath(rel)) return { output: `File "${rel}" is filtered by workspace rules and cannot be written.` };
-      let dir = state.dirHandle; for (let i = 0; i < segs.length - 1; i++)dir = await dir.getDirectoryHandle(segs[i], { create: true });
+      let dir = state.dirHandle;
+      for (let i = 0; i < segs.length - 1; i++) dir = await dir.getDirectoryHandle(segs[i], { create: true });
+      const lastName = segs[segs.length - 1];
       let prevContent = null;
-      try { const eh = await dir.getFileHandle(segs[segs.length - 1]); prevContent = await (await eh.getFile()).text(); } catch { }
+      try {
+        const eh = await dir.getFileHandle(lastName);
+        if (eh.kind === 'file') {
+          prevContent = await (await eh.getFile()).text();
+        } else {
+          throw new Error('is a directory');
+        }
+      } catch (e) {
+        /* File doesn't exist yet (expected for new files) — any other error
+           (permission, is a directory, etc.) re-throws so we don't silently
+           overwrite something we shouldn't */
+        if (e.message !== 'is a directory' && !e.message.includes('not found') && !e.name.includes('NotFound')) {
+          throw e;
+        }
+      }
       if (prevContent !== null && !state.fileBackups.has(rel)) state.fileBackups.set(rel, prevContent);
       if (dryRun) {
         const isNew = prevContent === null;
         const diff = !isNew ? { path: rel, lines: generateDiffFromStrings(prevContent, content).lines, stats: generateDiffFromStrings(prevContent, content).stats, truncated: false } : null;
         return { output: isNew ? '[PENDING APPROVAL] Create ' + rel : '[PENDING APPROVAL] Overwrite ' + rel, diff, _pendingApproval: true, _pendingPath: rel, _pendingNewContent: content, _pendingIsNewFile: isNew };
       }
-      const fh = await dir.getFileHandle(segs[segs.length - 1], { create: true });
+      const fh = await dir.getFileHandle(lastName, { create: true });
       const w = await fh.createWritable(); await w.write(content); await w.close();
       state.fileCache.set(rel, content); modifiedFiles.add(rel);
       let verifyMsg = '';
