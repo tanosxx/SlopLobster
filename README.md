@@ -5,7 +5,7 @@
 https://github.com/user-attachments/assets/0bc3c230-282a-4efb-a58e-365e82af710b
 
 
-![plan-mode](https://github.com/user-attachments/assets/737f28e8-743d-4536-adcf-c4cfc92154f3)
+![GUI_sample](https://github.com/user-attachments/assets/95f3cdb0-71f8-4eed-bab8-50e49fbca36c)
 
 # SlopLobster
 
