@@ -15,6 +15,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script>
     tailwind.config = { theme: { extend: { fontFamily: { mono: ['JetBrains Mono', 'monospace'], sans: ['Space Grotesk', 'sans-serif'] } } } }
@@ -550,6 +551,8 @@
       background: var(--bg-3);
       color: var(--tx-0)
     }
+
+    .ft-item .dot.pdf { background: #ef4444; }
 
     .ft-item .dot {
       width: 4px;
@@ -4652,6 +4655,7 @@
   <div id="toasts"></div>
 
   <script>
+    try { pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch(e) { console.warn('[pdf] worker init failed:', e); }
     const COMPANION_SCRIPT = `#!/usr/bin/env python3
 """SlopLobster Companion Server v1.4 — Shell + Git + Web Search for SlopLobster Agent."""
 import http.server, subprocess, json, os, sys, signal, platform, re, urllib.request, urllib.parse, urllib.error, shutil, threading, time
@@ -5821,6 +5825,134 @@ Python command: {{PYTHON_CMD}}`;
       });
     }
 
+    /* ═══════════════ PDF SUPPORT ═══════════════ */
+    function isPdfFile(file, path) {
+      if (!file && !path) return false;
+      if (file && file.type === 'application/pdf') return true;
+      if (path && path.toLowerCase().endsWith('.pdf')) return true;
+      if (file && file.name && file.name.toLowerCase().endsWith('.pdf')) return true;
+      return false;
+    }
+
+    async function extractPdfText(file) {
+      if (typeof pdfjsLib === 'undefined') {
+        return '[PDF support unavailable — pdf.js library failed to load]';
+      }
+      const MAX_PAGES = 150;
+      const MAX_CHARS = 600000;
+      try {
+        const buf = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+        const numPages = Math.min(pdf.numPages, MAX_PAGES);
+        const pages = [];
+        let totalChars = 0;
+        for (let i = 1; i <= numPages; i++) {
+          const page = await pdf.getPage(i);
+          const tc = await page.getTextContent();
+          /* Reconstruct reading order using item transforms */
+          const items = tc.items.filter(it => it.str.trim());
+          if (!items.length) { pages.push(`--- Page ${i} ---\n(empty)`); continue; }
+          /* Simple approach: join all strings with spaces, deduplicate whitespace */
+          let text = items.map(it => it.str).join(' ');
+          text = text.replace(/\s+/g, ' ').trim();
+          if (text) {
+            pages.push(`--- Page ${i} ---\n${text}`);
+            totalChars += text.length;
+            if (totalChars > MAX_CHARS) { pages.push('\n[Truncated at ' + MAX_CHARS + ' characters]'); break; }
+          }
+        }
+        const result = pages.join('\n\n');
+        if (!result.trim()) {
+          return `PDF: ${file.name}\nPages: ${pdf.numPages}\nSize: ${(file.size / 1024).toFixed(1)} KB\n⚠ No extractable text found — this may be a scanned/image-based PDF. The text is embedded in images and cannot be extracted without OCR.`;
+        }
+        return `PDF: ${file.name}\nPages: ${pdf.numPages} (extracted ${Math.min(numPages, pdf.numPages)} of ${pdf.numPages})\nCharacters: ${totalChars.toLocaleString()}\n---\n${result}`;
+      } catch (e) {
+        return `PDF: ${file.name}\nError extracting text: ${e.message}\n\nTip: If the PDF is encrypted or corrupted, try opening it in a viewer first.`;
+      }
+    }
+
+    async function renderPdfFirstPageThumbnail(file) {
+      /* Returns a data URL of the first page, or null on failure */
+      if (typeof pdfjsLib === 'undefined') return null;
+      try {
+        const buf = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+        const page = await pdf.getPage(1);
+        const scale = 1.0;
+        const vp = page.getViewport({ scale });
+        const canvas = document.createElement('canvas');
+        canvas.width = vp.width; canvas.height = vp.height;
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport: vp }).promise;
+        return canvas.toDataURL('image/jpeg', 0.7);
+      } catch { return null; }
+    }
+
+    async function renderPdfPagesToContainer(file, container) {
+      if (typeof pdfjsLib === 'undefined') {
+        container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--tx-4)"><i class="fas fa-file-pdf" style="font-size:24px;margin-bottom:8px;display:block"></i>pdf.js not loaded — cannot render pages</div>';
+        return;
+      }
+      container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--tx-3)"><i class="fas fa-spinner fa-spin"></i> Rendering pages...</div>';
+      try {
+        const buf = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+        container.innerHTML = '';
+        const MAX_RENDER = 50;
+        const numPages = Math.min(pdf.numPages, MAX_RENDER);
+        for (let i = 1; i <= numPages; i++) {
+          const page = await pdf.getPage(i);
+          const scale = 1.5;
+          const vp = page.getViewport({ scale });
+          const canvas = document.createElement('canvas');
+          canvas.width = vp.width; canvas.height = vp.height;
+          canvas.style.cssText = 'max-width:100%;height:auto;display:block;margin:4px auto;border:1px solid var(--border);border-radius:4px;cursor:zoom-in;background:white;';
+          canvas.title = `Page ${i} of ${pdf.numPages} — click to enlarge`;
+          canvas.onclick = () => openImgViewer(canvas.toDataURL('image/png'));
+          const ctx = canvas.getContext('2d');
+          await page.render({ canvasContext: ctx, viewport: vp }).promise;
+          const label = document.createElement('div');
+          label.style.cssText = 'font-size:9px;color:var(--tx-4);text-align:center;font-family:JetBrains Mono,monospace;padding:1px 0 6px;';
+          label.textContent = `Page ${i} / ${pdf.numPages}`;
+          container.appendChild(label);
+          container.appendChild(canvas);
+        }
+        if (pdf.numPages > MAX_RENDER) {
+          const note = document.createElement('div');
+          note.style.cssText = 'padding:8px 12px;font-size:10px;color:var(--yellow);text-align:center;font-family:JetBrains Mono,monospace;';
+          note.textContent = `Showing ${MAX_RENDER} of ${pdf.numPages} pages`;
+          container.appendChild(note);
+        }
+      } catch (e) {
+        container.innerHTML = `<div style="padding:20px;text-align:center;color:var(--red)"><i class="fas fa-exclamation-triangle" style="font-size:20px;margin-bottom:8px;display:block"></i>${esc(e.message)}</div>`;
+      }
+    }
+
+    function renderPdfPreview(file) {
+      const previewEl = document.getElementById('rp-file-preview');
+      const emptyEl = document.getElementById('rp-files-empty');
+      previewEl.innerHTML = `
+        <div class="rp-file-header">
+          <span class="rp-file-name"><i class="fas fa-file-pdf" style="color:var(--red);margin-right:4px"></i>${esc(file.name)}</span>
+          <span class="rp-file-meta">PDF · ${(file.size / 1024).toFixed(1)} KB</span>
+          <div class="rp-file-actions">
+            <button class="rp-file-act" onclick="rpCopyPdfText()" title="Copy extracted text"><i class="fas fa-copy"></i></button>
+          </div>
+        </div>
+        <div id="rp-pdf-pages" style="padding:8px;overflow-y:auto;background:var(--bg-0)"></div>`;
+      emptyEl.style.display = 'none';
+      previewEl.style.display = 'block';
+      renderPdfPagesToContainer(file, document.getElementById('rp-pdf-pages'));
+      /* Extract text for copy functionality */
+      extractPdfText(file).then(text => { rpState.activeFile = { content: text, isPdf: true }; });
+    }
+
+    function rpCopyPdfText() {
+      if (rpState.activeFile?.content) {
+        navigator.clipboard.writeText(rpState.activeFile.content).then(() => showToast('Copied PDF text', 'ok'));
+      }
+    }    
+
     async function captureScreenRegion(promptText, reasonText) {
       /* ── Request screen share ── */
       let stream;
@@ -6037,7 +6169,7 @@ Python command: {{PYTHON_CMD}}`;
     function getToolDefs() {
       const tools = [
         { type: 'function', function: { name: 'think', description: 'Think through a problem step by step before acting. Visible to user.', parameters: { type: 'object', properties: { thought: { type: 'string', description: 'Your reasoning and plan' } }, required: ['thought'] } } },
-        { type: 'function', function: { name: 'read_file', description: 'Read a file as text. For raster image files (PNG, JPG, GIF, WebP, BMP, ICO marked [IMAGE] in list_directory), the image is sent to you visually. For SVG files, returns the raw XML markup as text — use view_image to see the rendered graphic instead.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path to file or image' } }, required: ['path'] } } },
+        { type: 'function', function: { name: 'read_file', description: 'Read a file as text. For PDF files, text is automatically extracted. For raster image files (PNG, JPG, GIF, WebP, BMP, ICO marked [IMAGE] in list_directory), the image is sent to you visually. For SVG files, returns the raw XML markup as text — use view_image to see the rendered graphic instead.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path to file or image' } }, required: ['path'] } } },
         { type: 'function', function: { name: 'read_file_lines', description: 'Read specific line ranges from a file. Much more efficient than reading entire files.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path' }, start_line: { type: 'number', description: '1-based start line (default: 1)' }, end_line: { type: 'number', description: '1-based end line (default: end of file)' } }, required: ['path'] } } },
         { type: 'function', function: { name: 'view_image', description: 'Display an image file visually to the user. For SVG files, renders the graphic with a "View Code" toggle. For raster images (PNG, JPG, GIF, WebP), shows the image. If you are vision-capable, the image is also sent to you for analysis. Use this when you want to see how an image/SVG actually looks. Use read_file instead when you want to read the raw SVG/XML markup as text.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path to the image file (SVG, PNG, JPG, GIF, WebP, etc.)' } }, required: ['path'] } } },
         { type: 'function', function: { name: 'edit_file', description: 'CRITICAL: Use this to modify existing files. Provide search/replace blocks. More reliable and token-efficient than write_file.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path' }, edits: { type: 'array', items: { type: 'object', properties: { old_text: { type: 'string', description: 'Exact text to find (must be unique in file)' }, new_text: { type: 'string', description: 'Replacement text' } }, required: ['old_text', 'new_text'] }, description: 'Array of search/replace edits to apply sequentially' } }, required: ['path', 'edits'] } } },
@@ -6321,6 +6453,18 @@ Python command: {{PYTHON_CMD}}`;
       const h = await resolvePath(rel); if (h.kind !== 'file') throw new Error(`"${rel}" is a directory`);
       const f = await h.getFile();
 
+      /* ── PDF files: extract text via pdf.js ── */
+      if (isPdfFile(f, rel)) {
+        const maxB = 100 * 1024 * 1024;
+        if (f.size > maxB) return { output: `PDF: ${rel}\nSize: ${(f.size / 1024 / 1024).toFixed(1)} MB\n⚠ Too large to extract (max 100 MB)` };
+        try {
+          const text = await extractPdfText(f);
+          cacheSet(rel, text);
+          const thumb = await renderPdfFirstPageThumbnail(f);
+          return { output: text, _pdfThumbnail: thumb, _pdfPath: rel, _pdfFile: f };
+        } catch (e) { return { output: `PDF: ${rel}\nError: ${e.message}` }; }
+      }      
+
       /* ── Image files: return base64 for vision ── */
       if (f.type && f.type.includes('svg')) {
         const maxB = 5 * 1024 * 1024;
@@ -6371,6 +6515,11 @@ Python command: {{PYTHON_CMD}}`;
       const h = await resolvePath(rel); if (h.kind !== 'file') throw new Error(`"${rel}" is a directory`);
       const f = await h.getFile();
 
+      /* ── PDFs don't have meaningful line ranges ── */
+      if (rel.toLowerCase().endsWith('.pdf')) {
+        return { output: `PDF: ${rel}\n⚠ Line ranges don't apply to PDFs. Use read_file to extract all text, or view_image to see rendered pages.` };
+      }      
+      
       /* Images can't show line ranges */
       if (f.type && f.type.startsWith('image/') && !f.type.includes('svg')) {
         return { output: `Image: ${rel}\nType: ${f.type}\n⚠ This is a binary image file — line ranges don't apply.\nUse read_file to view the image, or execute_command with a tool like "identify" or "file" for metadata.` };
@@ -6406,6 +6555,23 @@ Python command: {{PYTHON_CMD}}`;
       const maxB = 10 * 1024 * 1024;
       if (f.size > maxB) {
         return { output: `Image: ${rel}\nType: ${f.type}\nSize: ${(f.size / 1024 / 1024).toFixed(1)} MB\n⚠ Too large to preview (max 10 MB). Use read_file_lines to read sections of the raw data.` };
+      }
+
+      /* ── PDF handling ── */
+      if (isPdfFile(f, rel)) {
+        const maxB = 100 * 1024 * 1024;
+        if (f.size > maxB) return { output: `PDF: ${rel}\nToo large (max 100 MB)` };
+        try {
+          const text = await extractPdfText(f);
+          cacheSet(rel, text);
+          const thumb = await renderPdfFirstPageThumbnail(f);
+          return {
+            output: text,
+            _pdfThumbnail: thumb,
+            _pdfPath: rel,
+            _pdfFile: f
+          };
+        } catch (e) { return { output: `PDF: ${rel}\nError: ${e.message}` }; }
       }
 
       /* ── SVG: render preview + keep text for code toggle ── */
@@ -6656,6 +6822,9 @@ Python command: {{PYTHON_CMD}}`;
               if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg', 'tiff', 'tif', 'avif'].includes(ext)) {
                 suffix = ' [IMAGE]';
               }
+              if (ext === 'pdf') {
+                suffix = ' [PDF]';
+            }
             }
             entries.push((kh.kind === 'directory' ? 'DIR ' : 'FILE ') + full + suffix);
             if (recursive && kh.kind === 'directory') {
@@ -8858,8 +9027,18 @@ Rules:
               continue;
             }
 
+            /* ── PDF thumbnail preview ── */
+            if (panel.el._pdfThumbnail && !panel.el.querySelector('.screenshot-preview')) {
+              panel.el.classList.add('screenshot-tool');
+              const prev = document.createElement('div');
+              prev.className = 'screenshot-preview';
+              prev.innerHTML = '<div style="font-size:10px;color:var(--tx-3);margin-bottom:4px;font-family:\'JetBrains Mono\',monospace"><i class="fas fa-file-pdf" style="color:var(--red)"></i> ' + esc(panel.el._pdfPath || 'document.pdf') + '</div><img src="' + panel.el._pdfThumbnail + '" onclick="openImgViewer(this.src)" alt="PDF preview" style="max-height:200px;border-radius:4px;border:1px solid var(--border);cursor:pointer">';
+              panel.el.appendChild(prev);
+            }
+
             const imgUrl = panel.el._screenshotDataUrl || panel.el._imageDataUrl;
-            if (!imgUrl || panel.el._svgPreviewUrl) continue;
+            if (!imgUrl || panel.el._svgPreviewUrl || panel.el._pdfThumbnail) continue;
+
             if (!panel.el.querySelector('.screenshot-preview')) {
               panel.el.classList.add('screenshot-tool');
               const preview = document.createElement('div'); preview.className = 'screenshot-preview';
@@ -9426,7 +9605,7 @@ Rules:
     }
 
     /* ═══════════════ FILE TREE ═══════════════ */
-    function getDotCls(n) { const e = n.split('.').pop().toLowerCase(); return { js: 'js', jsx: 'js', ts: 'ts', tsx: 'ts', py: 'py', html: 'html', htm: 'html', css: 'css', scss: 'css', json: 'json', md: 'md', png: 'img', jpg: 'img', gif: 'img', svg: 'img', webp: 'img', rs: 'rs', go: 'go', toml: 'json', lock: 'json', yaml: 'json', yml: 'json' }[e] || 'default'; }
+    function getDotCls(n) { const e = n.split('.').pop().toLowerCase(); return { js: 'js', jsx: 'js', ts: 'ts', tsx: 'ts', py: 'py', html: 'html', htm: 'html', css: 'css', scss: 'css', json: 'json', md: 'md', png: 'img', jpg: 'img', gif: 'img', svg: 'img', webp: 'img', rs: 'rs', go: 'go', toml: 'json', lock: 'json', yaml: 'json', yml: 'json', pdf: 'pdf' }[e] || 'default'; }
 
     async function refreshFileTree() {
       if (!state.dirHandle) { document.getElementById('file-tree').innerHTML = ''; return; }
@@ -10672,6 +10851,14 @@ STEP: Run pytest to verify changes`;
         const header = result.output.split('\n---\n')[0] || '';
         const content = result.output.includes('\n---\n') ? result.output.split('\n---\n').slice(1).join('\n---\n') : result.output;
         const lines = content.split('\n');
+        /* ── PDF preview ── */
+        if (isPdfFile(f, path)) {
+          rpState.activeFile = { path, isPdf: true };
+          renderPdfPreview(f);
+          emptyEl.style.display = 'none';
+          previewEl.style.display = 'block';
+          return;
+        }
         const isImage = !!result._imageDataUrl;
         rpState.activeFile = { path, content, lines, isImage, imageDataUrl: result._imageDataUrl, highlightLine: highlightLine || null, truncated: result.output.includes('TRUNCATED'), meta: header };
         renderFilePreview();
