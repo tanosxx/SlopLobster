@@ -5537,7 +5537,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     el = page.wait_for_selector(selector, timeout=5000)
                     content = el.inner_text() if mode == "text" else el.inner_html()
                 else:
-                    content = page.inner_text() if mode == "text" else page.content()
+                    if mode == "text":
+                        content = page.evaluate("document.body.innerText")
+                    else:
+                        content = page.content()
                 if len(content) > max_len:
                     content = content[:max_len] + "\\n... [truncated at " + str(max_len) + " chars]"
                 self.send_json(200, {"ok": True, "content": content, "length": len(content), "mode": mode})
