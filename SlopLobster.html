@@ -4667,6 +4667,18 @@
 import http.server, subprocess, json, os, sys, signal, platform, re, urllib.request, urllib.parse, urllib.error, shutil, threading, time
 from html.parser import HTMLParser
 
+try:
+    from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+    HAS_PLAYWRIGHT = True
+except ImportError:
+    HAS_PLAYWRIGHT = False
+
+_pw = None
+_pw_browser = None
+_pw_page = None
+_pw_console = []
+_pw_launch_time = None
+
 PORT = 8765
 DEFAULT_TIMEOUT = 60
 MAX_OUTPUT = 100000
@@ -5234,6 +5246,50 @@ def extract_generic_signatures(source, max_lines=300):
             result.append('L%d: %s' % (i+1, l[:120]))
     return '\\n'.join(result) if result else None    
 
+def _ensure_page():
+    if not HAS_PLAYWRIGHT:
+        raise Exception("Playwright not installed. Install with: pip install playwright")
+    if _pw_page and _pw_page.is_closed():
+        _close_browser()
+    if _pw_browser and _pw_browser.is_connected():
+        return _pw_page
+    if not _pw:
+        _pw = sync_playwright().start()
+    _pw_browser = _pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-gpu"])
+    _pw_page = _pw_browser.new_page(viewport={"width": 1280, "height": 720})
+    _pw_console = []
+    def _on_console(msg):
+        _pw_console.append({"type": msg.type, "text": msg.text, "time": time.time()})
+    def _on_pageerror(err):
+        _pw_console.append({"type": "error", "text": str(err), "time": time.time()})
+    _pw_page.on("console", _on_console)
+    _pw_page.on("pageerror", _on_pageerror)
+    _pw_launch_time = time.time()
+    return _pw_page
+
+def _close_browser():
+    try:
+        if _pw_page and not _pw_page.is_closed():
+            _pw_page.close()
+    except: pass
+    try:
+        if _pw_browser and _pw_browser.is_connected():
+            _pw_browser.close()
+    except: pass
+    _pw_page = None
+    _pw_browser = None
+    _pw_console = []
+    _pw_launch_time = None
+
+def _get_console_filtered(types=None, since=None, limit=100):
+    msgs = _pw_console
+    if types:
+        types_set = set(types)
+        msgs = [m for m in msgs if m["type"] in types_set]
+    if since:
+        msgs = [m for m in msgs if m["time"] > since]
+    return msgs[-limit:]    
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def handle_one_request(self):
         try:
@@ -5257,7 +5313,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "cwd": os.getcwd(),
                 "shell": SHELL_NAME,
                 "python_env": PYTHON_ENV,
-                "node_env": NODE_ENV
+                "node_env": NODE_ENV,
+                "playwright": HAS_PLAYWRIGHT,
+                "browser_open": _pw_browser is not None and _pw_browser.is_connected()
             })
         else:
             self.send_json(404, {"error": "not found"})
@@ -5344,6 +5402,218 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_json(200, {"outline": outline, "total_lines": len(source.split('\\n')), "language": language})
             except Exception as e:
                 self.send_json(500, {"error": str(e)})
+        elif path == '/browser_status':
+            global _pw, _pw_browser, _pw_page, _pw_console, _pw_launch_time
+            self.send_json(200, {
+                "playwright_available": HAS_PLAYWRIGHT,
+                "browser_open": _pw_browser is not None and _pw_browser.is_connected(),
+                "current_url": _pw_page.url if _pw_page and not _pw_page.is_closed() else None,
+                "console_count": len(_pw_console),
+                "uptime": round(time.time() - _pw_launch_time, 1) if _pw_launch_time else None
+            })
+        elif path == '/browser_launch':
+            try:
+                body = self.read_body()
+                headless = body.get("headless", True)
+                page = _ensure_page()
+                start_url = body.get("url")
+                if start_url:
+                    page.goto(start_url, timeout=30000, wait_until="domcontentloaded")
+                self.send_json(200, {"ok": True, "url": page.url, "headless": headless})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
+        elif path == '/browser_navigate':
+            try:
+                body = self.read_body()
+                url = body.get("url", "")
+                if not url:
+                    return self.send_json(400, {"error": "url is required"})
+                wait = body.get("wait_until", "domcontentloaded")
+                page = _ensure_page()
+                page.goto(url, timeout=30000, wait_until=wait)
+                self.send_json(200, {"ok": True, "url": page.url, "title": page.title()})
+            except PWTimeout:
+                self.send_json(200, {"ok": True, "url": url, "timeout": True, "note": "Page load timed out but may have partially loaded"})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
+        elif path == '/browser_screenshot':
+            try:
+                body = self.read_body()
+                page = _ensure_page()
+                full_page = body.get("full_page", False)
+                selector = body.get("selector")
+                if selector:
+                    el = page.wait_for_selector(selector, timeout=5000)
+                    img_bytes = el.screenshot(type="png")
+                elif full_page:
+                    img_bytes = page.screenshot(full_page=True, type="png")
+                else:
+                    img_bytes = page.screenshot(type="png")
+                import base64
+                b64 = base64.b64encode(img_bytes).decode("ascii")
+                self.send_json(200, {"ok": True, "screenshot": "data:image/png;base64," + b64, "size": len(img_bytes)})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
+        elif path == '/browser_console':
+            types = None
+            since = None
+            try:
+                body = self.read_body()
+                if body.get("types"):
+                    types = body["types"]
+                if body.get("since"):
+                    since = body["since"]
+            except: pass
+            msgs = _get_console_filtered(types=types, since=since, limit=200)
+            errors = [m for m in msgs if m["type"] == "error"]
+            warnings = [m for m in msgs if m["type"] == "warning"]
+            self.send_json(200, {
+                "total": len(msgs),
+                "errors": len(errors),
+                "warnings": len(warnings),
+                "messages": msgs,
+                "recent_errors": errors[-20:],
+                "recent_warnings": warnings[-20:]
+            })
+        elif path == '/browser_click':
+            try:
+                body = self.read_body()
+                selector = body.get("selector", "")
+                if not selector:
+                    return self.send_json(400, {"error": "selector is required"})
+                page = _ensure_page()
+                page.click(selector, timeout=10000)
+                self.send_json(200, {"ok": True, "selector": selector})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
+        elif path == '/browser_type':
+            try:
+                body = self.read_body()
+                selector = body.get("selector", "")
+                text = body.get("text", "")
+                if not selector:
+                    return self.send_json(400, {"error": "selector is required"})
+                page = _ensure_page()
+                page.fill(selector, text, timeout=10000)
+                if body.get("submit"):
+                    page.press("Enter")
+                self.send_json(200, {"ok": True, "selector": selector, "typed": text[:50]})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
+        elif path == '/browser_evaluate':
+            try:
+                body = self.read_body()
+                script = body.get("script", "")
+                if not script:
+                    return self.send_json(400, {"error": "script is required"})
+                page = _ensure_page()
+                result = page.evaluate(script)
+                result_str = str(result)
+                if len(result_str) > 50000:
+                    result_str = result_str[:50000] + "\\n... [truncated]"
+                self.send_json(200, {"ok": True, "result": result_str, "type": type(result).__name__})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
+        elif path == '/browser_get_content':
+            try:
+                body = self.read_body()
+                page = _ensure_page()
+                selector = body.get("selector")
+                mode = body.get("mode", "text")
+                max_len = min(body.get("max_length", 30000), 100000)
+                if selector:
+                    el = page.wait_for_selector(selector, timeout=5000)
+                    content = el.inner_text() if mode == "text" else el.inner_html()
+                else:
+                    content = page.inner_text() if mode == "text" else page.content()
+                if len(content) > max_len:
+                    content = content[:max_len] + "\\n... [truncated at " + str(max_len) + " chars]"
+                self.send_json(200, {"ok": True, "content": content, "length": len(content), "mode": mode})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
+        elif path == '/browser_wait_for':
+            try:
+                body = self.read_body()
+                selector = body.get("selector", "")
+                if not selector:
+                    return self.send_json(400, {"error": "selector is required"})
+                timeout = min(body.get("timeout", 10000), 60000)
+                state = body.get("state", "visible")
+                page = _ensure_page()
+                page.wait_for_selector(selector, state=state, timeout=timeout)
+                self.send_json(200, {"ok": True, "selector": selector, "state": state})
+            except PWTimeout:
+                self.send_json(200, {"ok": False, "timeout": True, "selector": selector})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
+        elif path == '/browser_hover':
+            try:
+                body = self.read_body()
+                selector = body.get("selector", "")
+                if not selector:
+                    return self.send_json(400, {"error": "selector is required"})
+                page = _ensure_page()
+                page.hover(selector, timeout=10000)
+                self.send_json(200, {"ok": True, "selector": selector})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
+        elif path == '/browser_select_option':
+            try:
+                body = self.read_body()
+                selector = body.get("selector", "")
+                value = body.get("value", "")
+                if not selector or not value:
+                    return self.send_json(400, {"error": "selector and value are required"})
+                page = _ensure_page()
+                page.select_option(selector, value, timeout=10000)
+                self.send_json(200, {"ok": True, "selector": selector, "value": value})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
+        elif path == '/browser_press_key':
+            try:
+                body = self.read_body()
+                key = body.get("key", "")
+                if not key:
+                    return self.send_json(400, {"error": "key is required"})
+                page = _ensure_page()
+                page.keyboard.press(key)
+                self.send_json(200, {"ok": True, "key": key})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
+        elif path == '/browser_scroll':
+            try:
+                body = self.read_body()
+                page = _ensure_page()
+                direction = body.get("direction", "down")
+                amount = body.get("amount", 500)
+                if direction == "down":
+                    page.mouse.wheel(0, amount)
+                elif direction == "up":
+                    page.mouse.wheel(0, -amount)
+                elif direction == "top":
+                    page.evaluate("window.scrollTo(0, 0)")
+                elif direction == "bottom":
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                self.send_json(200, {"ok": True, "direction": direction, "amount": amount})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
+        elif path == '/browser_go_back':
+            try:
+                page = _ensure_page()
+                page.go_back(timeout=15000)
+                self.send_json(200, {"ok": True, "url": page.url})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
+        elif path == '/browser_go_forward':
+            try:
+                page = _ensure_page()
+                page.go_forward(timeout=15000)
+                self.send_json(200, {"ok": True, "url": page.url})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
+        elif path == '/browser_close':
+            _close_browser()
+            self.send_json(200, {"ok": True})
         else:
             self.send_json(404, {"error": "not found"})
 
@@ -5438,6 +5708,7 @@ if __name__ == "__main__":
       pendingImages: [],   // [{dataUrl, name, size}]
       originalTask: null,
       projectType: null, projectMeta: null,
+      browserAvailable: false,
       convSearchQuery: ''
     };
 
@@ -5562,6 +5833,11 @@ You can call multiple tools in a single turn — they execute in parallel. Use t
 Do NOT parallelize when:
 - The second tool depends on the first tool's output
 - Editing the same file from multiple calls (they'd conflict)
+
+═══ BROWSER AUTOMATION ═══
+
+{{BROWSER_SECTION}}
+
 
 ═══ SECURITY BOUNDARIES ═══
 
@@ -6205,6 +6481,24 @@ Python command: {{PYTHON_CMD}}`;
       } else {
         tools.push({ type: 'function', function: { name: 'execute_command', description: 'Limited virtual shell: ls, cat, head, tail, wc, grep, find, echo, mkdir, touch, pwd, tree, file, diff. Start companion for real shell + web search.', parameters: { type: 'object', properties: { command: { type: 'string', description: 'Virtual shell command' } }, required: ['command'] } } });
       }
+      if (state.compConnected && state.browserAvailable) {
+        tools.push({ type: 'function', function: { name: 'browser_launch', description: 'Launch a headless Chromium browser via Playwright. Required before any other browser tool. The browser persists across multiple tool calls — launch once, then navigate/click/type as needed. Close with browser_close when done.', parameters: { type: 'object', properties: { url: { type: 'string', description: 'Optional URL to navigate to immediately after launch' }, headless: { type: 'boolean', description: 'Run headless (default: true). Set false only for debugging.' } }, required: [] } } });
+        tools.push({ type: 'function', function: { name: 'browser_navigate', description: 'Navigate the browser to a URL. Waits for DOM content to load.', parameters: { type: 'object', properties: { url: { type: 'string', description: 'URL to navigate to' }, wait_until: { type: 'string', enum: ['domcontentloaded', 'load', 'networkidle'], description: 'When to consider navigation complete (default: domcontentloaded)' } }, required: ['url'] } } });
+        tools.push({ type: 'function', function: { name: 'browser_screenshot', description: 'Take a screenshot of the current page or a specific element. Returns the image so you can see what the page looks like. Use this after navigation, clicks, or interactions to verify the result visually.', parameters: { type: 'object', properties: { full_page: { type: 'boolean', description: 'Capture full scrollable page (default: false, viewport only)' }, selector: { type: 'string', description: 'CSS selector — screenshot only this element instead of full page' } }, required: [] } } });
+        tools.push({ type: 'function', function: { name: 'browser_console', description: 'Get browser console messages. CRITICAL for debugging — always check this after page interactions to catch JavaScript errors, failed network requests, and warnings. Returns errors, warnings, and logs.', parameters: { type: 'object', properties: { types: { type: 'array', items: { type: 'string' }, description: 'Filter by message types (default: all). Common: ["error", "warning", "log"]' } }, required: [] } } });
+        tools.push({ type: 'function', function: { name: 'browser_click', description: 'Click an element on the page by CSS selector. Use for buttons, links, dropdown triggers, etc.', parameters: { type: 'object', properties: { selector: { type: 'string', description: 'CSS selector of the element to click' } }, required: ['selector'] } } });
+        tools.push({ type: 'function', function: { name: 'browser_type', description: 'Type text into an input field. Clears the field first then types. Set submit=true to press Enter after typing.', parameters: { type: 'object', properties: { selector: { type: 'string', description: 'CSS selector of the input field' }, text: { type: 'string', description: 'Text to type' }, submit: { type: 'boolean', description: 'Press Enter after typing (for forms/search)' } }, required: ['selector', 'text'] } } });
+        tools.push({ type: 'function', function: { name: 'browser_evaluate', description: 'Execute JavaScript in the browser page context. Returns the result. Useful for: getting element states, checking CSS properties, extracting data, triggering events.', parameters: { type: 'object', properties: { script: { type: 'string', description: 'JavaScript to execute. Use return to get a value back.' } }, required: ['script'] } } });
+        tools.push({ type: 'function', function: { name: 'browser_get_content', description: 'Get the text content or HTML of the page or a specific element. Use for reading page text, extracting data from specific sections.', parameters: { type: 'object', properties: { selector: { type: 'string', description: 'CSS selector — get content of this element only (default: whole page)' }, mode: { type: 'string', enum: ['text', 'html'], description: 'text (default) or raw HTML' } }, required: [] } } });
+        tools.push({ type: 'function', function: { name: 'browser_wait_for', description: 'Wait for an element to appear/be visible/attached. Use after navigation or clicks that trigger async content loading.', parameters: { type: 'object', properties: { selector: { type: 'string', description: 'CSS selector to wait for' }, state: { type: 'string', enum: ['visible', 'hidden', 'attached'], description: 'Element state to wait for (default: visible)' }, timeout: { type: 'number', description: 'Max wait time in ms (default: 10000)' } }, required: ['selector'] } } });
+        tools.push({ type: 'function', function: { name: 'browser_hover', description: 'Hover mouse over an element. Useful for tooltips, dropdown menus that appear on hover.', parameters: { type: 'object', properties: { selector: { type: 'string', description: 'CSS selector to hover over' } }, required: ['selector'] } } });
+        tools.push({ type: 'function', function: { name: 'browser_select_option', description: 'Select an option in a <select> dropdown.', parameters: { type: 'object', properties: { selector: { type: 'string', description: 'CSS selector of the <select> element' }, value: { type: 'string', description: 'Value of the option to select' } }, required: ['selector', 'value'] } } });
+        tools.push({ type: 'function', function: { name: 'browser_press_key', description: 'Press a keyboard key. Use for Enter, Tab, Escape, ArrowDown, etc. Common keys: Enter, Tab, Escape, ArrowUp, ArrowDown, Backspace.', parameters: { type: 'object', properties: { key: { type: 'string', description: 'Key to press (e.g. "Enter", "Tab", "Escape", "ArrowDown")' } }, required: ['key'] } } });
+        tools.push({ type: 'function', function: { name: 'browser_scroll', description: 'Scroll the page. Use to see content below the fold.', parameters: { type: 'object', properties: { direction: { type: 'string', enum: ['up', 'down', 'top', 'bottom'], description: 'Scroll direction (default: down)' }, amount: { type: 'number', description: 'Pixels to scroll (default: 500, ignored for top/bottom)' } }, required: [] } } });
+        tools.push({ type: 'function', function: { name: 'browser_go_back', description: 'Navigate back in browser history.', parameters: { type: 'object', properties: {}, required: [] } } });
+        tools.push({ type: 'function', function: { name: 'browser_go_forward', description: 'Navigate forward in browser history.', parameters: { type: 'object', properties: {}, required: [] } } });
+        tools.push({ type: 'function', function: { name: 'browser_close', description: 'Close the browser. Always call this when done to free resources.', parameters: { type: 'object', properties: {}, required: [] } } });
+      }
 
       tools.push({
         type: 'function',
@@ -6235,8 +6529,8 @@ Python command: {{PYTHON_CMD}}`;
       const el = document.getElementById('tools-list');
       el.innerHTML = defs.map(t => {
         const n = t.function.name;
-        const icons = { think: 'brain', read_file: 'file-code', read_file_lines: 'file-lines', view_image: 'image', edit_file: 'pen-to-square', write_file: 'file-circle-plus', list_directory: 'list', search_files: 'magnifying-glass', grep: 'magnifying-glass-plus', web_search: 'globe', fetch_url: 'magnifying-glass', execute_command: 'terminal', git_status: 'code-branch', git_diff: 'code-compare', git_log: 'clock-rotate-left', git_add: 'plus', git_commit: 'check' };
-        const live = (n === 'execute_command' || n === 'web_search') && state.compConnected ? ' live' : '';
+        const icons = { think: 'brain', read_file: 'file-code', read_file_lines: 'file-lines', view_image: 'image', edit_file: 'pen-to-square', write_file: 'file-circle-plus', list_directory: 'list', search_files: 'magnifying-glass', grep: 'magnifying-glass-plus', web_search: 'globe', fetch_url: 'magnifying-glass', execute_command: 'terminal', git_status: 'code-branch', git_diff: 'code-compare', git_log: 'clock-rotate-left', git_add: 'plus', git_commit: 'check', browser_launch: 'rocket', browser_navigate: 'compass', browser_screenshot: 'camera', browser_console: 'terminal', browser_click: 'hand-pointer', browser_type: 'keyboard', browser_evaluate: 'code', browser_get_content: 'file-lines', browser_wait_for: 'hourglass', browser_hover: 'arrow-pointer', browser_select_option: 'list-dropdown', browser_press_key: 'keyboard', browser_scroll: 'arrows-up-down', browser_go_back: 'arrow-left', browser_go_forward: 'arrow-right', browser_close: 'xmark' };
+        const live = ((n === 'execute_command' || n === 'web_search') && state.compConnected) || (n.startsWith('browser_') && state.browserAvailable) ? ' live' : '';
         return `<div class="tool-tag${live}" title="${t.function.description}"><i class="fas fa-${icons[n] || 'bolt'}"></i> ${n}</div>`;
       }).join('');
     }
@@ -6911,6 +7205,122 @@ Python command: {{PYTHON_CMD}}`;
       return { output: results.length ? `Found ${totalMatches} match(es) in ${fileCount} file(s):${results.join('\n')}` : 'No matches found.' };
     }
 
+    /* ═══════════════ BROWSER API ═══════════════ */
+    async function browserApi(endpoint, args) {
+      try {
+        const res = await fetch(`${state.compUrl}${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(args || {}),
+          signal: AbortSignal.timeout(30000)
+        });
+        const data = await res.json();
+        if (data.error) return `[Browser Error] ${data.error}`;
+        if (endpoint === '/browser_navigate') return `Navigated to ${data.url}\nTitle: ${data.title || '(none)'}${data.timeout ? '\n⚠ Load timed out — page may have partially loaded' : ''}`;
+        if (endpoint === '/browser_launch') return `Browser launched (headless: ${data.headless})\nURL: ${data.url || '(blank)'}`;
+        if (endpoint === '/browser_click') return `Clicked: ${data.selector}`;
+        if (endpoint === '/browser_type') return `Typed "${args.text}" into ${data.selector}${args.submit ? ' and pressed Enter' : ''}`;
+        if (endpoint === '/browser_evaluate') return `Result (${data.type}): ${data.result}`;
+        if (endpoint === '/browser_get_content') return `Page content (${data.mode}, ${data.length} chars):\n---\n${data.content}`;
+        if (endpoint === '/browser_wait_for') return data.ok ? `Element visible: ${data.selector}` : `Timeout waiting for: ${data.selector}`;
+        if (endpoint === '/browser_hover') return `Hovered: ${data.selector}`;
+        if (endpoint === '/browser_select_option') return `Selected "${args.value}" in ${data.selector}`;
+        if (endpoint === '/browser_press_key') return `Pressed: ${data.key}`;
+        if (endpoint === '/browser_scroll') return `Scrolled ${data.direction}${data.amount ? ' ' + data.amount + 'px' : ''}`;
+        if (endpoint === '/browser_go_back' || endpoint === '/browser_go_forward') return `Navigated ${endpoint.replace('browser_', '')}: ${data.url}`;
+        if (endpoint === '/browser_close') return 'Browser closed.';
+        return JSON.stringify(data);
+      } catch (e) {
+        return `[Browser Error] ${e.message}`;
+      }
+    }
+
+    async function handleBrowserScreenshot(args, panel) {
+      try {
+        const res = await fetch(`${state.compUrl}/browser_screenshot`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ full_page: args.full_page || false, selector: args.selector || null }),
+          signal: AbortSignal.timeout(30000)
+        });
+        const data = await res.json();
+        if (data.error) return { output: `[Screenshot Error] ${data.error}` };
+
+        const sizeKB = Math.round((data.screenshot.length * 3 / 4) / 1024);
+        const info = args.selector ? `Element: ${args.selector}` : (args.full_page ? 'Full page' : 'Viewport');
+        const output = `Screenshot (${info}) — ${sizeKB} KB`;
+
+        const result = { output, _screenshotDataUrl: data.screenshot, _imagePath: 'browser-screenshot', _imageReason: info, _imageType: 'browser' };
+        return result;
+      } catch (e) {
+        return { output: `[Screenshot Error] ${e.message}` };
+      }
+    }
+
+    async function handleBrowserConsole(args, panel) {
+      try {
+        const res = await fetch(`${state.compUrl}/browser_console`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ types: args.types || null }),
+          signal: AbortSignal.timeout(10000)
+        });
+        const data = await res.json();
+
+        /* Build text output */
+        let output = `Console: ${data.total} messages (${data.errors} errors, ${data.warnings} warnings)\n`;
+        if (data.recent_errors && data.recent_errors.length) {
+          output += '\n── ERRORS ──\n';
+          for (const e of data.recent_errors) {
+            output += `  [${e.type}] ${e.text}\n`;
+          }
+        }
+        if (data.recent_warnings && data.recent_warnings.length) {
+          output += '\n── WARNINGS ──\n';
+          for (const w of data.recent_warnings) {
+            output += `  [${w.type}] ${w.text}\n`;
+          }
+        }
+        if (!data.errors && !data.warnings) {
+          output += 'No errors or warnings.';
+        }
+
+        /* Show console panel in chat */
+        if (panel && panel.el) {
+          const consoleEl = document.createElement('div');
+          consoleEl.className = 'search-panel';
+          const hasErrors = data.errors > 0;
+          const hasWarnings = data.warnings > 0;
+          consoleEl.style.borderColor = hasErrors ? 'rgba(239,68,68,.3)' : hasWarnings ? 'rgba(234,179,8,.3)' : 'var(--border)';
+
+          let contentHtml = '';
+          if (data.recent_errors && data.recent_errors.length) {
+            contentHtml += '<div style="padding:6px 10px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;color:var(--red);font-family:JetBrains Mono,monospace"><i class="fas fa-circle-xmark"></i> ERRORS (' + data.recent_errors.length + ')</div>';
+            for (const e of data.recent_errors) {
+              contentHtml += `<div style="padding:4px 10px;border-bottom:1px solid var(--border);font-size:10px;font-family:JetBrains Mono,monospace;color:var(--red);background:rgba(239,68,68,.04)"><span style="color:var(--tx-4);margin-right:6px">${esc(e.type)}</span>${esc(e.text)}</div>`;
+            }
+          }
+          if (data.recent_warnings && data.recent_warnings.length) {
+            contentHtml += '<div style="padding:6px 10px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;color:var(--yellow);font-family:JetBrains Mono,monospace"><i class="fas fa-triangle-exclamation"></i> WARNINGS (' + data.recent_warnings.length + ')</div>';
+            for (const w of data.recent_warnings) {
+              contentHtml += `<div style="padding:4px 10px;border-bottom:1px solid var(--border);font-size:10px;font-family:JetBrains Mono,monospace;color:var(--yellow);background:rgba(234,179,8,.03)"><span style="color:var(--tx-4);margin-right:6px">${esc(w.type)}</span>${esc(w.text)}</div>`;
+            }
+          }
+          if (!hasErrors && !hasWarnings) {
+            contentHtml = '<div style="padding:12px;text-align:center;color:var(--green);font-size:11px"><i class="fas fa-check-circle" style="margin-right:4px"></i> No errors or warnings</div>';
+          }
+
+          consoleEl.innerHTML = `<div class="search-hdr" style="${hasErrors ? 'background:rgba(239,68,68,.06)' : hasWarnings ? 'background:rgba(234,179,8,.04)' : ''}"><i class="fas fa-terminal" style="color:${hasErrors ? 'var(--red)' : hasWarnings ? 'var(--yellow)' : 'var(--teal)'}"></i><div class="search-q">Browser Console</div><span class="search-meta">${data.total} msgs · ${data.errors} err · ${data.warnings} warn</span></div><div class="search-results">${contentHtml}</div>`;
+          $msg().appendChild(consoleEl);
+          scrollBottom();
+        }
+
+        return { output };
+      } catch (e) {
+        return { output: `[Console Error] ${e.message}` };
+      }
+    }
+
     /* ═══════════════ GIT ═══════════════ */
     async function gitStatus() { return await execViaCompanion('git status --short 2>/dev/null || echo "NOT A GIT REPOSITORY"'); }
     async function gitDiff(staged, file) { const s = staged ? '--cached' : ''; const f = file ? `-- "${file}"` : ''; return await execViaCompanion(`git diff ${s} ${f} 2>&1`); }
@@ -7136,7 +7546,11 @@ Python command: {{PYTHON_CMD}}`;
         }
         let nodeLine = '';
         if (data.node_env) nodeLine = `<div><span>Node:</span> ${data.node_env.version || '?'} (${data.node_env.path || '?'})</div>`;
-        info.innerHTML = `<div><span>Status:</span> Connected</div><div><span>Platform:</span> ${data.platform} ${data.release}</div><div><span>Shell:</span> ${data.shell || 'default'}</div><div><span>CWD:</span> ${data.cwd}</div>${pythonLine}${nodeLine}`;
+        state.browserAvailable = !!data.playwright;
+        const browserLine = data.playwright
+          ? `<div><span>Playwright:</span> <span style="color:var(--green)">available</span>${data.browser_open ? ' · <span style="color:var(--cyan)">browser open</span>' : ''}</div>`
+          : `<div><span>Playwright:</span> <span style="color:var(--tx-4)">not installed</span> <span style="color:var(--tx-4);font-size:9px">(npm init playwright@latest)</span></div>`;
+        info.innerHTML = `<div><span>Status:</span> Connected</div><div><span>Platform:</span> ${data.platform} ${data.release}</div><div><span>Shell:</span> ${data.shell || 'default'}</div><div><span>CWD:</span> ${data.cwd}</div>${pythonLine}${nodeLine}${browserLine}`;
       } catch (e) {
         state.compConnected = false; state.compInfo = null;
         dot.className = 'status-dot off'; txt.textContent = 'Shell';
@@ -7351,7 +7765,48 @@ Python command: {{PYTHON_CMD}}`;
           case 'think':
             if (!args.thought) return { output: 'Error: "thought" is required for think' };
             result = { output: args.thought }; break;
-
+          case 'browser_launch':
+            if (!state.compConnected) return { output: 'browser_launch requires the companion server.' };
+            if (!state.browserAvailable) return { output: 'Playwright is not installed on the companion. Run: pip install playwright Then restart the companion server.' };
+            result = { output: await browserApi('/browser_launch', args) }; break;
+          case 'browser_navigate':
+            if (!args.url) return { output: 'Error: "url" is required for browser_navigate' };
+            result = { output: await browserApi('/browser_navigate', args) }; break;
+          case 'browser_screenshot':
+            result = await handleBrowserScreenshot(args, panel); break;
+          case 'browser_console':
+            result = await handleBrowserConsole(args, panel); break;
+          case 'browser_click':
+            if (!args.selector) return { output: 'Error: "selector" is required for browser_click' };
+            result = { output: await browserApi('/browser_click', args) }; break;
+          case 'browser_type':
+            if (!args.selector || args.text === undefined) return { output: 'Error: "selector" and "text" are required for browser_type' };
+            result = { output: await browserApi('/browser_type', args) }; break;
+          case 'browser_evaluate':
+            if (!args.script) return { output: 'Error: "script" is required for browser_evaluate' };
+            result = { output: await browserApi('/browser_evaluate', args) }; break;
+          case 'browser_get_content':
+            result = { output: await browserApi('/browser_get_content', args) }; break;
+          case 'browser_wait_for':
+            if (!args.selector) return { output: 'Error: "selector" is required for browser_wait_for' };
+            result = { output: await browserApi('/browser_wait_for', args) }; break;
+          case 'browser_hover':
+            if (!args.selector) return { output: 'Error: "selector" is required for browser_hover' };
+            result = { output: await browserApi('/browser_hover', args) }; break;
+          case 'browser_select_option':
+            if (!args.selector || !args.value) return { output: 'Error: "selector" and "value" are required for browser_select_option' };
+            result = { output: await browserApi('/browser_select_option', args) }; break;
+          case 'browser_press_key':
+            if (!args.key) return { output: 'Error: "key" is required for browser_press_key' };
+            result = { output: await browserApi('/browser_press_key', args) }; break;
+          case 'browser_scroll':
+            result = { output: await browserApi('/browser_scroll', args) }; break;
+          case 'browser_go_back':
+            result = { output: await browserApi('/browser_go_back', {}) }; break;
+          case 'browser_go_forward':
+            result = { output: await browserApi('/browser_go_forward', {}) }; break;
+          case 'browser_close':
+            result = { output: await browserApi('/browser_close', {}) }; break;            
           case 'spawn_sub_agent':
             if (!args.task) return { output: 'Error: "task" is required for spawn_sub_agent' };
             {
@@ -7477,6 +7932,8 @@ Python command: {{PYTHON_CMD}}`;
       caps.push(state.visionCapable ? '✅ Image understanding — when you see [IMAGE] in list_directory output, call read_file on that path to see the actual image visually' : '❌ No image understanding (text-only model)');
       caps.push(state.dirHandle ? '✅ Filesystem access (' + state.dirName + ')' : '❌ No workspace open');
       caps.push(state.compConnected ? '✅ Full shell + git + web search via companion' : '⚠️  Virtual shell only (limited commands, no git/search)');
+      caps.push(state.compConnected && state.browserAvailable ? '✅ Browser automation via Playwright (launch, navigate, click, type, screenshot, console, evaluate JS)' : '❌ No browser automation (Playwright not installed on companion)');
+
       const capabilityChecklist = caps.join('\n');
 
       // If vision is available, add an explicit reminder right after the checklist
@@ -7545,6 +8002,32 @@ fetch_url uses urllib which CANNOT execute JavaScript. Many modern sites (news s
         return text;
       })();
 
+      /* Browser section */
+      const browserSection = !(state.compConnected && state.browserAvailable)
+        ? '**Browser tools NOT available** — Playwright is not installed on the companion server.'
+        : `**Browser automation** via Playwright (headless Chromium).
+
+Workflow:
+1. browser_launch — start the browser (once per session)
+2. browser_navigate — go to a URL
+3. browser_screenshot — see what the page looks like (CRITICAL: always screenshot after navigation/clicks to verify state)
+4. browser_console — check for JavaScript errors and warnings (CRITICAL: always check after interactions)
+5. browser_click / browser_type / browser_hover — interact with elements
+6. browser_get_content — read page text
+7. browser_evaluate — run custom JS
+8. browser_close — when done
+
+**Key rules:**
+- ALWAYS screenshot after navigating or interacting to see the result
+- ALWAYS check browser_console after interactions — JS errors are invisible otherwise
+- Use CSS selectors: button[type="submit"], input#email, .nav-item, a[href="/about"], #login-form
+- If a selector fails, try browser_get_content to see the actual page structure, then adjust the selector
+- browser_wait_for is essential for SPAs where content loads asynchronously
+- For forms: browser_type with submit=true is cleaner than browser_click + browser_press_key
+- The browser persists across tool calls — do NOT launch it repeatedly
+- Screenshots are sent to you as images if you are vision-capable — use them to understand layout, styling, and visual bugs`;
+
+
       /* Git section */
       const gitSection = !state.compConnected
         ? 'Git tools require the companion server. Not available.'
@@ -7580,6 +8063,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           .replace('{{SHELL_SECTION}}', shellSection)
           .replace('{{SEARCH_SECTION}}', searchSection)
           .replace('{{REFERENCE_SECTION}}', buildReferenceSection())
+          .replace('{{BROWSER_SECTION}}', browserSection)
           .replace('{{GIT_SECTION}}', gitSection)
           .replace('{{CONTEXT_SECTION}}', ctxSection)
           .replace('{{WORKING_DIR}}', state.dirName || '(none)')
