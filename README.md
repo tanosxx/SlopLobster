@@ -5,7 +5,12 @@
 https://github.com/user-attachments/assets/0bc3c230-282a-4efb-a58e-365e82af710b
 
 
-![GUI_sample](https://github.com/user-attachments/assets/95f3cdb0-71f8-4eed-bab8-50e49fbca36c)
+## Plan demo video
+
+
+
+https://github.com/user-attachments/assets/11ae062c-58f9-4906-9e07-1a31e5d42456
+
 
 # SlopLobster
 
