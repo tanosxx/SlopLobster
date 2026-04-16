@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """SlopLobster Companion Server v1.4 — Shell + Git + Web Search for SlopLobster Agent."""
 import http.server, subprocess, json, os, sys, signal, platform, re, urllib.request, urllib.parse, urllib.error, shutil, threading, time
 from html.parser import HTMLParser
@@ -498,39 +498,78 @@ def extract_python_signatures(source, max_lines=300):
         tree = _ast.parse(source)
     except SyntaxError:
         return None
+
+    BODY_PREVIEW = 3
     result = []
+
+    # ── Imports section ──
+    for node in _ast.iter_child_nodes(tree):
+        if isinstance(node, _ast.Import):
+            result.append('L%d: import %s' % (node.lineno, ', '.join(a.name for a in node.names)))
+        elif isinstance(node, _ast.ImportFrom):
+            result.append('L%d: from %s import %s' % (node.lineno, node.module or '.', ', '.join(a.name for a in node.names)))
+
+    # ── Extract docstrings as text ──
+    def get_docstring(node):
+        ds = _ast.get_docstring(node)
+        if not ds:
+            return None
+        # Return first 2 lines of docstring
+        ds_lines = ds.strip().split('\n')[:2]
+        return '  ' + '\n  '.join(ds_lines)
+
+    # ── Top-level functions and classes ──
     for node in _ast.iter_child_nodes(tree):
         if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
             prefix = 'async ' if isinstance(node, _ast.AsyncFunctionDef) else ''
+            ret = ' -> ' + _ast.unparse(node.returns) if node.returns else ''
             args = [a.arg for a in node.args.args if a.arg not in ('self', 'cls')]
-            result.append('L%d: %sdef %s(%s)' % (node.lineno, prefix, node.name, ', '.join(args) if args else ''))
+            result.append('L%d: %sdef %s(%s)%s' % (node.lineno, prefix, node.name, ', '.join(args), ret))
+
+            # Docstring
+            ds = get_docstring(node)
+            if ds:
+                result.append(ds)
+
+            # Body preview: first N non-trivial lines
+            if hasattr(node, 'body') and len(node.body) > 1:
+                preview_count = 0
+                for stmt in node.body[1:]:  # skip docstring
+                    if preview_count >= BODY_PREVIEW:
+                        break
+                    src = _ast.get_source_segment(source, stmt)
+                    if src:
+                        for sl in src.strip().split('\n')[:BODY_PREVIEW - preview_count]:
+                            if sl.strip() and not sl.strip().startswith('#'):
+                                result.append('L%d: %s' % (stmt.lineno, sl))
+                                preview_count += 1
+                            if preview_count >= BODY_PREVIEW:
+                                break
             result.append('L%d:   ...' % (node.end_lineno or node.lineno))
+
         elif isinstance(node, _ast.ClassDef):
-            bases = []
-            for b in node.bases:
-                if hasattr(b, 'id'): bases.append(b.id)
-                elif hasattr(b, 'attr'): bases.append(b.attr)
-                else: bases.append('...')
-            result.append('L%d: class %s(%s)' % (node.lineno, node.name, ', '.join(bases) if bases else ''))
+            bases = [_ast.unparse(b) for b in node.bases]
+            result.append('L%d: class %s(%s)' % (node.lineno, node.name, ', '.join(bases)))
+
+            # Class docstring
+            ds = get_docstring(node)
+            if ds:
+                result.append(ds)
+
+            # Class attributes and methods
             for item in node.body:
                 if isinstance(item, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
                     p = 'async ' if isinstance(item, _ast.AsyncFunctionDef) else ''
                     a = [x.arg for x in item.args.args if x.arg not in ('self', 'cls')]
-                    result.append('L%d:   %sdef %s(%s)' % (item.lineno, p, item.name, ', '.join(a) if a else ''))
-                    result.append('L%d:     ...' % (item.end_lineno or item.lineno))
+                    ret_s = ' -> ' + _ast.unparse(item.returns) if item.returns else ''
+                    result.append('L%d:   %sdef %s(%s)%s' % (item.lineno, p, item.name, ', '.join(a), ret_s))
                 elif isinstance(item, _ast.Assign):
                     for t in item.targets:
                         if isinstance(t, _ast.Name):
-                            result.append('L%d:   %s = ...' % (item.lineno, t.id))
+                            val_preview = _ast.unparse(item.value)[:40] if hasattr(_ast, 'unparse') else '...'
+                            result.append('L%d:   %s = %s' % (item.lineno, t.id, val_preview))
             result.append('L%d:   ...' % (node.end_lineno or node.lineno))
-        elif isinstance(node, _ast.Import):
-            result.append('L%d: import %s' % (node.lineno, ', '.join(a.name for a in node.names)))
-        elif isinstance(node, _ast.ImportFrom):
-            result.append('L%d: from %s import %s' % (node.lineno, node.module or '.', ', '.join(a.name for a in node.names)))
-        elif isinstance(node, _ast.Assign):
-            for t in node.targets:
-                if isinstance(t, _ast.Name):
-                    result.append('L%d: %s = <%s>' % (node.lineno, t.id, type(node.value).__name__))
+
     return '\n'.join(result) if result else None
 
 
