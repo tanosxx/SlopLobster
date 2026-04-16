@@ -5162,39 +5162,78 @@ def extract_python_signatures(source, max_lines=300):
         tree = _ast.parse(source)
     except SyntaxError:
         return None
+
+    BODY_PREVIEW = 3
     result = []
+
+    # ── Imports section ──
+    for node in _ast.iter_child_nodes(tree):
+        if isinstance(node, _ast.Import):
+            result.append('L%d: import %s' % (node.lineno, ', '.join(a.name for a in node.names)))
+        elif isinstance(node, _ast.ImportFrom):
+            result.append('L%d: from %s import %s' % (node.lineno, node.module or '.', ', '.join(a.name for a in node.names)))
+
+    # ── Extract docstrings as text ──
+    def get_docstring(node):
+        ds = _ast.get_docstring(node)
+        if not ds:
+            return None
+        # Return first 2 lines of docstring
+        ds_lines = ds.strip().split('\\n')[:2]
+        return '  ' + '\\n  '.join(ds_lines)
+
+    # ── Top-level functions and classes ──
     for node in _ast.iter_child_nodes(tree):
         if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
             prefix = 'async ' if isinstance(node, _ast.AsyncFunctionDef) else ''
+            ret = ' -> ' + _ast.unparse(node.returns) if node.returns else ''
             args = [a.arg for a in node.args.args if a.arg not in ('self', 'cls')]
-            result.append('L%d: %sdef %s(%s)' % (node.lineno, prefix, node.name, ', '.join(args) if args else ''))
+            result.append('L%d: %sdef %s(%s)%s' % (node.lineno, prefix, node.name, ', '.join(args), ret))
+
+            # Docstring
+            ds = get_docstring(node)
+            if ds:
+                result.append(ds)
+
+            # Body preview: first N non-trivial lines
+            if hasattr(node, 'body') and len(node.body) > 1:
+                preview_count = 0
+                for stmt in node.body[1:]:  # skip docstring
+                    if preview_count >= BODY_PREVIEW:
+                        break
+                    src = _ast.get_source_segment(source, stmt)
+                    if src:
+                        for sl in src.strip().split('\\n')[:BODY_PREVIEW - preview_count]:
+                            if sl.strip() and not sl.strip().startswith('#'):
+                                result.append('L%d: %s' % (stmt.lineno, sl))
+                                preview_count += 1
+                            if preview_count >= BODY_PREVIEW:
+                                break
             result.append('L%d:   ...' % (node.end_lineno or node.lineno))
+
         elif isinstance(node, _ast.ClassDef):
-            bases = []
-            for b in node.bases:
-                if hasattr(b, 'id'): bases.append(b.id)
-                elif hasattr(b, 'attr'): bases.append(b.attr)
-                else: bases.append('...')
-            result.append('L%d: class %s(%s)' % (node.lineno, node.name, ', '.join(bases) if bases else ''))
+            bases = [_ast.unparse(b) for b in node.bases]
+            result.append('L%d: class %s(%s)' % (node.lineno, node.name, ', '.join(bases)))
+
+            # Class docstring
+            ds = get_docstring(node)
+            if ds:
+                result.append(ds)
+
+            # Class attributes and methods
             for item in node.body:
                 if isinstance(item, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
                     p = 'async ' if isinstance(item, _ast.AsyncFunctionDef) else ''
                     a = [x.arg for x in item.args.args if x.arg not in ('self', 'cls')]
-                    result.append('L%d:   %sdef %s(%s)' % (item.lineno, p, item.name, ', '.join(a) if a else ''))
-                    result.append('L%d:     ...' % (item.end_lineno or item.lineno))
+                    ret_s = ' -> ' + _ast.unparse(item.returns) if item.returns else ''
+                    result.append('L%d:   %sdef %s(%s)%s' % (item.lineno, p, item.name, ', '.join(a), ret_s))
                 elif isinstance(item, _ast.Assign):
                     for t in item.targets:
                         if isinstance(t, _ast.Name):
-                            result.append('L%d:   %s = ...' % (item.lineno, t.id))
+                            val_preview = _ast.unparse(item.value)[:40] if hasattr(_ast, 'unparse') else '...'
+                            result.append('L%d:   %s = %s' % (item.lineno, t.id, val_preview))
             result.append('L%d:   ...' % (node.end_lineno or node.lineno))
-        elif isinstance(node, _ast.Import):
-            result.append('L%d: import %s' % (node.lineno, ', '.join(a.name for a in node.names)))
-        elif isinstance(node, _ast.ImportFrom):
-            result.append('L%d: from %s import %s' % (node.lineno, node.module or '.', ', '.join(a.name for a in node.names)))
-        elif isinstance(node, _ast.Assign):
-            for t in node.targets:
-                if isinstance(t, _ast.Name):
-                    result.append('L%d: %s = <%s>' % (node.lineno, t.id, type(node.value).__name__))
+
     return '\\n'.join(result) if result else None
 
 
@@ -6467,6 +6506,17 @@ Python command: {{PYTHON_CMD}}`;
       const tools = [
         { type: 'function', function: { name: 'think', description: 'Think through a problem step by step before acting. Visible to user.', parameters: { type: 'object', properties: { thought: { type: 'string', description: 'Your reasoning and plan' } }, required: ['thought'] } } },
         { type: 'function', function: { name: 'read_file', description: 'Read a file as text. For PDF files, text is automatically extracted. For raster image files (PNG, JPG, GIF, WebP, BMP, ICO marked [IMAGE] in list_directory), the image is sent to you visually. For SVG files, returns the raw XML markup as text — use view_image to see the rendered graphic instead.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path to file or image' } }, required: ['path'] } } },
+        { type: 'function', function: { 
+          name: 'read_file_summary', 
+          description: 'Get a compressed summary of a file. Returns: purpose (1 line), imports, exports/classes/functions list with line ranges, key constants. Much cheaper than read_file for understanding what a file contains. Use this when you need to understand a file\'s structure without reading every line. For files under 150 lines, just use read_file instead.',
+          parameters: { 
+            type: 'object', 
+            properties: { 
+              path: { type: 'string', description: 'Relative path to file' }
+            }, 
+            required: ['path'] 
+          } 
+        }},
         { type: 'function', function: { name: 'read_file_lines', description: 'Read specific line ranges from a file. Much more efficient than reading entire files.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path' }, start_line: { type: 'number', description: '1-based start line (default: 1)' }, end_line: { type: 'number', description: '1-based end line (default: end of file)' } }, required: ['path'] } } },
         { type: 'function', function: { name: 'view_image', description: 'Display an image file visually to the user. For SVG files, renders the graphic with a "View Code" toggle. For raster images (PNG, JPG, GIF, WebP), shows the image. If you are vision-capable, the image is also sent to you for analysis. Use this when you want to see how an image/SVG actually looks. Use read_file instead when you want to read the raw SVG/XML markup as text.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path to the image file (SVG, PNG, JPG, GIF, WebP, etc.)' } }, required: ['path'] } } },
         { type: 'function', function: { name: 'edit_file', description: 'CRITICAL: Use this to modify existing files. Provide search/replace blocks. More reliable and token-efficient than write_file.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path' }, edits: { type: 'array', items: { type: 'object', properties: { old_text: { type: 'string', description: 'Exact text to find (must be unique in file)' }, new_text: { type: 'string', description: 'Replacement text' } }, required: ['old_text', 'new_text'] }, description: 'Array of search/replace edits to apply sequentially' } }, required: ['path', 'edits'] } } },
@@ -6720,34 +6770,222 @@ Python command: {{PYTHON_CMD}}`;
     }
 
     async function getFileSkeleton(source, language, filePath, totalLines) {
-      /* Try companion for accurate AST-based extraction */
+      /* ── Try companion for accurate AST-based extraction ── */
       if (state.compConnected && source.length <= 1000000) {
         try {
           const res = await fetch(`${state.compUrl}/ast_signatures`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ source, language }),
+            body: JSON.stringify({ source, language, include_docstrings: true, body_preview_lines: 3 }),
             signal: AbortSignal.timeout(5000)
           });
           if (res.ok) {
             const data = await res.json();
             if (data.outline) {
-              return `File: ${filePath} (${totalLines} lines → showing skeleton)\nUse read_file_lines to read specific sections.\n═════════════════════════════════════════\n\n${data.outline}`;
+              return `File: ${filePath} (${totalLines} lines → structure skeleton)\n` +
+                `Use read_file_lines with the line numbers below to read specific sections.\n` +
+                `═══════════════════════════════════════════════════════════\n\n` +
+                data.outline;
             }
           }
-        } catch { /* fallback to JS extraction */ }
+        } catch { /* fallback */ }
       }
 
-      /* Fallback: JS regex extraction */
-      const outline = extractSignaturesJs(source, language);
+      /* ── Enhanced client-side extraction ── */
+      const outline = extractEnhancedSkeleton(source, language, filePath);
       if (outline) {
-        return `File: ${filePath} (${totalLines} lines → showing skeleton, JS-fallback extraction)\nUse read_file_lines to read specific sections.\n═════════════════════════════════════════\n\n${outline}`;
+        return `File: ${filePath} (${totalLines} lines → structure skeleton)\n` +
+          `Use read_file_lines with the line numbers below to read specific sections.\n` +
+          `═══════════════════════════════════════════════════════════\n\n` +
+          outline;
       }
-
       return null;
     }
 
-    function requireWorkspace() { if (!state.dirHandle) throw new Error('No workspace directory open'); }
+    function extractEnhancedSkeleton(source, language) {
+      const lines = source.split('\n');
+      const maxLines = 300; // threshold for skeleton mode
+
+      if (lines.length <= maxLines) return null;
+
+      const result = [];
+      const BODY_PREVIEW = 3; // lines of body to show after each signature
+
+      if (language === 'py') {
+        result.push(`[Imports]`);
+        for (let i = 0; i < Math.min(lines.length, 50); i++) {
+          const trimmed = lines[i].trim();
+          if (/^(import |from )/.test(trimmed)) result.push(`L${i+1}: ${trimmed}`);
+          if (trimmed && !/^(import |from |#|""")/.test(trimmed) && result.length > 1) break;
+        }
+
+        let inDocstring = false;
+        let docstringLines = [];
+        let docstringIndent = '';
+
+        for (let i = 0; i < lines.length; i++) {
+          const raw = lines[i];
+          const trimmed = raw.trim();
+          const indent = raw.match(/^(\s*)/)[1];
+
+          // Track docstrings
+          if (inDocstring) {
+            if (raw.trim() === '"""' || raw.trim() === "'''") {
+              inDocstring = false;
+              for (const dl of docstringLines) result.push(`  ${dl}`);
+              docstringLines = [];
+              continue;
+            }
+            docstringLines.push(`L${i+1}: ${raw}`);
+            continue;
+          }
+
+          if ((trimmed.startsWith('"""') || trimmed.startsWith("'''")) && trimmed.length > 3) {
+            // Single-line docstring
+            result.push(`L${i+1}: ${indent}${trimmed}`);
+            continue;
+          }
+          if (trimmed === '"""' || trimmed === "'''") {
+            inDocstring = true;
+            docstringIndent = indent;
+            continue;
+          }
+
+          if (!trimmed || trimmed.startsWith('#')) continue;
+
+          let m = trimmed.match(/^(async\s+)?def\s+(\w+)\s*\(([^)]*)\)(?:\s*->\s*([^\s:]+))?/);
+          if (m) {
+            const prefix = indent + (m[1] || '') + 'def ' + m[2];
+            const args = m[3].slice(0, 80);
+            const ret = m[4] ? ` -> ${m[4]}` : '';
+            result.push(`L${i+1}: ${prefix}(${args})${ret}`);
+
+            // Body preview: next non-blank, non-docstring lines
+            let bodyCount = 0;
+            for (let j = i + 1; j < Math.min(i + 30, lines.length) && bodyCount < BODY_PREVIEW; j++) {
+              const bl = lines[j].trim();
+              if (!bl || bl === '"""' || bl === "'''" || bl.startsWith('#')) continue;
+              if (/^(async\s+)?def\s|^class\s/.test(bl)) break;
+              result.push(`L${j+1}: ${lines[j]}`);
+              bodyCount++;
+            }
+            continue;
+          }
+
+          m = trimmed.match(/^class\s+(\w+)(?:\(([^)]*)\))?(?:\s*:)?/);
+          if (m) {
+            const bases = m[2] || '';
+            result.push(`L${i+1}: ${indent}class ${m[1]}(${bases})`);
+
+            // Show class-level attributes and first method signatures
+            let bodyCount = 0;
+            for (let j = i + 1; j < Math.min(i + 60, lines.length); j++) {
+              const cl = lines[j].trim();
+              if (!cl) continue;
+              if (/^class\s/.test(cl)) break;
+
+              const cm = cl.match(/^(async\s+)?def\s+(\w+)\s*\(([^)]*)\)/);
+              if (cm) {
+                result.push(`L${j+1}: ${lines[j].match(/^(\s*)/)[1]}${cm[1] || ''}def ${cm[2]}(${cm[3].slice(0, 60)})`);
+                bodyCount++;
+                // Skip body of nested methods
+                let depth = 1;
+                for (let k = j + 1; k < lines.length && depth > 0; k++) {
+                  const nl = lines[k];
+                  if (/^(async\s+)?def\s|^class\s/.test(nl.trim()) && lines[k].match(/^(\s*)/)[1].length <= lines[j].match(/^(\s*)/)[1].length) depth++;
+                  if (depth > 5) break; // safety
+                }
+                j = Math.min(i + 60, lines.length) - 1; // let outer loop advance
+                continue;
+              }
+
+              // Class-level assignment
+              const am = cl.match(/^(\w+)\s*(?::\s*[^=]+)?\s*=/);
+              if (am && lines[j].match(/^(\s*)/)[1] === indent) {
+                result.push(`L${j+1}: ${lines[j]}`);
+                bodyCount++;
+              }
+              if (bodyCount > 8) break;
+            }
+            result.push(`L${/* approximate end */ i + 1}: ...`);
+            continue;
+          }
+        }
+      }
+
+      // Similar enhanced extraction for JS/TS
+      else if (['js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs'].includes(language)) {
+        // Collect imports first
+        result.push(`[Imports]`);
+        for (let i = 0; i < Math.min(lines.length, 50); i++) {
+          if (/^(import |export\s+(?:type\s+)?|const\s+\w+\s*=\s*require)/.test(lines[i].trim())) {
+            result.push(`L${i+1}: ${lines[i].trim().slice(0, 100)}`);
+          }
+        }
+
+        for (let i = 0; i < lines.length; i++) {
+          const raw = lines[i];
+          const trimmed = raw.trim();
+          const indent = raw.match(/^(\s*)/)[1];
+          if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) continue;
+
+          // Functions
+          let m = raw.match(/^(\s*)(export\s+(?:default\s+)?)?(async\s+)?function\s+(\*?\s*\w+)\s*\(([^)]*)\)/);
+          if (m) {
+            result.push(`L${i+1}: ${indent}${m[2] || ''}${m[3] || ''}function ${m[4].trim()}(${m[5].trim().slice(0, 80)})`);
+            // Body preview
+            let bc = 0;
+            for (let j = i + 1; j < Math.min(i + 20, lines.length) && bc < BODY_PREVIEW; j++) {
+              const bl = lines[j].trim();
+              if (!bl || bl.startsWith('//') || /^(export\s+|function\s|class\s|const\s)/.test(bl)) break;
+              result.push(`L${j+1}: ${lines[j]}`);
+              bc++;
+            }
+            continue;
+          }
+
+          // Arrow functions / const assignments
+          m = raw.match(/^(\s*)(export\s+(?:default\s+)?)?(const|let|var)\s+(\w+)\s*=\s*(\([^)]*\)|[^\s=]+?)\s*=>/);
+          if (m) {
+            result.push(`L${i+1}: ${indent}${m[2] || ''}${m[3]} ${m[4]} = ${m[5].trim().slice(0, 60)} => ...`);
+            continue;
+          }
+
+          // Classes
+          m = raw.match(/^(\s*)(export\s+(?:default\s+)?)?class\s+(\w+)/);
+          if (m) {
+            result.push(`L${i+1}: ${indent}${m[2] || ''}class ${m[3]}`);
+            // Show methods
+            let bc = 0;
+            for (let j = i + 1; j < Math.min(i + 40, lines.length); j++) {
+              const cl = lines[j];
+              if (!cl.trim()) continue;
+              if (/^class\s/.test(cl.trim()) && cl.match(/^(\s*)/)[1].length <= indent.length) break;
+              const cm = cl.match(/^\s+(async\s+)?(\w+)\s*\(([^)]*)\)\s*\{/);
+              if (cm) {
+                result.push(`L${j+1}: ${cl.trim().slice(0, 100)}`);
+                bc++;
+              }
+              if (bc > 12) break;
+            }
+            continue;
+          }
+        }
+      }
+
+      // Generic fallback
+      else {
+        for (let i = 0; i < lines.length; i++) {
+          const trimmed = lines[i].trim();
+          if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('//')) continue;
+          if (/^(function|class|def|pub\s+fn|fn\s|module|impl|trait|struct|enum|interface|type|const|let|var)\s/.test(trimmed)) {
+            result.push(`L${i+1}: ${trimmed.slice(0, 120)}`);
+          }
+        }
+      }
+
+      return result.length > 0 ? result.join('\n') : null;
+    }
     
 
     async function resolvePath(raw) {
@@ -6805,23 +7043,169 @@ Python command: {{PYTHON_CMD}}`;
         } catch (e) { return { output: `Image: ${rel}\nType: ${f.type}\nError reading image: ${e.message}` }; }
       }
 
-      /* ── Text files ── */
       const maxB = state.maxReadKB * 1024;
-      if (f.size > maxB) { const p = await f.slice(0, maxB).text(); cacheSet(rel, p); return { output: `File: ${rel}\nSize: ${(f.size / 1024).toFixed(1)} KB\n⚠ TRUNCATED: first ${(maxB / f.size * 100).toFixed(0)}%\n---\n${p}\n\n[Use read_file_lines for specific sections]` }; }
       const text = await f.text();
       cacheSet(rel, text);
+      const lines = text.split('\n');
 
-      /* ── Smart Context Injection ── */
-      if (state.smartContextThreshold > 0) {
+      /* ── Smart Context: skeleton for large files ── */
+      const threshold = getEffectiveSmartThreshold();
+      if (threshold > 0) {
         const lineCount = text.split('\n').length;
-        if (lineCount > state.smartContextThreshold) {
-          const ext = rel.split('.').pop().toLowerCase();
+        if (lineCount > threshold) {
           const skeleton = await getFileSkeleton(text, ext, rel, lineCount);
           if (skeleton) return { output: skeleton };
         }
       }
 
-      return { output: `File: ${rel}\nSize: ${text.length} chars, ${text.split('\n').length} lines\n---\n${text}` };
+      /* ── Structure-Aware Truncation: cut at logical boundaries ── */
+      if (f.size > maxB) {
+        const truncated = structureAwareTruncate(text, lines, maxB, rel);
+        cacheSet(rel, truncated.fullText);
+        return { output: truncated.output, _truncated: true, _truncatedLines: truncated.totalLines, _shownLines: truncated.shownLines };
+      }
+
+      return { output: `File: ${rel}\nSize: ${text.length} chars, ${lines.length} lines\n---\n${text}` };
+    }
+
+    async function readFileSummarySafe(rel) {
+      requireWorkspace();
+      const h = await resolvePath(rel);
+      if (h.kind !== 'file') return { output: `"${rel}" is not a file` };
+      const f = await h.getFile();
+      if (f.size > 5 * 1024 * 1024) return { output: `File too large for summary (${(f.size/1024/1024).toFixed(1)} MB)` };
+      
+      // For small files, just do it client-side
+      if (f.size < 50000) {
+        const text = await f.text();
+        const lines = text.split('\n');
+        if (lines.length < 150) return { output: `File: ${rel} (${lines.length} lines) — small enough to read directly with read_file` };
+        return { output: buildLocalSummary(rel, text, lines) };
+      }
+      
+      // For larger files, use the API
+      try {
+        const text = await f.text();
+        const lines = text.split('\n');
+        const ext = rel.split('.').pop().toLowerCase();
+        
+        state.abortCtrl = new AbortController();
+        const res = await fetch(`${state.apiUrl}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: state.model,
+            messages: [
+              { role: 'system', content: 'Summarize this source file in exactly this format:\nPurpose: <one line>\nImports: <comma-separated list, or "none">\nExports: <comma-separated list, or "none">\nClasses: <name> (L<start>-L<end>) — one line each\nFunctions: <name> (L<start>-L<end>) — one line each\nConstants: <name> = <value preview>\nKey logic: <2-3 sentences about the most important behavior>\nBe precise with line numbers.' },
+              { role: 'user', content: text.slice(0, 100000) + (text.length > 100000 ? '\n... [truncated]' : '') }
+            ],
+            temperature: 0.1,
+            max_tokens: 500
+          }),
+          signal: state.abortCtrl.signal
+        });
+        
+        if (!res.ok) return { output: buildLocalSummary(rel, text.slice(0, 50000), lines) };
+        const data = await res.json();
+        const summary = data.choices?.[0]?.message?.content || '';
+        return { output: `File: ${rel} (${lines.length} lines, ${(f.size/1024).toFixed(1)} KB)\n---\n${summary}` };
+      } catch {
+        const text = await f.text();
+        return { output: buildLocalSummary(rel, text.slice(0, 50000), text.split('\n')) };
+      }
+    }
+
+    function buildLocalSummary(path, text, lines) {
+      const ext = path.split('.').pop().toLowerCase();
+      const result = [`File: ${path} (${lines.length} lines)`, ''];
+      
+      // Extract imports
+      const imports = [];
+      for (let i = 0; i < Math.min(lines.length, 60); i++) {
+        const t = lines[i].trim();
+        if (/^import\s/.test(t) || /^from\s+[\w.]+\s+import\s/.test(t)) imports.push(t.slice(0, 80));
+        if (t && !/^import|^from|^#|^"""/.test(t) && imports.length > 0) break;
+      }
+      if (imports.length) result.push(`Imports: ${imports.join(', ')}`);
+      else result.push('Imports: none');
+      
+      // Extract top-level symbols
+      const symbols = [];
+      for (let i = 0; i < lines.length; i++) {
+        const t = lines[i].trim();
+        if (!t || t.startsWith('#') || t.startsWith('//')) continue;
+        
+        let m;
+        if (ext === 'py') {
+          m = t.match(/^(async\s+)?def\s+(\w+)\s*\(/);
+          if (m) { symbols.push(`${m[2]} (L${i+1})`); continue; }
+          m = t.match(/^class\s+(\w+)/);
+          if (m) { symbols.push(`class ${m[1]} (L${i+1})`); continue; }
+        } else {
+          m = t.match(/^(export\s+)?(async\s+)?function\s+(\w+)/);
+          if (m) { symbols.push(`${m[3]} (L${i+1})`); continue; }
+          m = t.match(/^(export\s+)?(?:const|let|var)\s+(\w+)/);
+          if (m) { symbols.push(`${m[2]} (L${i+1})`); continue; }
+          m = t.match(/^class\s+(\w+)/);
+          if (m) { symbols.push(`class ${m[1]} (L${i+1})`); continue; }
+        }
+      }
+      if (symbols.length) result.push(`Symbols: ${symbols.slice(0, 30).join(', ')}${symbols.length > 30 ? ' ...' + (symbols.length - 30) + ' more' : ''}`);
+      
+      // First meaningful line as purpose hint
+      let purpose = '';
+      for (let i = 0; i < Math.min(lines.length, 20); i++) {
+        const t = lines[i].trim();
+        if (t.startsWith('#') || t.startsWith('//') || t.startsWith('"""') || t.startsWith("'''")) {
+          if (!purpose) purpose = t.replace(/^[#/"]+\s*/, '').slice(0, 100);
+        }
+        if (t && !t.startsWith('#') && !t.startsWith('//') && !t.startsWith('import') && !t.startsWith('from') && !t.startsWith('export') && !t.startsWith('const ') && !t.startsWith('let ')) break;
+      }
+      if (purpose) result.push(`Purpose: ${purpose}`);
+      
+      return result.join('\n');
+    }    
+
+    function structureAwareTruncate(fullText, lines, maxBytes, filePath) {
+      const maxChars = maxBytes; // approximate 1:1 byte:char for ASCII-heavy code
+      const boundaryPattern = /^(?:\s*(?:def |async def |class |function |export |const |let |var |interface |type |impl |trait |module |# │{2,}))/;
+      const sectionBreak = /^(?:\n{2,}|[ \t]*\n[ \t]*\n)/;
+
+      let cutPoint = maxChars;
+      
+      // Scan backwards from the byte limit to find a logical boundary
+      for (let i = Math.min(lines.length - 1, Math.floor(maxChars / 40)); i >= Math.floor(maxChars * 0.6); i--) {
+        const lineStart = lines.slice(0, i).join('\n').length;
+        if (lineStart > maxChars) continue;
+        
+        if (boundaryPattern.test(lines[i]) || sectionBreak.test(lines[i])) {
+          cutPoint = lineStart + lines[i].length;
+          break;
+        }
+      }
+
+      const head = fullText.slice(0, cutPoint);
+      const remaining = fullText.slice(cutPoint);
+      const remainingLines = remaining.split('\n').length;
+
+      // Also grab the last ~20 lines as a tail, if they add useful context
+      const tailLines = lines.slice(-20);
+      const tailText = tailLines.join('\n');
+      const hasTail = remainingLines > 20;
+      
+      let output = `File: ${filePath}\nLines: ${lines.length} (showing first ${head.split('\n').length}${hasTail ? ' + last 20' : ''})\n---\n${head}`;
+      if (hasTail) {
+        output += `\n\n... ${remainingLines - 20} lines omitted ...\n\n`;
+        output += `── Last 20 lines ──\n${tailText}`;
+      }
+      output += `\n\n[Use read_file_lines for specific sections. Total: ${lines.length} lines, ${fullText.length} chars]`;
+
+      return {
+        output,
+        fullText: head + (hasTail ? '\n\n' + tailText : ''),
+        totalLines: lines.length,
+        shownLines: head.split('\n').length + (hasTail ? 20 : 0)
+      };
     }
 
     async function readFileLinesSafe(rel, startLine, endLine) {
@@ -7661,6 +8045,12 @@ Python command: {{PYTHON_CMD}}`;
             if (!args.path) return { output: 'Error: "path" is required for read_file. Example: read_file({"path": "src/main.py"})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
             result = await readFileSafe(args.path); break;
 
+          case 'read_file_summary': {
+            if (!args.path) return { output: 'Error: "path" is required' };
+            result = await readFileSummarySafe(args.path);
+            break;
+          }  
+
           case 'view_image':
             if (args._parseError) return { output: 'Error: view_image received invalid arguments — ' + args._parseError };
             if (!args.path) return { output: 'Error: "path" is required for view_image. Example: view_image({"path": "assets/logo.svg"})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
@@ -7948,6 +8338,15 @@ Python command: {{PYTHON_CMD}}`;
     }
 
     async function streamChat(messages, onChunk, onToolCall, onThinkStream) {
+      function getEffectiveSmartThreshold() {
+        if (state.smartContextThreshold > 0) return state.smartContextThreshold;
+        // Auto: use ~2% of context window as the threshold
+        // A 32k context → skeleton files > 640 lines
+        // A 128k context → skeleton files > 2560 lines
+        return Math.max(100, Math.floor(state.ctxWindow * 0.02));
+      }
+
+   
       /* ── Build dynamic prompt sections ── */
       const projInfo = state.projectType
         ? `Type: ${state.projectType}${state.projectMeta?.name ? ' | Name: ' + state.projectMeta.name : ''}${state.projectMeta?.deps ? ' | Key deps: ' + Object.entries(state.projectMeta.deps).slice(0, 8).map(([k]) => k).join(', ') : ''}`
@@ -8081,7 +8480,25 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 - You are NEVER truly "stuck" — even after compaction, the progress file preserves all context`;
 
       const smartContextSection = state.smartContextThreshold > 0
-        ? `═══ SMART CONTEXT INJECTION ═══\nFiles larger than ${state.smartContextThreshold} lines are automatically reduced to their structure skeleton (function/class signatures with line numbers). This saves significant context on large files.\nTo read specific sections, use read_file_lines with start_line and end_line based on the line numbers in the skeleton.\nExample: If skeleton shows "L45: def validate(self):" and "L58:   ...", use read_file_lines path="src/auth.py" start_line=45 end_line=58.\nFor small files (under the threshold), read_file returns the full content as normal.\n`
+        ? `═══ SMART CONTEXT ═══
+      Files larger than ${state.smartContextThreshold} lines are automatically reduced to a structure skeleton showing function/class signatures with line numbers, docstrings, and a 3-line body preview for each.
+
+      READING STRATEGY (follow this order):
+      1. read_file_summary — Get a file's purpose, symbols, and line ranges in one cheap call. Use this FIRST for any file you haven't seen.
+      2. Skeleton (automatic) — For files > ${state.smartContextThreshold} lines, you get a structure map. Find the line ranges you need.
+      3. read_file_lines — Read SPECIFIC sections using the line numbers from the skeleton or summary. This is your primary tool for large files.
+      4. read_file — ONLY use for small files (< ${state.smartContextThreshold} lines) or when you genuinely need every line.
+      5. grep — Find WHERE something is defined before reading around it.
+
+      NEVER read an entire large file when you only need one function. Use read_file_lines with the exact line range.
+
+      PATTERN for working with large files:
+        read_file_summary("src/server.py")  → "handle_request (L345-L512)"
+        read_file_lines("src/server.py", 345, 380)  → just the start of the function
+        read_file_lines("src/server.py", 500, 512)  → just the end
+
+      This saves massive context — you read 35 lines instead of 847.
+      `
         : '';
 
       const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -10792,7 +11209,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         if (s.requireEditApproval !== undefined) state.requireEditApproval = s.requireEditApproval;
         if (s.autoVerifyCommand !== undefined) state.autoVerifyCommand = s.autoVerifyCommand;
         if (s.autoVerifyMaxRetries !== undefined) state.autoVerifyMaxRetries = s.autoVerifyMaxRetries;
-        if (s.smartContextThreshold !== undefined) state.smartContextThreshold = s.smartContextThreshold;   
+        if (s.smartContextThreshold !== undefined) state.smartContextThreshold = s.smartContextThreshold; else state.smartContextThreshold = 150;  
         if (s.wsWarningDismissed !== undefined) _wsWarningDismissed = s.wsWarningDismissed;
              
       } catch { }
