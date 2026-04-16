@@ -6792,7 +6792,6 @@ Python command: {{PYTHON_CMD}}`;
       }
 
       /* ── Enhanced client-side extraction ── */
-      function requireWorkspace() { if (!state.dirHandle) throw new Error('No workspace directory open'); }
       const outline = extractEnhancedSkeleton(source, language, filePath);
       if (outline) {
         return `File: ${filePath} (${totalLines} lines → structure skeleton)\n` +
@@ -6802,6 +6801,8 @@ Python command: {{PYTHON_CMD}}`;
       }
       return null;
     }
+
+    function requireWorkspace() { if (!state.dirHandle) throw new Error('No workspace directory open'); }
 
     function extractEnhancedSkeleton(source, language) {
       const lines = source.split('\n');
