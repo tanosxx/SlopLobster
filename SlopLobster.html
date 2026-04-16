@@ -4662,7 +4662,7 @@
 
   <script>
     try { pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch(e) { console.warn('[pdf] worker init failed:', e); }
-    const COMPANION_SCRIPT = `#!/usr/bin/env python3
+    const COMPANION_SCRIPT = `#!/usr/bin/env python
 """SlopLobster Companion Server v1.4 — Shell + Git + Web Search for SlopLobster Agent."""
 import http.server, subprocess, json, os, sys, signal, platform, re, urllib.request, urllib.parse, urllib.error, shutil, threading, time
 from html.parser import HTMLParser
@@ -6948,9 +6948,28 @@ Python command: {{PYTHON_CMD}}`;
       for (let i = 0; i < edits.length; i++) {
         const { old_text, new_text } = edits[i];
         if (!old_text) { results.push(`Edit ${i + 1}: ERROR — old_text is empty`); continue; }
-        const idx = content.indexOf(old_text);
+        let idx = content.indexOf(old_text);
         if (idx === -1) {
-          results.push(`Edit ${i + 1}: ERROR — old_text not found exactly. Match failed due to whitespace/indentation differences. Please copy the exact text.`);
+          // Fallback: normalize trailing whitespace and blank lines, then retry
+          const normContent = content.split('\n').map(l => l.replace(/\s+$/, '')).join('\n').replace(/\n{3,}/g, '\n\n');
+          const normOld = old_text.split('\n').map(l => l.replace(/\s+$/, '')).join('\n').replace(/\n{3,}/g, '\n\n');
+          idx = normContent.indexOf(normOld);
+          if (idx !== -1) {
+            // Map back: find the same line range in original content
+            const normLines = normOld.split('\n');
+            const lineStart = normContent.substring(0, idx).split('\n').length - 1;
+            const origLines = content.split('\n');
+            const realOld = origLines.slice(lineStart, lineStart + normLines.length).join('\n');
+            if (content.indexOf(realOld) !== -1) {
+              content = content.replace(realOld, new_text);
+              results.push(`Edit ${i + 1}: OK (whitespace-normalized match)`);
+              const occurrences = content.split(realOld).length - 1;
+              if (occurrences > 1) results.push(`Edit ${i + 1}: WARNING — old_text found ${occurrences} times, replacing first`);
+              allDiffs.push(generateDiffFromStrings(realOld, new_text));
+              continue;
+            }
+          }
+          results.push(`Edit ${i + 1}: ERROR — old_text not found exactly. Match failed even with whitespace normalization. Please copy the exact text from the file.`);
           continue;
         } else {
           const occurrences = content.split(old_text).length - 1;
@@ -7660,8 +7679,8 @@ Python command: {{PYTHON_CMD}}`;
             result = await editFileSafe(args.path, args.edits, state.requireEditApproval);
             if (!result._pendingApproval && !String(result.output).includes('ERROR')) {
               debouncedFileTreeRefresh();
-              if (state.compConnected && (args.path.endsWith('.py') || args.path.endsWith('.js'))) {
-                const check = await execViaCompanion(args.path.endsWith('.py') ? `python -m py_compile "${args.path}"` : `node -c "${args.path}"`, 15, signal);
+            if (state.compConnected && (args.path.endsWith('.py') || args.path.endsWith('.js'))) {
+                const check = await execViaCompanion(args.path.endsWith('.py') ? `python3 -m py_compile "${args.path}" || python -m py_compile "${args.path}"` : `node -c "${args.path}"`, 15, signal);
                 if (typeof check === 'string' && check.trim()) result.output += '\n\n⚠️ SYNTAX CHECK WARNING:\n' + check.trim();
               }
             }
@@ -7681,8 +7700,8 @@ Python command: {{PYTHON_CMD}}`;
             result = await writeFileSafe(args.path, args.content, state.requireEditApproval);
             if (!result._pendingApproval && !String(result.output).includes('ERROR')) {
               debouncedFileTreeRefresh();
-              if (state.compConnected && (args.path.endsWith('.py') || args.path.endsWith('.js'))) {
-                const check = await execViaCompanion(args.path.endsWith('.py') ? `python -m py_compile "${args.path}"` : `node -c "${args.path}"`, 15, signal);
+            if (state.compConnected && (args.path.endsWith('.py') || args.path.endsWith('.js'))) {
+                const check = await execViaCompanion(args.path.endsWith('.py') ? `python3 -m py_compile "${args.path}" || python -m py_compile "${args.path}"` : `node -c "${args.path}"`, 15, signal);
                 if (typeof check === 'string' && check.trim()) result.output += '\n\n⚠️ SYNTAX CHECK WARNING:\n' + check.trim();
               }
             }
@@ -8169,18 +8188,150 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       return { content, toolCalls: toolCalls.filter(Boolean) };
     }
 
-        /* ═══════════════ SUB-AGENT CHAT ═══════════════ */
-    async function subAgentChat(messages, tools, abortSignal) {
-      const apiMsgs = messages.map(m => {
-        if (m._images && m._images.length) {
-          const parts = [];
-          if (m.content) parts.push({ type: 'text', text: m.content });
-          parts.push(...m._images);
-          return { role: m.role, content: parts };
-        }
-        return m;
-      });
+    /* ═══════════════ SUB-AGENT CHAT (with system prompt caching) ═══════════════ */
 
+    /**
+     * Cache for sub-agent system prompts.
+     * Key: comma-sorted tool names → cached prompt string
+     * Invalidated when: tool list changes, model changes, or settings change
+     */
+    const _subAgentSysPromptCache = new Map();
+    let _subAgentSysPromptCacheVersion = 0;
+
+    /** Invalidate the cache (call when tools, model, or settings change) */
+    function invalidateSubAgentPromptCache() {
+      _subAgentSysPromptCache.clear();
+      _subAgentSysPromptCacheVersion++;
+    }
+
+    /**
+     * Build a sub-agent system prompt. Cached by tool set.
+     * @param {string[]} toolNames - sorted array of tool function names
+     * @returns {string} system prompt
+     */
+    function buildSubAgentSysPrompt(toolNames) {
+      // Normalize key: sort and join for consistent cache hits
+      const cacheKey = [...toolNames].sort().join(',');
+      const cached = _subAgentSysPromptCache.get(cacheKey);
+      if (cached) return cached;
+
+      // Build the prompt
+      const hasWriteTools = toolNames.some(t =>
+        ['edit_file', 'write_file', 'delete_file', 'move_file'].includes(t)
+      );
+      const hasThink = toolNames.includes('think');
+      const hasSearch = toolNames.includes('web_search');
+      const hasFetch = toolNames.includes('fetch_url');
+      const hasBrowser = toolNames.some(t => t.startsWith('browser_'));
+
+      const lines = [
+        'You are a focused sub-agent completing a specific sub-task for a parent agent.',
+        '',
+        '## Available Tools',
+        toolNames.map(t => `- ${t}`).join('\n'),
+        '',
+        '## Rules',
+        `- Be thorough — read enough files to give a complete answer`,
+        `- Include specific details: file names, line numbers, function names, key code snippets`,
+        `- Structure your summary with headers and bullet points for readability`,
+        `- If you cannot find something, say so explicitly rather than guessing`,
+        `- Minimize tool calls — prefer targeted reads over browsing everything`,
+        `- When done gathering information, write your final summary and stop calling tools`,
+        `- Use read_file_lines for specific sections instead of reading entire files`,
+        `- Use grep/search_files to find things before reading files`,
+      ];
+
+      if (hasWriteTools) {
+        lines.push(
+          '',
+          '## File Modification Rules',
+          '- You CAN modify files — use edit_file for existing files, write_file ONLY for new files',
+          '- Always read a file before editing it',
+          '- After editing, describe what you changed concisely',
+          '- Do NOT create unnecessary files',
+        );
+      } else {
+        lines.push(
+          '',
+          '## File Access',
+          '- You have READ-ONLY access — do NOT attempt to modify any files',
+          '- If the task requires changes, describe exactly what should change in your summary',
+        );
+      }
+
+      if (hasThink) {
+        lines.push('- Use the think tool to plan complex multi-step tasks before acting');
+      }
+
+      if (hasSearch) {
+        lines.push(
+          '- Use web_search when your knowledge is insufficient or the library version may have changed',
+          '- Use fetch_top=1 to auto-read the top result for quick lookups',
+        );
+      }
+
+      if (hasFetch) {
+        lines.push('- Use fetch_url to read documentation pages directly (mode="text" for clean output)');
+      }
+
+      if (hasBrowser) {
+        lines.push(
+          '- Use browser tools (launch, navigate, screenshot, console) for web-related tasks',
+          '- Always screenshot after navigation to verify state',
+          '- Always check browser_console after interactions for JS errors',
+        );
+      }
+
+      lines.push(
+        '',
+        '## Output Format',
+        'Your final message IS the summary that gets sent back to the parent agent.',
+        'Do NOT prefix with "Summary:" or similar — just write the summary directly.',
+        'Be concise but thorough. The parent agent will incorporate your findings.',
+      );
+
+      const prompt = lines.join('\n');
+      _subAgentSysPromptCache.set(cacheKey, prompt);
+
+      // Evict oldest entries if cache grows too large (unlikely but safe)
+      if (_subAgentSysPromptCache.size > 20) {
+        const firstKey = _subAgentSysPromptCache.keys().next().value;
+        if (firstKey !== undefined) _subAgentSysPromptCache.delete(firstKey);
+      }
+
+      return prompt;
+    }
+
+    /**
+     * Stream a sub-agent chat completion.
+     * System prompt is built and cached internally based on the provided tools.
+     * 
+     * @param {Array} messages - conversation messages (NO system message needed — it's added internally)
+     * @param {Array} tools - array of tool definition objects (from getToolDefs())
+     * @param {AbortSignal} abortSignal - cancellation signal
+     * @returns {{ content: string, toolCalls: Array }}
+     */
+    async function subAgentChat(messages, tools, abortSignal) {
+      // ── Build and cache system prompt from tool list ──
+      const toolNames = tools.map(t => t.function.name);
+      const sysPrompt = buildSubAgentSysPrompt(toolNames);
+
+      // ── Build API messages array ──
+      const apiMsgs = [
+        { role: 'system', content: sysPrompt },
+        ...messages.map(m => {
+          // Handle image attachments in messages
+          if (m._images && m._images.length) {
+            const parts = [];
+            if (m.content) parts.push({ type: 'text', text: m.content });
+            parts.push(...m._images);
+            return { role: m.role, content: parts };
+          }
+          return m;
+        })
+      ];
+
+      // ── Make API request ──
       const res = await fetch(`${state.apiUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -8195,11 +8346,14 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         signal: abortSignal
       });
 
+      // ── Handle HTTP errors (same pattern as streamChat) ──
       if (!res.ok) {
         const errRaw = await res.text().catch(() => res.statusText);
         let err = errRaw;
+        // Strip HTML error pages from LM Studio
         if (err.includes('<!DOCTYPE') || err.includes('<html')) {
-          const tmp = document.createElement('DIV'); tmp.innerHTML = err;
+          const tmp = document.createElement('DIV');
+          tmp.innerHTML = err;
           err = tmp.textContent || tmp.innerText || 'Unknown error';
           err = err.trim().replace(/\s+/g, ' ');
         }
@@ -8207,136 +8361,235 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         throw new Error(`API ${res.status}: ${err}`);
       }
 
-      const reader = res.body.getReader(), dec = new TextDecoder();
-      let buf = '', content = '', toolCalls = [];
+      // ── Parse SSE stream ──
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      let content = '';
+      let toolCalls = [];
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+
         buf += dec.decode(value, { stream: true });
         const lines = buf.split('\n');
-        buf = lines.pop();
+        buf = lines.pop(); // keep incomplete line in buffer
+
         for (const line of lines) {
-          const t = line.trim();
-          if (!t.startsWith('data:')) continue;
-          const d = t.slice(5).trim();
-          if (d === '[DONE]') continue;
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) continue;
+
+          const data = trimmed.slice(5).trim();
+          if (data === '[DONE]') continue;
+
           try {
-            const chunk = JSON.parse(d);
+            const chunk = JSON.parse(data);
             const delta = chunk.choices?.[0]?.delta;
             if (!delta) continue;
-            if (delta.content) content += delta.content;
+
+            // Text content
+            if (delta.content) {
+              content += delta.content;
+            }
+
+            // Tool calls
             if (delta.tool_calls) {
               for (const tc of delta.tool_calls) {
                 const idx = tc.index ?? 0;
-                if (!toolCalls[idx]) toolCalls[idx] = { id: tc.id || '', type: 'function', function: { name: '', arguments: '' } };
+                if (!toolCalls[idx]) {
+                  toolCalls[idx] = {
+                    id: tc.id || '',
+                    type: 'function',
+                    function: { name: '', arguments: '' }
+                  };
+                }
                 if (tc.id) toolCalls[idx].id = tc.id;
                 if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
                 if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
               }
             }
-          } catch { /* skip malformed */ }
+          } catch {
+            // Skip malformed chunks — common during truncation
+          }
         }
       }
 
-      return { content, toolCalls: toolCalls.filter(Boolean) };
+      // ── Process remaining buffer ──
+      if (buf.trim()) {
+        const trimmed = buf.trim();
+        if (trimmed.startsWith('data:') && trimmed.slice(5).trim() !== '[DONE]') {
+          try {
+            const chunk = JSON.parse(trimmed.slice(5).trim());
+            const delta = chunk.choices?.[0]?.delta;
+            if (delta?.content) content += delta.content;
+            if (delta?.tool_calls) {
+              for (const tc of delta.tool_calls) {
+                const idx = tc.index ?? 0;
+                if (!toolCalls[idx]) {
+                  toolCalls[idx] = { id: tc.id || '', type: 'function', function: { name: '', arguments: '' } };
+                }
+                if (tc.id) toolCalls[idx].id = tc.id;
+                if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
+                if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
+              }
+            }
+          } catch {
+            // Ignore parse error on trailing buffer
+          }
+        }
+      }
+
+      return {
+        content,
+        toolCalls: toolCalls.filter(Boolean)
+      };
     }
 
+    /**
+     * Run a sub-agent for a focused sub-task.
+     * Now simplified — system prompt is handled by subAgentChat().
+     * 
+     * @param {string} task - task description
+     * @param {string[]} [allowedTools] - tool names the sub-agent can use
+     * @param {number} [maxIter] - max tool-call rounds
+     * @param {AbortSignal} [parentSignal] - parent cancellation signal
+     * @param {Object} [parentPanel] - parent tool panel for status updates
+     * @returns {Promise<Object>} result with summary, log, iterations, etc.
+     */
     async function runSubAgent(task, allowedTools, maxIter, parentSignal, parentPanel) {
       const defaultTools = ['read_file', 'read_file_lines', 'list_directory', 'search_files', 'grep'];
       const tools = allowedTools && allowedTools.length ? allowedTools : defaultTools;
       const maxIterations = Math.min(Math.max(maxIter || 8, 1), 20);
       const startTime = performance.now();
 
+      // ── Validate tools against available tool definitions ──
       const validToolNames = new Set(getToolDefs().map(t => t.function.name));
       const invalidTools = tools.filter(t => !validToolNames.has(t));
       const effectiveTools = tools.filter(t => validToolNames.has(t));
 
-      const hasWriteTools = effectiveTools.some(t => ['edit_file', 'write_file', 'delete_file', 'move_file'].includes(t));
+      const hasWriteTools = effectiveTools.some(t =>
+        ['edit_file', 'write_file', 'delete_file', 'move_file'].includes(t)
+      );
 
-      const subSysPrompt =
-        `You are a focused sub-agent. Complete the assigned task using only the allowed tools.
-Return a concise but thorough summary of your findings when done.${hasWriteTools ? '' : ' Do NOT make any file changes.'}
+      // ── Filter full tool definitions for the sub-agent ──
+      const allToolDefs = getToolDefs();
+      const filteredToolDefs = allToolDefs.filter(t => effectiveTools.includes(t.function.name));
 
-Allowed tools: ${effectiveTools.join(', ')}${invalidTools.length ? '\nUnavailable (ignored): ' + invalidTools.join(', ') : ''}
-
-Rules:
-- Be thorough — read enough files to give a complete answer
-- Include specific details: file names, line numbers, function names, key code snippets
-- Structure your summary with headers and bullet points for readability
-- If you can't find something, say so explicitly rather than guessing
-- Minimize tool calls — prefer targeted reads over browsing everything
-- When done gathering information, write your final summary and stop calling tools`;
-
+      // ── Build messages (NO system prompt — subAgentChat adds it) ──
       const subMessages = [
-        { role: 'system', content: subSysPrompt },
-        { role: 'user', content: task + (state.dirName ? '\n\nWorking directory: ' + state.dirName : '') }
+        {
+          role: 'user',
+          content: task + (state.dirName ? '\n\nWorking directory: ' + state.dirName : '')
+        }
       ];
 
       let iterations = 0;
       const log = [];
       const subAbort = new AbortController();
 
+      // Propagate parent cancellation
       if (parentSignal) {
         parentSignal.addEventListener('abort', () => subAbort.abort(), { once: true });
       }
 
-      const allTools = getToolDefs();
-      const filteredTools = allTools.filter(t => effectiveTools.includes(t.function.name));
-
       function updatePanelStatus(text, cls) {
         if (!parentPanel || !parentPanel.el) return;
         const st = parentPanel.el.querySelector('.tool-status');
-        if (st) { st.className = 'tool-status ' + cls; st.textContent = text; }
+        if (st) {
+          st.className = 'tool-status ' + cls;
+          st.textContent = text;
+        }
       }
 
+      // ── Agent loop ──
       while (iterations < maxIterations) {
         if (subAbort.signal.aborted) break;
         iterations++;
         updatePanelStatus(`Round ${iterations}/${maxIterations}`, 'run');
 
-        let content = '', toolCalls = [];
+        let content = '';
+        let toolCalls = [];
 
         try {
-          const result = await subAgentChat(subMessages, filteredTools, subAbort.signal);
+          const result = await subAgentChat(subMessages, filteredToolDefs, subAbort.signal);
           content = result.content;
           toolCalls = result.toolCalls;
         } catch (e) {
           if (e.name === 'AbortError') break;
           const duration = performance.now() - startTime;
           updatePanelStatus('Error', 'err');
-          return { summary: 'Sub-agent error: ' + e.message, log, iterations, error: true, hitLimit: false, duration, tools: effectiveTools, task };
+          return {
+            summary: 'Sub-agent error: ' + e.message,
+            log,
+            iterations,
+            error: true,
+            hitLimit: false,
+            duration,
+            tools: effectiveTools,
+            invalidTools,
+            task
+          };
         }
 
+        // ── Record assistant message ──
         const assistantMsg = { role: 'assistant', content: content || null };
         if (toolCalls.length) assistantMsg.tool_calls = toolCalls;
         subMessages.push(assistantMsg);
 
+        // ── Separate valid vs invalid tool calls ──
         const validTcs = toolCalls.filter(tc => effectiveTools.includes(tc.function.name));
         const invalidTcs = toolCalls.filter(tc => !effectiveTools.includes(tc.function.name));
 
+        // If no valid tool calls, the sub-agent is done
         if (!validTcs.length) break;
 
+        // ── Execute tool calls ──
         const results = await Promise.all(validTcs.map(async tc => {
           const name = tc.function.name;
           try {
             const result = await executeTool(name, tc.function.arguments, subAbort.signal, null);
             const outText = (typeof result === 'string') ? result : (result?.output || '');
-            log.push({ tool: name, args: tc.function.arguments.slice(0, 120), output: outText.slice(0, 300), success: !outText.includes('Error:') && !outText.includes('ERROR') });
+            log.push({
+              tool: name,
+              args: tc.function.arguments.slice(0, 120),
+              output: outText.slice(0, 300),
+              success: !outText.includes('Error:') && !outText.includes('ERROR')
+            });
             return { tc, output: outText };
           } catch (e) {
-            log.push({ tool: name, args: tc.function.arguments.slice(0, 120), output: e.message, success: false });
+            log.push({
+              tool: name,
+              args: tc.function.arguments.slice(0, 120),
+              output: e.message,
+              success: false
+            });
             return { tc, output: 'Error: ' + e.message };
           }
         }));
 
+        // ── Record tool results ──
         for (const r of results) {
-          subMessages.push({ role: 'tool', tool_call_id: r.tc.id, content: r.output });
+          subMessages.push({
+            role: 'tool',
+            tool_call_id: r.tc.id,
+            content: r.output
+          });
         }
 
+        // ── Record rejected tool calls ──
         for (const tc of invalidTcs) {
-          log.push({ tool: tc.function.name, args: '', output: 'Not allowed', success: false });
-          subMessages.push({ role: 'tool', tool_call_id: tc.id, content: `Error: Tool "${tc.function.name}" is not in the allowed list for this sub-agent.` });
+          log.push({
+            tool: tc.function.name,
+            args: '',
+            output: 'Not allowed',
+            success: false
+          });
+          subMessages.push({
+            role: 'tool',
+            tool_call_id: tc.id,
+            content: `Error: Tool "${tc.function.name}" is not in the allowed list for this sub-agent.`
+          });
         }
       }
 
@@ -8355,6 +8608,7 @@ Rules:
         hitLimit,
         duration,
         tools: effectiveTools,
+        invalidTools,
         task
       };
     }
@@ -8544,7 +8798,8 @@ Rules:
           }
 
           sel.disabled = false;
-
+          
+          invalidateSubAgentPromptCache();
           updateVisionUI();
           updateModelMeta();
           updateWelcomeStatus();
@@ -8836,12 +9091,12 @@ Rules:
         ? toolMsgOrIndex
         : state.messages.indexOf(toolMsgOrIndex);
       if (idx < 0) return null;
+      
       for (let i = idx - 1; i >= 0; i--) {
         const m = state.messages[i];
-        if (m.role === 'assistant' && m.tool_calls) {
-          const tc = m.tool_calls.find(tc => tc.id === state.messages[idx].tool_call_id);
-          if (tc) return tc;
-        }
+        if (m.role !== 'assistant' || !m.tool_calls) continue;
+        const tc = m.tool_calls.find(tc => tc.id === state.messages[idx].tool_call_id);
+        if (tc) return tc;
       }
       return null;
     }
@@ -9321,7 +9576,7 @@ Rules:
                   previewFile(tArgs.path);
                   debouncedFileTreeRefresh();
                   if (state.compConnected && (tArgs.path.endsWith('.py') || tArgs.path.endsWith('.js'))) {
-                    const ck = await execViaCompanion(tArgs.path.endsWith('.py') ? 'python -m py_compile "' + tArgs.path + '"' : 'node -c "' + tArgs.path + '"', 15);
+                    const ck = await execViaCompanion(tArgs.path.endsWith('.py') ? 'python3 -m py_compile "' + tArgs.path + '" || python -m py_compile "' + tArgs.path + '"' : 'node -c "' + tArgs.path + '"', 15);
                     if (typeof ck === 'string' && ck.trim()) actual.output += '\n\n⚠️ SYNTAX CHECK:\n' + ck.trim();
                   }
                 }
@@ -9789,9 +10044,39 @@ Rules:
     }
 
     function showToolPanel(name, argsStr, status, onStopClick, toolCallId) {
-      if (argsStr == null || typeof argsStr !== 'string') argsStr = '{}';
+          if (argsStr == null || typeof argsStr !== 'string') argsStr = '{}';
 
-      let prev = ''; try { const a = JSON.parse(argsStr); prev = Object.entries(a).map(([k, v]) => '<span>' + esc(k) + '</span>: ' + esc(String(v).length > 120 ? String(v).slice(0, 120) + '...' : String(v))).join('<br>'); } catch { prev = esc(argsStr?.slice(0, 200) || ''); }
+          let prev = '';
+          try {
+            const a = JSON.parse(argsStr);
+            prev = Object.entries(a).map(([k, v]) => {
+              let display;
+              if (Array.isArray(v)) {
+                // edits is an array of {old_text, new_text} objects
+                display = v.map((item, idx) => {
+                  if (typeof item === 'object' && item !== null) {
+                    const keys = Object.keys(item);
+                    return keys.map(key => {
+                      const val = String(item[key]);
+                      const truncated = val.length > 80 ? val.slice(0, 77) + '...' : val;
+                      return key + ': "' + truncated.replace(/"/g, '\\"') + '"';
+                    }).join(', ');
+                  }
+                  return String(item);
+                }).join('\n');
+                if (display.length > 300) display = display.slice(0, 297) + '...';
+              } else if (typeof v === 'object' && v !== null) {
+                display = JSON.stringify(v);
+                if (display.length > 120) display = display.slice(0, 117) + '...';
+              } else {
+                display = String(v);
+                if (display.length > 120) display = display.slice(0, 117) + '...';
+              }
+              return '<span>' + esc(k) + '</span>: ' + esc(display);
+            }).join('<br>');
+          } catch {
+            prev = esc(argsStr?.slice(0, 200) || '');
+          }
       const el = document.createElement('div'); el.className = 'tool-panel';
       el._toolCallId = toolCallId || null;
       el._toolName = name; el._toolArgs = argsStr; el._screenshotDataUrl = null; el._imageDataUrl = null; el._imagePath = null; el._imageReason = null; el._imageType = null; el._resultText = ''; el._collapsed = false;
@@ -9800,6 +10085,8 @@ Rules:
       $msg().appendChild(el); scrollBottom(); return { el };
     }
 
+
+    
     function updateToolStatus(w, s) {
       const st = w.el.querySelector('.tool-status'); st.className = 'tool-status ' + s; st.textContent = s === 'ok' ? 'Done' : s === 'err' ? 'Error' : 'Running...';
       const stopBtn = w.el.querySelector('.tool-stop'); if (stopBtn) stopBtn.style.display = s === 'run' ? '' : 'none';
@@ -10577,6 +10864,9 @@ Rules:
 
     function saveSettings() {
       _cachedReferenceSection = '';
+      state._sysPromptCacheKey = null;  
+      state._sysPromptCacheText = null;
+      invalidateSubAgentPromptCache();
       const u = document.getElementById('s-api-url').value.replace(/\/+$/, '');
       if (!/^https?:\/\/.+/.test(u)) { showToast('Invalid API URL', 'warn'); return; }
       state.apiUrl = u;
