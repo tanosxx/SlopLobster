@@ -7003,6 +7003,13 @@ Python command: {{PYTHON_CMD}}`;
         return await h.getDirectoryHandle(last);
       }
     }
+    function getEffectiveSmartThreshold() {
+      if (state.smartContextThreshold > 0) return state.smartContextThreshold;
+      // Auto: use ~2% of context window as the threshold
+      // A 32k context → skeleton files > 640 lines
+      // A 128k context → skeleton files > 2560 lines
+      return Math.max(100, Math.floor(state.ctxWindow * 0.02));
+    }    
 
     async function readFileSafe(rel) {
       const h = await resolvePath(rel); if (h.kind !== 'file') throw new Error(`"${rel}" is a directory`);
@@ -7049,6 +7056,8 @@ Python command: {{PYTHON_CMD}}`;
       const text = await f.text();
       cacheSet(rel, text);
       const lines = text.split('\n');
+
+      const ext = rel.split('.').pop().toLowerCase();
 
       /* ── Smart Context: skeleton for large files ── */
       const threshold = getEffectiveSmartThreshold();
@@ -7804,7 +7813,7 @@ Python command: {{PYTHON_CMD}}`;
       if (externalSignal?.aborted) return '[Cancelled by user]';
       let timeout = explicitTimeout ? Math.max(5, explicitTimeout) : state.cmdTimeout;
       const cmdLower = (command || '').toLowerCase();
-      const longPatterns = [/\bpip\s+(install|install)\b/, /\bnpm\s+(install|i)\b/, /\byarn\s+(install|add)\b/, /\bcargo\s+(install|build)\b/, /\bgo\s+(install|build|get|mod)\b/, /\bmake\b/, /\bcmake\b/, /\bdocker\s+(build|pull)\b/, /\bapt\s+(install|update)\b/, /\bbrew\s+(install|upgrade)\b/, /\bsudo\s+/, /\bpip3?\s+install\b/, /\bpython[23]?\s+-m\s+pip\b/, /\bnpm\s+run\b/, /\b(npx|pnpm|bun)\s+install\b/, /\bgit\s+(clone|checkout|pull|push)\b/];
+      const longPatterns = [/* ... */];
       for (const p of longPatterns) { if (p.test(cmdLower)) { timeout = Math.max(timeout, 300); break; } }
       const httpTimeout = timeout + 15000;
       try {
@@ -7814,7 +7823,6 @@ Python command: {{PYTHON_CMD}}`;
           signal: AbortSignal.timeout(httpTimeout)
         });
         if (externalSignal?.aborted) return '[Cancelled by user]';
-        // /execute always returns NDJSON — don't check Content-Type
         return await readNdjsonStream(res, externalSignal, onLine);
       } catch (e) {
         if (externalSignal?.aborted) return '[Cancelled by user]';
@@ -7828,9 +7836,11 @@ Python command: {{PYTHON_CMD}}`;
           document.getElementById('comp-text').textContent = 'Shell';
           document.getElementById('comp-info').innerHTML = '<div style="color:var(--yellow)">Connection lost — reconnect</div>';
           renderToolList();
-          return '[Companion connection lost: ' + msg + ' — falling back to virtual shell]\n' + await execVirtual(command);
+          const fallback = await execVirtual(command);
+          return '[Companion connection lost: ' + msg + ' — falling back to virtual shell]\n' + fallback.output;
         }
-        return '[Companion error: ' + msg + ']\n' + await execVirtual(command);
+        const fallback = await execVirtual(command);
+        return '[Companion error: ' + msg + ']\n' + fallback.output;
       }
     }
 
@@ -8340,15 +8350,7 @@ Python command: {{PYTHON_CMD}}`;
     }
 
     async function streamChat(messages, onChunk, onToolCall, onThinkStream) {
-      function getEffectiveSmartThreshold() {
-        if (state.smartContextThreshold > 0) return state.smartContextThreshold;
-        // Auto: use ~2% of context window as the threshold
-        // A 32k context → skeleton files > 640 lines
-        // A 128k context → skeleton files > 2560 lines
-        return Math.max(100, Math.floor(state.ctxWindow * 0.02));
-      }
 
-   
       /* ── Build dynamic prompt sections ── */
       const projInfo = state.projectType
         ? `Type: ${state.projectType}${state.projectMeta?.name ? ' | Name: ' + state.projectMeta.name : ''}${state.projectMeta?.deps ? ' | Key deps: ' + Object.entries(state.projectMeta.deps).slice(0, 8).map(([k]) => k).join(', ') : ''}`
