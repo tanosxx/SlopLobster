@@ -6435,6 +6435,7 @@ Python command: {{PYTHON_CMD}}`;
           canvas.removeEventListener('touchstart', onDown);
           window.removeEventListener('touchmove', onMove);
           window.removeEventListener('touchend', onUp);
+          window.removeEventListener('keydown', onEsc);
           overlay.remove();
         }
 
@@ -6621,7 +6622,8 @@ Python command: {{PYTHON_CMD}}`;
       for (let i = toolResultIdx - 1; i >= 0; i--) {
         const m = state.messages[i];
         if (m.role === 'assistant' && m.tool_calls) {
-          const tc = m.tool_calls.find(tc => tc.id === toolCallId);
+          const foundTc = m.tool_calls.find(t => t.id === toolCallId);
+          if (foundTc) { assistantIdx = i; targetToolCall = foundTc; break; }
           if (tc) { assistantIdx = i; targetToolCall = tc; break; }
         }
       }
@@ -7766,32 +7768,110 @@ Python command: {{PYTHON_CMD}}`;
       try {
         const out = await (async () => {
           switch (c) {
-            case 'pwd': return state.dirName || '(none)';
-            case 'ls': { const f = args.filter(a => !a.startsWith('-')), fl = args.filter(a => a.startsWith('-')).join(''); if (f[0]) sanitizePath(f[0]); return await listDirSafe(f[0] || '', fl.includes('R') || fl.includes('r')); }
-            case 'cat': { if (!args.length) return 'Usage: cat <file>'; return (await Promise.all(args.map(a => { sanitizePath(a); return readFileSafe(a) }))).join('\n---\n'); }
-            case 'head': { let n = 10; const files = []; for (let i = 0; i < args.length; i++) { if (args[i] === '-n' && args[i + 1]) n = Math.min(parseInt(args[++i]) || 10, 500); else files.push(args[i]); } if (!files.length) return 'Usage: head [-n N] <file>'; sanitizePath(files[0]); return await readFileLinesSafe(files[0], 1, n); }
-            case 'tail': { let n = 10; const files = []; for (let i = 0; i < args.length; i++) { if (args[i] === '-n' && args[i + 1]) n = Math.min(parseInt(args[++i]) || 10, 500); else files.push(args[i]); } if (!files.length) return 'Usage: tail [-n N] <file>'; sanitizePath(files[0]); const h = await resolvePath(files[0]); if (h.kind !== 'file') return '"' + files[0] + '" is not a file'; const t = await (await h.getFile()).text(); const lines = t.split('\n'); return lines.slice(-n).map((l, i) => `${String(lines.length - n + i + 1).padStart(4)} | ${l}`).join('\n'); }
-            case 'wc': { if (!args.length) return 'Usage: wc <file>'; sanitizePath(args[0]); const h = await resolvePath(args[0]); if (h.kind !== 'file') return '"' + args[0] + '" is not a file'; const t = await (await h.getFile()).text(); return `  ${t.split('\n').length}  ${t.split(/\s+/).filter(Boolean).length}  ${t.length} ${args[0]}`; }
-            case 'grep': return await grepSafe(args[0] || '', args[1] || '');
-            case 'find': { let np = '*', sp = '.'; for (let i = 0; i < args.length; i++) { if (args[i] === '-name' && args[i + 1]) np = args[++i]; else if (!args[i].startsWith('-') && args[i] !== '.') sp = args[i]; } if (sp !== '.') sanitizePath(sp); return await searchFilesSafe(np); }
-            case 'echo': return args.join(' ');
-            case 'mkdir': { if (!args.length) return 'Usage: mkdir <path>'; for (const p of args) { if (p === '-p') continue; const s = sanitizePath(p); let d = state.dirHandle; for (const seg of s) d = await d.getDirectoryHandle(seg, { create: true }); } return 'Directory created'; }
-            case 'touch': { if (!args.length) return 'Usage: touch <file>'; for (const p of args) await writeFileSafe(p, ''); return 'Created: ' + args.join(', '); }
-            case 'rm': return 'rm is disabled in virtual shell for safety. Start companion for real shell access.';
-            case 'move_file':
-              if (args.length < 2) return 'Usage: move_file <source> <dest>';
-              return await moveFileSafe(args[0], args[1]);  // already returns string
-            case 'delete_file':
-              if (!args[0]) return 'Error: no path';
-              return await deleteFileSafe(args[0], args.includes('-r') || args.includes('--recursive'));
-            case 'tree': { let md = 3; for (let i = 0; i < args.length; i++) { if (args[i] === '-L' && args[i + 1]) md = Math.min(parseInt(args[++i]) || 3, 8); } const tgt = args.find(a => !a.startsWith('-') && !/^\d+$/.test(a)) || ''; if (tgt) sanitizePath(tgt); const dh = tgt ? await resolvePath(tgt) : state.dirHandle; if (dh.kind !== 'directory') return '"' + tgt + '" is not a directory'; const lines = []; async function wt(h, pfx, d) { if (d > md) { lines.push(pfx + '...'); return; } const es = []; for await (const [n, kh] of h.entries()) { if (!SKIP.has(n)) es.push({ n, k: kh.kind, h: kh }); } es.sort((a, b) => a.k === b.k ? a.n.localeCompare(b.n) : a.k === 'directory' ? -1 : 1); for (let i = 0; i < es.length; i++) { const last = i === es.length - 1; lines.push(pfx + (last ? '└── ' : '├── ') + es[i].n + (es[i].k === 'directory' ? '/' : '')); if (es[i].k === 'directory') await wt(es[i].h, pfx + (last ? '    ' : '│   '), d + 1); } } lines.push(tgt || '.'); await wt(dh, '', 0); return lines.join('\n'); }
-            case 'file': { if (!args.length) return 'Usage: file <path>'; sanitizePath(args[0]); const h = await resolvePath(args[0]); if (h.kind === 'directory') return args[0] + ': directory'; const f = await h.getFile(); return `${args[0]}: ${f.type || 'application/octet-stream'} (${f.size} bytes)`; }
-            case 'diff': { if (args.length < 2) return 'Usage: diff <f1> <f2>'; sanitizePath(args[0]); sanitizePath(args[1]); const [h1, h2] = await Promise.all([resolvePath(args[0]), resolvePath(args[1])]); if (h1.kind !== 'file') return '"' + args[0] + '" is not a file'; if (h2.kind !== 'file') return '"' + args[1] + '" is not a file'; const [c1, c2] = await Promise.all([(await h1.getFile()).text(), (await h2.getFile()).text()]); const d = generateDiffFromStrings(c1, c2); return d.lines.map(l => l.text).join('\n') || (d.lines.length ? '' : 'Files are identical'); }
-
-            default: return `Unknown: ${c}\nVirtual shell supports: ls cat head tail wc grep find echo mkdir touch pwd tree file diff (these are virtual FSA commands, not OS-specific).\nStart companion for real OS shell + git + web search.`;
+            case 'pwd': return { output: state.dirName || '(none)' };
+            case 'ls': {
+              const f = args.filter(a => !a.startsWith('-')), fl = args.filter(a => a.startsWith('-')).join('');
+              if (f[0]) sanitizePath(f[0]);
+              return { output: await listDirSafe(f[0] || '', fl.includes('R') || fl.includes('r')) };
+            }
+            case 'cat': {
+              if (!args.length) return { output: 'Usage: cat <file>' };
+              const results = await Promise.all(args.map(a => { sanitizePath(a); return readFileSafe(a); }));
+              return { output: results.map(r => r.output).join('\n---\n') };
+            }
+            case 'head': {
+              let n = 10; const files = [];
+              for (let i = 0; i < args.length; i++) { if (args[i] === '-n' && args[i + 1]) n = Math.min(parseInt(args[++i]) || 10, 500); else files.push(args[i]); }
+              if (!files.length) return { output: 'Usage: head [-n N] <file>' };
+              sanitizePath(files[0]);
+              return { output: (await readFileLinesSafe(files[0], 1, n)).output };
+            }
+            case 'tail': {
+              let n = 10; const files = [];
+              for (let i = 0; i < args.length; i++) { if (args[i] === '-n' && args[i + 1]) n = Math.min(parseInt(args[++i]) || 10, 500); else files.push(args[i]); }
+              if (!files.length) return { output: 'Usage: tail [-n N] <file>' };
+              sanitizePath(files[0]);
+              const h = await resolvePath(files[0]); if (h.kind !== 'file') return { output: '"' + files[0] + '" is not a file' };
+              const t = await (await h.getFile()).text(); const lines = t.split('\n');
+              return { output: lines.slice(-n).map((l, i) => `${String(lines.length - n + i + 1).padStart(4)} | ${l}`).join('\n') };
+            }
+            case 'wc': {
+              if (!args.length) return { output: 'Usage: wc <file>' };
+              sanitizePath(args[0]);
+              const h = await resolvePath(args[0]); if (h.kind !== 'file') return { output: '"' + args[0] + '" is not a file' };
+              const t = await (await h.getFile()).text();
+              return { output: `  ${t.split('\n').length}  ${t.split(/\s+/).filter(Boolean).length}  ${t.length} ${args[0]}` };
+            }
+            case 'grep': return { output: (await grepSafe(args[0] || '', args[1] || '')).output };
+            case 'find': {
+              let np = '*', sp = '.';
+              for (let i = 0; i < args.length; i++) { if (args[i] === '-name' && args[i + 1]) np = args[++i]; else if (!args[i].startsWith('-') && args[i] !== '.') sp = args[i]; }
+              if (sp !== '.') sanitizePath(sp);
+              return { output: await searchFilesSafe(np) };
+            }
+            case 'echo': return { output: args.join(' ') };
+            case 'mkdir': {
+              if (!args.length) return { output: 'Usage: mkdir <path>' };
+              for (const p of args) { if (p === '-p') continue; const s = sanitizePath(p); let d = state.dirHandle; for (const seg of s) d = await d.getDirectoryHandle(seg, { create: true }); }
+              return { output: 'Directory created' };
+            }
+            case 'touch': {
+              if (!args.length) return { output: 'Usage: touch <file>' };
+              for (const p of args) await writeFileSafe(p, '');
+              return { output: 'Created: ' + args.join(', ') };
+            }
+            case 'rm': return { output: 'rm is disabled in virtual shell for safety. Start companion for real shell access.' };
+            case 'move_file': {
+              if (args.length < 2) return { output: 'Usage: move_file <source> <dest>' };
+              return { output: await moveFileSafe(args[0], args[1]) };
+            }
+            case 'delete_file': {
+              if (!args[0]) return { output: 'Error: no path' };
+              return { output: await deleteFileSafe(args[0], args.includes('-r') || args.includes('--recursive')) };
+            }
+            case 'tree': {
+              let md = 3;
+              for (let i = 0; i < args.length; i++) { if (args[i] === '-L' && args[i + 1]) md = Math.min(parseInt(args[++i]) || 3, 8); }
+              const tgt = args.find(a => !a.startsWith('-') && !/^\d+$/.test(a)) || '';
+              if (tgt) sanitizePath(tgt);
+              const dh = tgt ? await resolvePath(tgt) : state.dirHandle;
+              if (dh.kind !== 'directory') return { output: '"' + tgt + '" is not a directory' };
+              const lines = [];
+              async function wt(h, pfx, d) {
+                if (d > md) { lines.push(pfx + '...'); return; }
+                const es = []; for await (const [n, kh] of h.entries()) { if (!SKIP.has(n)) es.push({ n, k: kh.kind, h: kh }); }
+                es.sort((a, b) => a.k === b.k ? a.n.localeCompare(b.n) : a.k === 'directory' ? -1 : 1);
+                for (let i = 0; i < es.length; i++) {
+                  const last = i === es.length - 1;
+                  lines.push(pfx + (last ? '└── ' : '├── ') + es[i].n + (es[i].k === 'directory' ? '/' : ''));
+                  if (es[i].k === 'directory') await wt(es[i].h, pfx + (last ? '    ' : '│   '), d + 1);
+                }
+              }
+              lines.push(tgt || '.'); await wt(dh, '', 0);
+              return { output: lines.join('\n') };
+            }
+            case 'file': {
+              if (!args.length) return { output: 'Usage: file <path>' };
+              sanitizePath(args[0]);
+              const h = await resolvePath(args[0]);
+              if (h.kind === 'directory') return { output: args[0] + ': directory' };
+              const f = await h.getFile();
+              return { output: `${args[0]}: ${f.type || 'application/octet-stream'} (${f.size} bytes)` };
+            }
+            case 'diff': {
+              if (args.length < 2) return { output: 'Usage: diff <f1> <f2>' };
+              sanitizePath(args[0]); sanitizePath(args[1]);
+              const [h1, h2] = await Promise.all([resolvePath(args[0]), resolvePath(args[1])]);
+              if (h1.kind !== 'file') return { output: '"' + args[0] + '" is not a file' };
+              if (h2.kind !== 'file') return { output: '"' + args[1] + '" is not a file' };
+              const [c1, c2] = await Promise.all([(await h1.getFile()).text(), (await h2.getFile()).text()]);
+              const d = generateDiffFromStrings(c1, c2);
+              return { output: d.lines.map(l => l.text).join('\n') || (d.lines.length ? '' : 'Files are identical') };
+            }
+            default: return { output: `Unknown: ${c}\nVirtual shell supports: ls cat head tail wc grep find echo mkdir touch pwd tree file diff (these are virtual FSA commands, not OS-specific).\nStart companion for real OS shell + git + web search.` };
           }
         })();
-        return { output: out };
+        return { output: out };  // ← Ensure object return for all paths
       } catch (e) { return { output: e.message.includes('traversal') ? `Security: ${e.message}` : `Error: ${e.message}` }; }
     }
 
@@ -7889,11 +7969,13 @@ Python command: {{PYTHON_CMD}}`;
     }
 
     function streamToolResult(panel, text) {
-      if (!panel.el || !panel.el.isConnected) return;
+      if (!panel?.el?.isConnected) return;
       const res = panel.el.querySelector('.tool-result');
-      if (res.classList.contains('loading')) { res.classList.remove('loading'); }
-      res.textContent += text; panel.el._resultText = res.textContent;
-      res.scrollTop = res.scrollHeight; scrollBottom();
+      if (!res?.isConnected) return;
+      res.textContent += text;
+      panel.el._resultText = res.textContent;
+      res.scrollTop = res.scrollHeight;
+      scrollBottom();
     }
 
     async function fetchViaCompanion(url, maxBytes) {
@@ -8051,6 +8133,8 @@ Python command: {{PYTHON_CMD}}`;
 
       try {
         let result;
+        const _debugName = name;  // capture for error reporting
+        const _debugArgs = argsStr?.slice(0, 300);
         switch (name) {
           case 'read_file':
             if (args._parseError) return { output: 'Error: read_file received invalid arguments — ' + args._parseError + '\n\nFix: Provide "path" as valid JSON. Example:\nread_file({"path": "src/main.py"})' };
@@ -8073,41 +8157,79 @@ Python command: {{PYTHON_CMD}}`;
             if (!args.path) return { output: 'Error: "path" is required for read_file_lines. Example: read_file_lines({"path": "src/main.py", "start_line": 1, "end_line": 50})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
             result = await readFileLinesSafe(args.path, args.start_line, args.end_line); break;
 
-          case 'edit_file':
-            if (args._parseError) return { output: 'Error: edit_file received invalid arguments — ' + args._parseError + '\n\nFix: Provide "path" and "edits" as valid JSON. The old_text content was likely too long and got truncated. Use smaller search/replace blocks.\n\nExample:\nedit_file({\n  "path": "src/example.py",\n  "edits": [{"old_text": "old line", "new_text": "new line"}]\n})' };
-            if (!args.path) return { output: 'Error: "path" is required for edit_file. Example:\nedit_file({"path": "src/example.py", "edits": [{"old_text": "...", "new_text": "..."}]})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
-            if (!Array.isArray(args.edits) || !args.edits.length) return { output: 'Error: "edits" must be a non-empty array of {old_text, new_text} objects.\n\nExample:\nedit_file({"path": "src/example.py", "edits": [\n  {"old_text": "line to find", "new_text": "replacement line"},\n  {"old_text": "another line", "new_text": "another replacement"}\n]})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
-            for (let i = 0; i < args.edits.length; i++) { if (!args.edits[i].old_text) return { output: 'Error: edits[' + i + '].old_text is missing or empty. Every edit must have an "old_text" field with the exact text to find.\n\nDebug: edits[' + i + '] = ' + esc(JSON.stringify(args.edits[i]).slice(0, 200)) }; }
-            result = await editFileSafe(args.path, args.edits, state.requireEditApproval);
-            if (!result._pendingApproval && !String(result.output).includes('ERROR')) {
-              debouncedFileTreeRefresh();
-            if (state.compConnected && (args.path.endsWith('.py') || args.path.endsWith('.js'))) {
-                const check = await execViaCompanion(args.path.endsWith('.py') ? `python3 -m py_compile "${args.path}" || python -m py_compile "${args.path}"` : `node -c "${args.path}"`, 15, signal);
-                if (typeof check === 'string' && check.trim()) result.output += '\n\n⚠️ SYNTAX CHECK WARNING:\n' + check.trim();
+          case 'edit_file': {
+            if (args._parseError) {
+              result = { output: 'Error: edit_file received invalid arguments — ' + args._parseError + '\n\nFix: Provide "path" and "edits" as valid JSON. The old_text content was likely too long and got truncated. Use smaller search/replace blocks.\n\nExample:\nedit_file({\n  "path": "src/example.py",\n  "edits": [{"old_text": "old line", "new_text": "new line"}]\n})' };
+              break;
+            }
+            if (!args.path) {
+              result = { output: 'Error: "path" is required for edit_file. Example:\nedit_file({"path": "src/example.py", "edits": [{"old_text": "...", "new_text": "..."}]})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
+              break;
+            }
+            if (!Array.isArray(args.edits) || !args.edits.length) {
+              result = { output: 'Error: "edits" must be a non-empty array of {old_text, new_text} objects.\n\nExample:\nedit_file({"path": "src/example.py", "edits": [\n  {"old_text": "line to find", "new_text": "replacement line"},\n  {"old_text": "another line", "new_text": "another replacement"}\n]})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
+              break;
+            }
+            let editsValid = true;
+            for (let i = 0; i < args.edits.length; i++) {
+              if (!args.edits[i].old_text) {
+                result = { output: 'Error: edits[' + i + '].old_text is missing or empty. Every edit must have an "old_text" field with the exact text to find.\n\nDebug: edits[' + i + '] = ' + esc(JSON.stringify(args.edits[i]).slice(0, 200)) };
+                editsValid = false;
+                break;
               }
             }
-            break;
+            if (!editsValid) break;
 
-          case 'write_file':
+            result = await editFileSafe(args.path, args.edits, state.requireEditApproval);
+
+            if (result && !result._pendingApproval && !String(result.output || '').includes('ERROR')) {
+              debouncedFileTreeRefresh();
+            }
+            if (result && state.compConnected && ((args.path || '').endsWith('.py') || (args.path || '').endsWith('.js'))) {
+              try {
+                const check = await execViaCompanion(
+                  (args.path || '').endsWith('.py') ? 'python3 -m py_compile "' + args.path + '" || python -m py_compile "' + args.path + '"' : 'node -c "' + args.path + '"',
+                  15, signal
+                );
+                if (typeof check === 'string' && check.trim()) result.output += '\n\n⚠️ SYNTAX CHECK WARNING:\n' + check.trim();
+              } catch (_) { /* don't let syntax check crash the tool result */ }
+            }
+            break;
+          }
+
+          case 'write_file': {
             if (args._parseError) {
-              /* For write_file, estimate how much content was lost to truncation */
               const contentHint = argsStr.includes('"content"') ? 'The "content" field was present but the JSON was cut off — the file content was too long for a single tool call.' : 'Could not find a "content" field in the truncated JSON.';
-              return {
+              result = {
                 output: 'Error: write_file received invalid arguments — ' + args._parseError + '\n\n' + contentHint + '\n\nFix: Instead of one large write_file, either:\n1. Use edit_file with small search/replace blocks on an existing file\n2. Split into multiple smaller write_file calls\n3. Reduce the content size\n\nExample:\nwrite_file({"path": "src/example.py", "content": "print(\\"hello\\")"})\n\nIf the file is very large (>30KB), use edit_file instead.',
                 _truncatedWrite: true
               };
+              break;
             }
-            if (!args.path) return { output: 'Error: "path" is required for write_file.\n\nExample:\nwrite_file({"path": "src/example.py", "content": "your code here"})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
-            if (args.content === undefined || args.content === null) return { output: 'Error: "content" is required for write_file. The JSON may have been truncated mid-content.\n\nExample:\nwrite_file({"path": "src/example.py", "content": "your code here"})\n\nDebug: received args keys: [' + Object.keys(args).join(', ') + ']' };
+            if (!args.path) {
+              result = { output: 'Error: "path" is required for write_file.\n\nExample:\nwrite_file({"path": "src/example.py", "content": "your code here"})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
+              break;
+            }
+            if (args.content === undefined || args.content === null) {
+              result = { output: 'Error: "content" is required for write_file. The JSON may have been truncated mid-content.\n\nExample:\nwrite_file({"path": "src/example.py", "content": "your code here"})\n\nDebug: received args keys: [' + Object.keys(args).join(', ') + ']' };
+              break;
+            }
             result = await writeFileSafe(args.path, args.content, state.requireEditApproval);
-            if (!result._pendingApproval && !String(result.output).includes('ERROR')) {
+
+            if (result && !result._pendingApproval && !String(result.output || '').includes('ERROR')) {
               debouncedFileTreeRefresh();
-            if (state.compConnected && (args.path.endsWith('.py') || args.path.endsWith('.js'))) {
-                const check = await execViaCompanion(args.path.endsWith('.py') ? `python3 -m py_compile "${args.path}" || python -m py_compile "${args.path}"` : `node -c "${args.path}"`, 15, signal);
+            }
+            if (result && state.compConnected && (args.path || '').endsWith('.py') || (args.path || '').endsWith('.js')) {
+              try {
+                const check = await execViaCompanion(
+                  (args.path || '').endsWith('.py') ? 'python3 -m py_compile "' + args.path + '" || python -m py_compile "' + args.path + '"' : 'node -c "' + args.path + '"',
+                  15, signal
+                );
                 if (typeof check === 'string' && check.trim()) result.output += '\n\n⚠️ SYNTAX CHECK WARNING:\n' + check.trim();
-              }
+              } catch (_) { /* don't let syntax check crash the tool result */ }
             }
             break;
+          }
 
           case 'list_directory':
             result = { output: await listDirSafe(args.path || '', args.recursive || false) }; break;
@@ -8242,7 +8364,10 @@ Python command: {{PYTHON_CMD}}`;
           case 'browser_go_forward':
             result = { output: await browserApi('/browser_go_forward', {}) }; break;
           case 'browser_close':
-            result = { output: await browserApi('/browser_close', {}) }; break;            
+            result = { output: await browserApi('/browser_close', {}) }; break;     
+            
+            
+            
           case 'spawn_sub_agent':
             if (!args.task) return { output: 'Error: "task" is required for spawn_sub_agent' };
             {
@@ -8256,12 +8381,13 @@ Python command: {{PYTHON_CMD}}`;
             break;
           default: result = { output: 'Unknown tool: ' + name };
         }
+
         return result;
       } catch (e) {
         return { output: 'Error: ' + e.message };
       }
+    
     }
-
     /* ═══════════════ PROJECT DETECTION ═══════════════ */
     async function detectProject() {
       if (!state.dirHandle) { state.projectType = null; state.projectMeta = null; document.getElementById('proj-badge-area').innerHTML = ''; return; }
@@ -9843,196 +9969,222 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           const panelMap = new Map();
           for (let i = 0; i < validNonThinkTcs.length; i++) panelMap.set(validNonThinkTcs[i].id, toolPanels[i]);
 
-          const results = await Promise.all(validNonThinkTcs.map(async (tc, i) => {
+        const results = await Promise.all(validNonThinkTcs.map(async (tc, i) => {
+          if (toolAbortCtrls[i].signal.aborted) {
+            updateToolStatus(toolPanels[i], 'err'); updateToolResult(toolPanels[i], 'Cancelled by user.');
+            return { tc, outText: 'Cancelled by user.', cancelled: true };
+          }
+          let result;
+          try {
+            result = await executeTool(tc.function.name, tc.function.arguments, toolAbortCtrls[i].signal, toolPanels[i]);
+            updateToolStatus(toolPanels[i], 'ok');
+          } catch (e) {
             if (toolAbortCtrls[i].signal.aborted) {
               updateToolStatus(toolPanels[i], 'err'); updateToolResult(toolPanels[i], 'Cancelled by user.');
               return { tc, outText: 'Cancelled by user.', cancelled: true };
             }
-            let result;
-            try {
-              result = await executeTool(tc.function.name, tc.function.arguments, toolAbortCtrls[i].signal, toolPanels[i]);
-              updateToolStatus(toolPanels[i], 'ok');
-            } catch (e) {
-              if (toolAbortCtrls[i].signal.aborted) {
-                updateToolStatus(toolPanels[i], 'err'); updateToolResult(toolPanels[i], 'Cancelled by user.');
-                return { tc, outText: 'Cancelled by user.', cancelled: true };
+            result = { output: 'Error: ' + e.message }; updateToolStatus(toolPanels[i], 'err');
+          }
+
+          /* ── Guard: executeTool can return undefined if a switch case falls through ── */
+          if (result === undefined || result === null || typeof result !== 'object') {
+            const badResult = !result
+              ? 'Tool returned nothing (internal error — this is a bug in executeTool for "' + tc.function.name + '")'
+              : 'Tool returned non-object: ' + typeof result + ' — ' + JSON.stringify(result).slice(0, 120);
+            console.error('[executeTool] INVALID RESULT', {
+            tool: _debugName,
+            args: _debugArgs,
+            result: result,
+            typeof: typeof result,
+            stack: new Error().stack
+          });
+
+
+            updateToolStatus(toolPanels[i], 'err');
+            updateToolResult(toolPanels[i], badResult);
+            return { tc, outText: badResult, diff: null, searchData: null };
+          }
+
+          const outText = (typeof result === 'string') ? result : (result.output) || '';
+          const diff = result.diff || null;
+          const searchData = result._searchData || null;
+
+          if (result._screenshotDataUrl) { toolPanels[i].el._screenshotDataUrl = result._screenshotDataUrl; toolPanels[i].el._imagePath = 'screenshot'; toolPanels[i].el._imageReason = result._screenshotReason || 'agent requested'; toolPanels[i].el._imageType = 'screenshot'; }
+          else if (result._imageDataUrl) { toolPanels[i].el._imageDataUrl = result._imageDataUrl; toolPanels[i].el._imagePath = result._imagePath || 'unknown'; toolPanels[i].el._imageReason = result._imageReason || 'file read'; toolPanels[i].el._imageType = result._imageType || 'file'; }
+          toolPanels[i].el._svgPreviewUrl = result._svgPreviewUrl || null; toolPanels[i].el._svgText = result._svgText || null; toolPanels[i].el._svgPath = result._svgPath || null;
+          toolPanels[i].el._previewDataUrl = result._previewDataUrl || null; toolPanels[i].el._previewPath = result._previewPath || null;
+
+          updateToolResult(toolPanels[i], outText);
+          if (searchData) showSearchPanel(searchData);
+
+          /* ── Inline approval: show diff + buttons as a standalone panel ── */
+          /* ── Inline approval ── */
+          if (result._pendingApproval === true) {
+            const approved = await new Promise((resolve) => {
+              let decided = false;
+              const onDecide = (val) => { if (decided) return; decided = true; resolve(val); };
+
+              const wrapper = document.createElement('div');
+              wrapper.className = 'diff-panel pending';
+              wrapper.style.border = '2px solid rgba(234, 179, 8, .45)';
+
+              const isNewFile = result._pendingIsNewFile === true;
+              const pendingPath = result._pendingPath || '(unknown)';
+
+              const hdr = document.createElement('div');
+              hdr.className = 'diff-hdr';
+              hdr.style.background = 'rgba(234, 179, 8, .06)';
+              const waitingId = 'approval-wait-' + Date.now();
+              hdr.innerHTML = `<i class="fas fa-hourglass-half" id="${waitingId}" style="color:var(--yellow);animation:pulse 1s infinite;font-size:10px"></i><span style="color:var(--yellow);font-weight:700;font-size:11px">${isNewFile ? 'New file awaiting approval' : 'Edit awaiting approval'}</span><span style="flex:1"></span><span style="font-size:10px;color:var(--tx-4);font-family:'JetBrains Mono',monospace">${esc(pendingPath)}</span>`;
+              wrapper.appendChild(hdr);
+
+              if (diff) {
+                const { compact: displayLines } = compactDiffLines(diff.lines, 2, 2);
+                const content = document.createElement('div');
+                content.className = 'diff-content';
+                content.style.maxHeight = '260px';
+                content.innerHTML = displayLines.map(l => {
+                  if (l.type === 'ellipsis') return `<div class="diff-line ellipsis">···</div>`;
+                  return `<div class="diff-line ${l.type}">${esc(l.text)}</div>`;
+                }).join('');
+                wrapper.appendChild(content);
+              } else if (isNewFile && result._pendingNewContent != null) {
+                const preview = document.createElement('div');
+                preview.className = 'new-file-pending';
+                preview.style.border = 'none';
+                preview.style.borderRadius = '0';
+                const newContent = result._pendingNewContent;
+                const chars = newContent.length;
+                const linesCount = newContent.split('\n').length;
+                preview.innerHTML = `<div class="nfp-hdr"><i class="fas fa-file-circle-plus"></i> ${esc(pendingPath)} <span style="margin-left:auto;color:var(--green)">${chars} chars · ${linesCount} lines</span></div><div class="nfp-preview">${esc(newContent.slice(0, 4000))}${chars > 4000 ? '\n\n... (truncated for display)' : ''}</div>`;
+                wrapper.appendChild(preview);
+              } else {
+                const fallback = document.createElement('div');
+                fallback.style.cssText = 'padding:12px;font-size:11px;color:var(--yellow);background:rgba(234,179,8,.04)';
+                fallback.innerHTML = '<i class="fas fa-exclamation-triangle" style="margin-right:4px"></i> Approval requested but no diff or content available. This is an internal error — the tool returned _pendingApproval but no _pendingNewContent or diff. Reporting as rejected.';
+                wrapper.appendChild(fallback);
               }
-              result = { output: 'Error: ' + e.message }; updateToolStatus(toolPanels[i], 'err');
-            }
-            const outText = (typeof result === 'string') ? result : (result && result.output) || '';
-            const diff = (typeof result === 'object' && result && result.diff) || null;
-            const searchData = (typeof result === 'object' && result && result._searchData) || null;
 
-            if (typeof result === 'object' && result) {
-              if (result._screenshotDataUrl) { toolPanels[i].el._screenshotDataUrl = result._screenshotDataUrl; toolPanels[i].el._imagePath = 'screenshot'; toolPanels[i].el._imageReason = result._screenshotReason || 'agent requested'; toolPanels[i].el._imageType = 'screenshot'; }
-              else if (result._imageDataUrl) { toolPanels[i].el._imageDataUrl = result._imageDataUrl; toolPanels[i].el._imagePath = result._imagePath || 'unknown'; toolPanels[i].el._imageReason = result._imageReason || 'file read'; toolPanels[i].el._imageType = result._imageType || 'file'; }
-              toolPanels[i].el._svgPreviewUrl = result._svgPreviewUrl || null; toolPanels[i].el._svgText = result._svgText || null; toolPanels[i].el._svgPath = result._svgPath || null;
-              toolPanels[i].el._previewDataUrl = result._previewDataUrl || null; toolPanels[i].el._previewPath = result._previewPath || null;
-            }
+              const bar = document.createElement('div');
+              bar.className = 'diff-approval-bar';
+              bar.style.background = 'rgba(234, 179, 8, .06)';
+              bar.style.borderTop = '1px solid rgba(234, 179, 8, .25)';
+              bar.style.padding = '10px 12px';
+              bar.innerHTML = `<span class="da-label" style="font-size:12px">${isNewFile ? 'Create this file?' : 'Apply this edit?'}</span><button class="da-btn accept" style="padding:6px 16px;font-size:11px"><i class="fas fa-check"></i> Accept</button><button class="da-btn reject" style="padding:6px 16px;font-size:11px"><i class="fas fa-xmark"></i> Reject</button>`;
 
-            updateToolResult(toolPanels[i], outText);
-            if (searchData) showSearchPanel(searchData);
+              const acceptBtn = bar.querySelector('.da-btn.accept');
+              const rejectBtn = bar.querySelector('.da-btn.reject');
 
-            /* ── Inline approval: show diff + buttons as a standalone panel ── */
-            if (result._pendingApproval) {
-              const approved = await new Promise((resolve) => {
-                let decided = false;
-                const onDecide = (val) => { if (decided) return; decided = true; resolve(val); };
+              acceptBtn.onclick = () => {
+                onDecide(true);
+                wrapper.style.border = '2px solid rgba(34, 197, 94, .35)';
+                wrapper.classList.remove('pending');
+                const waitIcon = document.getElementById(waitingId);
+                if (waitIcon) { waitIcon.className = 'fas fa-check-circle'; waitIcon.style.color = 'var(--green)'; waitIcon.style.animation = 'none'; }
+                const label = hdr.querySelector('span[style*="yellow"]');
+                if (label) { label.style.color = 'var(--green)'; label.textContent = isNewFile ? 'File created' : 'Edit applied'; }
+                bar.innerHTML = '<span class="da-label" style="color:var(--green);font-size:12px"><i class="fas fa-check"></i> Accepted</span>';
+                acceptBtn.replaceWith(acceptBtn.cloneNode(true));
+                rejectBtn.replaceWith(rejectBtn.cloneNode(true));
+              };
 
-                const wrapper = document.createElement('div');
-                wrapper.className = 'diff-panel pending';
-                wrapper.style.border = '2px solid rgba(234, 179, 8, .45)';
+              rejectBtn.onclick = () => {
+                onDecide(false);
+                wrapper.style.border = '2px solid rgba(239, 68, 68, .35)';
+                wrapper.style.opacity = '.5';
+                wrapper.style.pointerEvents = 'none';
+                const waitIcon = document.getElementById(waitingId);
+                if (waitIcon) { waitIcon.className = 'fas fa-xmark-circle'; waitIcon.style.color = 'var(--red)'; waitIcon.style.animation = 'none'; }
+                const label = hdr.querySelector('span[style*="yellow"]');
+                if (label) { label.style.color = 'var(--red)'; label.textContent = isNewFile ? 'File rejected' : 'Edit rejected'; }
+                bar.innerHTML = '<span class="da-label" style="color:var(--red);font-size:12px"><i class="fas fa-xmark"></i> Rejected</span>';
+                acceptBtn.replaceWith(acceptBtn.cloneNode(true));
+                rejectBtn.replaceWith(rejectBtn.cloneNode(true));
+              };
 
-                /* ── Header with pulsing "waiting" indicator ── */
-                const isnew = result._pendingIsNewFile;
-                const hdr = document.createElement('div');
-                hdr.className = 'diff-hdr';
-                hdr.style.background = 'rgba(234, 179, 8, .06)';
-                const waitingId = 'approval-wait-' + Date.now();
-                hdr.innerHTML = `<i class="fas fa-hourglass-half" id="${waitingId}" style="color:var(--yellow);animation:pulse 1s infinite;font-size:10px"></i><span style="color:var(--yellow);font-weight:700;font-size:11px">${isnew ? 'New file awaiting approval' : 'Edit awaiting approval'}</span><span style="flex:1"></span><span style="font-size:10px;color:var(--tx-4);font-family:'JetBrains Mono',monospace">${esc(result._pendingPath)}</span>`;
-                wrapper.appendChild(hdr);
-
-                /* ── Diff or file preview ── */
-                if (diff) {
-                  const { compact: displayLines } = compactDiffLines(diff.lines, 2, 2);
-                  let linesHtml = displayLines.map(l => {
-                    if (l.type === 'ellipsis') return `<div class="diff-line ellipsis">···</div>`;
-                    return `<div class="diff-line ${l.type}">${esc(l.text)}</div>`;
-                  }).join('');
-                  const content = document.createElement('div');
-                  content.className = 'diff-content';
-                  content.style.maxHeight = '260px';
-                  content.innerHTML = linesHtml;
-                  wrapper.appendChild(content);
-                } else if (isnew) {
-                  const preview = document.createElement('div');
-                  preview.className = 'new-file-pending';
-                  preview.style.border = 'none';
-                  preview.style.borderRadius = '0';
-                  const chars = result._pendingNewContent.length;
-                  const lines = result._pendingNewContent.split('\n').length;
-                  preview.innerHTML = `<div class="nfp-hdr"><i class="fas fa-file-circle-plus"></i> ${esc(result._pendingPath)} <span style="margin-left:auto;color:var(--green)">${chars} chars · ${lines} lines</span></div><div class="nfp-preview">${esc(result._pendingNewContent.slice(0, 4000))}${chars > 4000 ? '\n\n... (truncated for display)' : ''}</div>`;
-                  wrapper.appendChild(preview);
-                }
-
-                /* ── Approval buttons — always visible, not nested ── */
-                const bar = document.createElement('div');
-                bar.className = 'diff-approval-bar';
-                bar.style.background = 'rgba(234, 179, 8, .06)';
-                bar.style.borderTop = '1px solid rgba(234, 179, 8, .25)';
-                bar.style.padding = '10px 12px';
-                bar.innerHTML = `<span class="da-label" style="font-size:12px">${isnew ? 'Create this file?' : 'Apply this edit?'}</span><button class="da-btn accept" style="padding:6px 16px;font-size:11px"><i class="fas fa-check"></i> Accept</button><button class="da-btn reject" style="padding:6px 16px;font-size:11px"><i class="fas fa-xmark"></i> Reject</button>`;
-
-                const acceptBtn = bar.querySelector('.da-btn.accept');
-                const rejectBtn = bar.querySelector('.da-btn.reject');
-
-                acceptBtn.onclick = () => {
-                  onDecide(true);
-                  wrapper.style.border = '2px solid rgba(34, 197, 94, .35)';
-                  wrapper.classList.remove('pending');
-                  const waitIcon = document.getElementById(waitingId);
-                  if (waitIcon) { waitIcon.className = 'fas fa-check-circle'; waitIcon.style.color = 'var(--green)'; waitIcon.style.animation = 'none'; }
-                  hdr.querySelector('span[style*="yellow"]').style.color = 'var(--green)';
-                  hdr.querySelector('span[style*="yellow"]').textContent = isnew ? 'File created' : 'Edit applied';
-                  bar.innerHTML = '<span class="da-label" style="color:var(--green);font-size:12px"><i class="fas fa-check"></i> Accepted</span>';
-                  acceptBtn.replaceWith(acceptBtn.cloneNode(true));
-                  rejectBtn.replaceWith(rejectBtn.cloneNode(true));
-                };
-
-                rejectBtn.onclick = () => {
-                  onDecide(false);
-                  wrapper.style.border = '2px solid rgba(239, 68, 68, .35)';
-                  wrapper.style.opacity = '.5';
-                  wrapper.style.pointerEvents = 'none';
-                  const waitIcon = document.getElementById(waitingId);
-                  if (waitIcon) { waitIcon.className = 'fas fa-xmark-circle'; waitIcon.style.color = 'var(--red)'; waitIcon.style.animation = 'none'; }
-                  hdr.querySelector('span[style*="yellow"]').style.color = 'var(--red)';
-                  hdr.querySelector('span[style*="yellow"]').textContent = isnew ? 'File rejected' : 'Edit rejected';
-                  bar.innerHTML = '<span class="da-label" style="color:var(--red);font-size:12px"><i class="fas fa-xmark"></i> Rejected</span>';
-                  acceptBtn.replaceWith(acceptBtn.cloneNode(true));
-                  rejectBtn.replaceWith(rejectBtn.cloneNode(true));
-                };
-
-                wrapper.appendChild(bar);
-
-                /* ── Always append directly to $msg(), never nested inside another panel ── */
-                $msg().appendChild(wrapper);
-
-                /* ── Force scroll — override autoScroll pause, guarantee visibility ── */
-                state.autoScroll = true;
-                updateScrollLockBtn();
+              wrapper.appendChild(bar);
+              $msg().appendChild(wrapper);
+              state.autoScroll = true;
+              updateScrollLockBtn();
+              requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
-                  requestAnimationFrame(() => {
-                    wrapper.scrollIntoView({ behavior: 'smooth', block: 'end' });
-                  });
+                  wrapper.scrollIntoView({ behavior: 'smooth', block: 'end' });
                 });
-
-                /* ── Handle abort while waiting ── */
-                if (toolAbortCtrls[i].signal) {
-                  const h = () => {
-                    if (!decided) {
-                      decided = true;
-                      resolve(false);
-                      wrapper.style.border = '2px solid rgba(239, 68, 68, .35)';
-                      wrapper.style.opacity = '.5';
-                      wrapper.style.pointerEvents = 'none';
-                      const waitIcon = document.getElementById(waitingId);
-                      if (waitIcon) { waitIcon.className = 'fas fa-ban'; waitIcon.style.color = 'var(--red)'; waitIcon.style.animation = 'none'; }
-                      bar.innerHTML = '<span class="da-label" style="color:var(--red);font-size:12px"><i class="fas fa-stop"></i> Cancelled</span>';
-                    }
-                    toolAbortCtrls[i].signal.removeEventListener('abort', h);
-                  };
-                  toolAbortCtrls[i].signal.addEventListener('abort', h);
-                }
               });
 
-              if (approved) {
-                const actual = result._pendingIsNewFile
+              if (toolAbortCtrls[i].signal) {
+                const h = () => {
+                  if (!decided) {
+                    decided = true;
+                    resolve(false);
+                    wrapper.style.border = '2px solid rgba(239, 68, 68, .35)';
+                    wrapper.style.opacity = '.5';
+                    wrapper.style.pointerEvents = 'none';
+                    const waitIcon = document.getElementById(waitingId);
+                    if (waitIcon) { waitIcon.className = 'fas fa-ban'; waitIcon.style.color = 'var(--red)'; waitIcon.style.animation = 'none'; }
+                    bar.innerHTML = '<span class="da-label" style="color:var(--red);font-size:12px"><i class="fas fa-stop"></i> Cancelled</span>';
+                  }
+                  toolAbortCtrls[i].signal.removeEventListener('abort', h);
+                };
+                toolAbortCtrls[i].signal.addEventListener('abort', h);
+              }
+            });
+
+            if (approved) {
+              let actual;
+              try {
+                actual = isNewFile
                   ? await applyPendingWrite(result)
                   : await applyPendingEdit(result);
-                const tArgs = safeParseArgs(tc.function.arguments);
-                if (tArgs.path) {
-                  if (result._pendingIsNewFile) sessionChanges.created.add(tArgs.path); else sessionChanges.modified.add(tArgs.path);
-                  rpState.addChange(tArgs.path, result._pendingIsNewFile ? 'created' : 'modified', actual.diff);
-                  previewFile(tArgs.path);
-                  debouncedFileTreeRefresh();
-                  if (state.compConnected && (tArgs.path.endsWith('.py') || tArgs.path.endsWith('.js'))) {
-                    const ck = await execViaCompanion(tArgs.path.endsWith('.py') ? 'python3 -m py_compile "' + tArgs.path + '" || python -m py_compile "' + tArgs.path + '"' : 'node -c "' + tArgs.path + '"', 15);
-                    if (typeof ck === 'string' && ck.trim()) actual.output += '\n\n⚠️ SYNTAX CHECK:\n' + ck.trim();
-                  }
-                }
-                updateToolResult(toolPanels[i], actual.output);
-                return { tc, outText: actual.output, diff: actual.diff, searchData: null };
-              } else {
+              } catch (approvalErr) {
+                console.error('[agent] applyPending error:', approvalErr);
                 updateToolStatus(toolPanels[i], 'err');
-                updateToolResult(toolPanels[i], 'Rejected — try a different approach.');
-                return { tc, outText: 'Edit to "' + result._pendingPath + '" rejected by user. Do NOT retry this exact edit.', diff: null, searchData: null, rejected: true };
+                updateToolResult(toolPanels[i], 'Error applying approved change: ' + approvalErr.message);
+                return { tc, outText: 'Error applying approved change: ' + approvalErr.message, diff: null, searchData: null };
               }
+              const tArgs = safeParseArgs(tc.function.arguments);
+              if (tArgs && tArgs.path) {
+                if (isNewFile) sessionChanges.created.add(tArgs.path); else sessionChanges.modified.add(tArgs.path);
+                rpState.addChange(tArgs.path, isNewFile ? 'created' : 'modified', actual.diff);
+                previewFile(tArgs.path);
+                debouncedFileTreeRefresh();
+                if (state.compConnected && (tArgs.path.endsWith('.py') || tArgs.path.endsWith('.js'))) {
+                  const ck = await execViaCompanion(tArgs.path.endsWith('.py') ? 'python3 -m py_compile "' + tArgs.path + '" || python -m py_compile "' + tArgs.path + '"' : 'node -c "' + tArgs.path + '"', 15);
+                  if (typeof ck === 'string' && ck.trim()) actual.output += '\n\n⚠️ SYNTAX CHECK:\n' + ck.trim();
+                }
+              }
+              updateToolResult(toolPanels[i], actual.output || 'Applied');
+              return { tc, outText: actual.output || 'Applied', diff: actual.diff || null, searchData: null };
             } else {
-              if (diff) showDiffPanel(diff);
+              updateToolStatus(toolPanels[i], 'err');
+              updateToolResult(toolPanels[i], 'Rejected — try a different approach.');
+              return { tc, outText: 'Edit to "' + pendingPath + '" rejected by user. Do NOT retry this exact edit.', diff: null, searchData: null, rejected: true };
             }
+          } else {
+            if (diff) showDiffPanel(diff);
+          }
 
-            /* ── Error auto-routing ── */
-            if (/not found|does not exist|no such file/i.test(outText)) {
-              const routed = await autoRouteFileError(tc.function.name, outText, toolPanels[i]);
-              if (routed !== outText) {
-                updateToolResult(toolPanels[i], routed);
-                return { tc, outText: routed, diff, searchData };
-              }
+          /* ── Error auto-routing ── */
+          if (/not found|does not exist|no such file/i.test(outText)) {
+            const routed = await autoRouteFileError(tc.function.name, outText, toolPanels[i]);
+            if (routed !== outText) {
+              updateToolResult(toolPanels[i], routed);
+              return { tc, outText: routed, diff, searchData };
             }
+          }
 
-            if (!outText.includes('Error:') && !outText.includes('ERROR') && !outText.includes('Cancelled')) {
-              const args = safeParseArgs(tc.function.arguments);
-              if (tc.function.name === 'write_file') sessionChanges.created.add(args.path);
-              if (tc.function.name === 'edit_file') sessionChanges.modified.add(args.path);
-              if (tc.function.name === 'delete_file') sessionChanges.deleted.add(args.path);
-              if (tc.function.name === 'move_file') sessionChanges.moved.push({ from: args.source, to: args.destination });
-            }
-            const sig = tc.function.name + ':' + (tc.function.arguments || '').slice(0, 100);
-            const success = !outText.includes('Error:') && !outText.includes('ERROR') && !outText.includes('Cancelled');
-            toolCallHistory.push({ sig, success }); if (toolCallHistory.length > 20) toolCallHistory.shift();
-            return { tc, outText, diff, searchData };
-          }));
+          if (!outText.includes('Error:') && !outText.includes('ERROR') && !outText.includes('Cancelled')) {
+            const args = safeParseArgs(tc.function.arguments);
+            if (tc.function.name === 'write_file') sessionChanges.created.add(args.path);
+            if (tc.function.name === 'edit_file') sessionChanges.modified.add(args.path);
+            if (tc.function.name === 'delete_file') sessionChanges.deleted.add(args.path);
+            if (tc.function.name === 'move_file') sessionChanges.moved.push({ from: args.source, to: args.destination });
+          }
+          const sig = tc.function.name + ':' + (tc.function.arguments || '').slice(0, 100);
+          const success = !outText.includes('Error:') && !outText.includes('ERROR') && !outText.includes('Cancelled');
+          toolCallHistory.push({ sig, success }); if (toolCallHistory.length > 20) toolCallHistory.shift();
+          return { tc, outText, diff, searchData };
+        }));
 
           /* ── Auto Verify-and-Fix Loop ── */
           const hadEdits = results.some(r => {
@@ -10509,21 +10661,33 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
     
     function updateToolStatus(w, s) {
-      const st = w.el.querySelector('.tool-status'); st.className = 'tool-status ' + s; st.textContent = s === 'ok' ? 'Done' : s === 'err' ? 'Error' : 'Running...';
-      const stopBtn = w.el.querySelector('.tool-stop'); if (stopBtn) stopBtn.style.display = s === 'run' ? '' : 'none';
-      const expandBtn = w.el.querySelector('.tool-expand-btn'); if (expandBtn && s !== 'run') expandBtn.style.display = '';
+      // Accept either { el: element } or a plain element — same pattern as updateToolResult
+      const el = w?.el || w;
+      if (!el || !el.querySelector) return;
+      const st = el.querySelector('.tool-status');
+      if (!st) return;
+      st.className = 'tool-status ' + s;
+      st.textContent = s === 'ok' ? 'Done' : s === 'err' ? 'Error' : 'Running...';
+      const stopBtn = el.querySelector('.tool-stop');
+      if (stopBtn) stopBtn.style.display = s === 'run' ? '' : 'none';
+      const expandBtn = el.querySelector('.tool-expand-btn');
+      if (expandBtn && s !== 'run') expandBtn.style.display = '';
       if (s === 'err') {
-        const existing = w.el.querySelector('.tool-retry-btn'); if (existing) existing.remove();
-        const retryBtn = document.createElement('button'); retryBtn.className = 'msg-act tool-retry-btn';
-        retryBtn.innerHTML = '<i class="fas fa-rotate-right"></i> Retry'; retryBtn.title = 'Retry this tool call';
-        retryBtn.onclick = (e) => { e.stopPropagation(); retrySingleTool(w); };
-        w.el.querySelector('.tool-hdr').appendChild(retryBtn);
+        const existing = el.querySelector('.tool-retry-btn');
+        if (existing) existing.remove();
+        const retryBtn = document.createElement('button');
+        retryBtn.className = 'msg-act tool-retry-btn';
+        retryBtn.innerHTML = '<i class="fas fa-rotate-right"></i> Retry';
+        retryBtn.title = 'Retry this tool call';
+        retryBtn.onclick = (e) => { e.stopPropagation(); retrySingleTool({ el, _toolCallId: null, _toolName: '', _toolArgs: '', _resultText: '' }); };
+        el.querySelector('.tool-hdr').appendChild(retryBtn);
       }
     }
 
     function updateToolResult(w, r) {
       if (!w || !w.el) return;
-      const res = w.el.querySelector('.tool-result');
+      const el = w.el;
+      const res = el.querySelector('.tool-result');
       if (!res) return;
       res.classList.remove('loading');
       res.style.background = '';
@@ -10532,20 +10696,20 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const text = (r != null) ? String(r) : '(no output)';
 
       res.textContent = text;
-      w.el._resultText = text;
+      w._resultText = text;
 
       const isTruncated = text.length > 500 && text.includes('[Truncated');
       if (isTruncated) {
         res.classList.add('truncated');
-        const eb = w.el.querySelector('.tool-expand-btn');
+        const eb = el.querySelector('.tool-expand-btn');
         if (eb) eb.style.display = '';
       }
 
-      w.el.querySelector('.tool-hdr').onclick = () => {
-        w.el._collapsed = !w.el._collapsed;
-        res.style.display = w.el._collapsed ? 'none' : '';
-        const ic = w.el.querySelector('.tool-expand-btn i');
-        if (ic) ic.className = w.el._collapsed ? 'fas fa-compress' : 'fas fa-expand';
+      el.querySelector('.tool-hdr').onclick = () => {
+        w._collapsed = !w._collapsed;
+        res.style.display = w._collapsed ? 'none' : '';
+        const ic = el.querySelector('.tool-expand-btn i');
+        if (ic) ic.className = w._collapsed ? 'fas fa-compress' : 'fas fa-expand';
       };
 
       scrollBottom();
@@ -10707,13 +10871,28 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
     /* ═══════════════ SEARCH PANEL ═══════════════ */
     function showSearchPanel(data) {
-      if (!data || !data.results || data.results[0]?.error) {
+      if (!data || !data.results || !data.results.length) {
         const el = document.createElement('div'); el.className = 'tool-panel';
         el.innerHTML = `<div class="tool-hdr"><i class="fas fa-globe tool-icon" style="color:var(--red)"></i><span class="tool-name" style="color:var(--red)">web_search</span><span class="tool-status err">No results</span></div><div class="tool-result">${esc(data?.results?.[0]?.error || 'No results found')}</div>`;
         $msg().appendChild(el); scrollBottom(); return;
       }
+
+      const validResults = data.results.filter(r => !r.error);
+      const errorResults = data.results.filter(r => r.error);
+
+      // If every result is an error, show a consolidated error panel
+      if (!validResults.length) {
+        const el = document.createElement('div'); el.className = 'tool-panel';
+        const errorMessages = errorResults.map(r => r.error).filter(Boolean);
+        const combinedError = errorMessages.length === 1
+          ? errorMessages[0]
+          : errorMessages.slice(0, 3).join('\n') + (errorMessages.length > 3 ? '\n... (' + errorMessages.length + ' total errors)' : '');
+        el.innerHTML = `<div class="tool-hdr"><i class="fas fa-globe tool-icon" style="color:var(--red)"></i><span class="tool-name" style="color:var(--red)">web_search</span><span class="tool-status err">Search failed</span></div><div class="tool-result">${esc(combinedError || 'All search results returned errors')}</div>`;
+        $msg().appendChild(el); scrollBottom(); return;
+      }
+
       const el = document.createElement('div'); el.className = 'search-panel';
-      const resultsHtml = data.results.map((r, i) => {
+      const resultsHtml = validResults.map((r, i) => {
         let html = `<div class="search-result"><div class="search-result-title"><span class="sr-idx">${i + 1}</span><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title || '(no title)')}</a></div><div class="search-result-url">${esc(r.url)}</div>`;
         if (r.snippet) html += `<div class="search-result-snippet">${esc(r.snippet)}</div>`;
         if (r.content) html += `<div class="search-result-content-label"><i class="fas fa-file-lines"></i> Fetched content${r.content_truncated ? ' (truncated)' : ''}</div><div class="search-result-content">${esc(r.content.slice(0, 12000))}${r.content.length > 12000 ? '\n\n... (truncated for display)' : ''}</div>`;
@@ -10721,7 +10900,13 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         html += `</div>`;
         return html;
       }).join('');
-      el.innerHTML = `<div class="search-hdr"><i class="fas fa-globe"></i><div class="search-q">${esc(data.query)}</div><span class="search-meta">${data.count} results</span></div><div class="search-results">${resultsHtml}</div>`;
+
+      // Show suppressed-error hint if some results were errors but others succeeded
+      const errorHint = errorResults.length
+        ? `<div style="padding:6px 12px;font-size:10px;color:var(--yellow);font-family:'JetBrains Mono',monospace;background:rgba(234,179,8,.04);border-top:1px solid var(--border)"><i class="fas fa-triangle-exclamation" style="margin-right:4px"></i>${errorResults.length} result${errorResults.length > 1 ? 's' : ''} failed: ${errorResults.map(r => r.error).filter(Boolean).slice(0, 2).map(e => e.split('\n')[0].slice(0, 80)).join('; ')}${errorResults.length > 2 ? '...' : ''}</div>`
+        : '';
+
+      el.innerHTML = `<div class="search-hdr"><i class="fas fa-globe"></i><div class="search-q">${esc(data.query)}</div><span class="search-meta">${validResults.length} result${validResults.length !== 1 ? 's' : ''}${errorResults.length ? ' · ' + errorResults.length + ' error' + (errorResults.length > 1 ? 's' : '') : ''}</span></div><div class="search-results">${resultsHtml}</div>${errorHint}`;
       $msg().appendChild(el); scrollBottom();
     }
 
@@ -10854,8 +11039,20 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     const STORAGE_KEY = 'SlopLobster_conversations', SETTINGS_KEY = 'SlopLobster_settings';
 
     function loadConversations() {
-      try { const r = localStorage.getItem(STORAGE_KEY); if (r) state.conversations = JSON.parse(r); } catch { }
-      if (!state.conversations.length) state.conversations = [];
+      try {
+        const r = localStorage.getItem(STORAGE_KEY);
+        if (r) {
+          const parsed = JSON.parse(r);
+          if (Array.isArray(parsed)) {
+            state.conversations = parsed;
+          } else {
+            state.conversations = [];
+          }
+        }
+      } catch {
+        state.conversations = [];
+      }
+      if (!Array.isArray(state.conversations)) state.conversations = [];
       // Restore originalTask from active conversation
       if (state.activeConvId) {
         const c = state.conversations.find(c => c.id === state.activeConvId);
@@ -10863,6 +11060,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       }
       renderConvList();
     }
+
     function saveConversations() {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(
@@ -11085,17 +11283,25 @@ Use git_diff to review changes before committing. git_diff without arguments sho
               if (tc.function.name === 'think') continue;
               if (tc.function.name === 'web_search') {
                 const toolMsg = msgs.find((tm, ti) => ti > mi && tm.role === 'tool' && tm.tool_call_id === tc.id);
-                if (toolMsg && toolMsg._searchData) { showSearchPanel(toolMsg._searchData); }
-                else {
+                if (toolMsg && toolMsg._searchData) {
+                  showSearchPanel(toolMsg._searchData);
+                } else {
                   const panel = showToolPanel(tc.function.name, tc.function.arguments, 'ok', null, tc.id);
                   const tm2 = msgs.find((tm, ti) => ti > mi && tm.role === 'tool' && tm.tool_call_id === tc.id);
-                  if (tm2) updateToolResult(panel, tm2.content);
+                  if (tm2) {
+                    updateToolStatus(panel, 'ok');
+                    updateToolResult(panel, tm2.content);
+                  } else {
+                    updateToolStatus(panel, 'err');
+                    updateToolResult(panel, '[Tool result not found in saved conversation]');
+                  }
                 }
                 continue;
               }
               const panel = showToolPanel(tc.function.name, tc.function.arguments, 'ok', null, tc.id);
               const toolMsg = msgs.find((tm, ti) => ti > mi && tm.role === 'tool' && tm.tool_call_id === tc.id);
               if (toolMsg) {
+                updateToolStatus(panel, 'ok');
                 updateToolResult(panel, toolMsg.content);
                 if (toolMsg._diff) showDiffPanel(toolMsg._diff);
 
@@ -11136,7 +11342,6 @@ Use git_diff to review changes before committing. git_diff without arguments sho
                   panel.el.appendChild(prev);
                 }
 
-
                 // Handle reloaded conversations that had image previews
                 if (toolMsg._hadImagePreview && !toolMsg._imageDataUrl) {
                   panel.el.classList.add('screenshot-tool');
@@ -11145,6 +11350,10 @@ Use git_diff to review changes before committing. git_diff without arguments sho
                   preview.innerHTML = '<div style="font-size:10px;color:var(--tx-4);padding:12px;text-align:center"><i class="fas fa-image" style="margin-right:4px"></i>Image preview not available (page was reloaded)</div>';
                   panel.el.appendChild(preview);
                 }
+              } else {
+                // Tool result message was not found (corrupted/truncated localStorage)
+                updateToolStatus(panel, 'err');
+                updateToolResult(panel, '[Tool result not found in saved conversation data]');
               }
             }
           }
