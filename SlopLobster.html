@@ -6624,7 +6624,6 @@ Python command: {{PYTHON_CMD}}`;
         if (m.role === 'assistant' && m.tool_calls) {
           const foundTc = m.tool_calls.find(t => t.id === toolCallId);
           if (foundTc) { assistantIdx = i; targetToolCall = foundTc; break; }
-          if (tc) { assistantIdx = i; targetToolCall = tc; break; }
         }
       }
 
@@ -7893,8 +7892,14 @@ Python command: {{PYTHON_CMD}}`;
       if (externalSignal?.aborted) return '[Cancelled by user]';
       let timeout = explicitTimeout ? Math.max(5, explicitTimeout) : state.cmdTimeout;
       const cmdLower = (command || '').toLowerCase();
-      const longPatterns = [/* ... */];
-      for (const p of longPatterns) { if (p.test(cmdLower)) { timeout = Math.max(timeout, 300); break; } }
+      const longPatterns = [
+          /\bpip\s+install\b/, /\bpip3\s+install\b/, /\bconda\s+install\b/,
+          /\bnpm\s+install\b/, /\byarn\s+add\b/, /\bpnpm\s+add\b/, /\bbun\s+add\b/,
+          /\bcargo\s+install\b/, /\bcargo\s+build\b/,
+          /\bgem\s+install\b/, /\bbundle\s+install\b/,
+          /\bcomposer\s+(require|install)\b/,
+          /\bdotnet\s+add\b/, /\bnuget\s+install\b/,
+      ];
       const httpTimeout = timeout + 15000;
       try {
         const res = await fetch(`${state.compUrl}/execute`, {
@@ -10370,6 +10375,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             }
 
             const imgUrl = panel.el._screenshotDataUrl || panel.el._imageDataUrl;
+            const hasImageData = imgUrl && !panel.el._svgPreviewUrl && !panel.el._pdfThumbnail;
+            if (!hasImageData) continue;            
             if (!imgUrl || panel.el._svgPreviewUrl || panel.el._pdfThumbnail) continue;
 
             if (!panel.el.querySelector('.screenshot-preview')) {
@@ -11111,7 +11118,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     function saveCurrentConv() {
       if (!state.activeConvId) return;
       const c = state.conversations.find(c => c.id === state.activeConvId); if (!c) return;
-      c.messages = state.messages; c.updated = Date.now();
+      c.messages = state.messages.map(m => ({ ...m }));
+      c.updated = Date.now();
       c._originalTask = state.originalTask;
       if (!c.title || c.title === 'New conversation') { const f = state.messages.find(m => m.role === 'user' && m.content && m.content !== '[Image(s) attached]'); if (f) c.title = f.content.slice(0, 60) + (f.content.length > 60 ? '...' : ''); }
       saveConversations(); renderConvList();
