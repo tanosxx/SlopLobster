@@ -4297,7 +4297,76 @@
     }
     .sb-scroll::-webkit-scrollbar-thumb:hover {
       background: var(--tx-4)
-    }      
+    }    
+    
+    /* ── HTML Preview ── */
+    .html-preview-iframe-wrap {
+      position: relative;
+      background: white;
+      border-radius: 0 0 6px 6px;
+      overflow: hidden;
+      height: clamp(300px, 60vh, calc(100vh - 200px));
+    }
+
+    .html-preview-iframe-wrap iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+    }
+
+    .html-toggle-btn.active {
+      background: rgba(34, 211, 238, .1);
+      color: var(--cyan);
+      border-color: rgba(34, 211, 238, .2);
+    }
+
+    .html-preview-size-warn {
+      padding: 6px 10px;
+      font-size: 9px;
+      color: var(--yellow);
+      font-family: 'JetBrains Mono', monospace;
+      background: rgba(234, 179, 8, .05);
+      border-top: 1px solid var(--border);
+      text-align: center;
+    }
+
+    .html-preview-bar {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      background: rgba(255, 255, 255, .02);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid transparent;
+    }
+
+    .html-preview-bar .device-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--tx-3);
+      cursor: pointer;
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      transition: .12s;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .html-preview-bar .device-btn:hover {
+      background: var(--bg-3);
+      color: var(--tx-0);
+      border-color: var(--border-l);
+    }
+
+    .html-preview-bar .device-btn.active {
+      background: rgba(34, 211, 238, .1);
+      color: var(--cyan);
+      border-color: rgba(34, 211, 238, .2);
+    }
   </style>
 </head>
 
@@ -10467,6 +10536,122 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       }
     }
 
+        function renderHtmlFilePreview(f) {
+      const emptyEl = document.getElementById('rp-files-empty');
+      const previewEl = document.getElementById('rp-file-preview');
+
+      const lines = f.lines;
+      const lineHtml = lines.map((line, i) => {
+        let highlighted;
+        try { highlighted = hljs.highlight(line, { language: 'html' }).value; }
+        catch { highlighted = esc(line); }
+        return '<div class="rp-file-line">' +
+          '<span class="rp-file-line-num" data-line="' + (i + 1) + '">' + (i + 1) + '</span>' +
+          '<span class="rp-file-line-text">' + highlighted + '</span></div>';
+      }).join('');
+
+      const sizeKB = Math.round(f.content.length / 1024);
+      const sizeWarn = sizeKB > 500
+        ? '<div class="html-preview-size-warn"><i class="fas fa-triangle-exclamation"></i> Large file (' + sizeKB + ' KB) — preview may be slow</div>'
+        : '';
+
+      previewEl.innerHTML =
+        '<div class="rp-file-header">' +
+          '<span class="rp-file-name"><i class="fas fa-globe" style="color:var(--accent);margin-right:4px"></i>' + esc(f.path) + '</span>' +
+          '<span class="rp-file-meta">' + f.lines.length + ' lines · ' + sizeKB + ' KB</span>' +
+          '<div class="rp-file-actions">' +
+            '<button class="rp-file-act html-toggle-btn" id="html-toggle-btn" onclick="toggleHtmlPreview()" title="Switch between code and rendered preview">' +
+              '<i class="fas fa-code"></i> Code' +
+            '</button>' +
+            '<button class="rp-file-act" id="html-refresh-btn" onclick="refreshHtmlPreview()" title="Refresh preview" style="display:none">' +
+              '<i class="fas fa-rotate"></i>' +
+            '</button>' +
+            '<button class="rp-file-act" onclick="rpCopyFile()" title="Copy source">' +
+              '<i class="fas fa-copy"></i>' +
+            '</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="html-preview-bar" id="html-preview-bar" style="display:none">' +
+          '<span style="font-size:9px;color:var(--tx-4);font-family:JetBrains Mono,monospace;margin-right:auto">Viewport:</span>' +
+          '<button class="device-btn active" data-width="100%" onclick="setHtmlPreviewWidth(this, \'100%\')"><i class="fas fa-desktop" style="font-size:9px"></i> Desktop</button>' +
+          '<button class="device-btn" data-width="768px" onclick="setHtmlPreviewWidth(this, \'768px\')"><i class="fas fa-tablet-screen-button" style="font-size:9px"></i> Tablet</button>' +
+          '<button class="device-btn" data-width="375px" onclick="setHtmlPreviewWidth(this, \'375px\')"><i class="fas fa-mobile-screen-button" style="font-size:9px"></i> Mobile</button>' +
+        '</div>' +
+        '<div id="html-preview-view">' +
+          '<div class="html-preview-iframe-wrap" id="html-iframe-wrap">' +
+            '<iframe id="html-preview-iframe" sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin" style="width:100%;height:100%;border:none;background:white;"></iframe>' +
+          '</div>' +
+        '</div>' +
+        '<div id="html-code-view" style="display:none">' +
+          '<div class="rp-file-code">' + lineHtml + '</div>' +
+        '</div>' +
+        (f.truncated ? '<div class="rp-file-truncated">File was truncated — preview may be incomplete</div>' : '') +
+        sizeWarn;
+
+      /* Set iframe content after DOM is ready */
+      requestAnimationFrame(() => {
+        const iframe = document.getElementById('html-preview-iframe');
+        if (iframe) iframe.srcdoc = f.content;
+      });
+
+      emptyEl.style.display = 'none';
+      previewEl.style.display = 'block';
+    }
+
+    let _htmlPreviewWidth = null;
+    function setHtmlPreviewWidth(btn, width) {
+      const wrap = document.getElementById('html-iframe-wrap');
+      if (!wrap) return;
+      _htmlPreviewWidth = width;
+      const iframe = document.getElementById('html-preview-iframe');
+      if (iframe) iframe.style.maxWidth = width === '100%' ? 'none' : width;
+      wrap.style.maxWidth = width === '100%' ? 'none' : width;
+      wrap.style.margin = width === '100%' ? '0' : '0 auto';
+
+      document.querySelectorAll('.html-preview-bar .device-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+
+    function toggleHtmlPreview() {
+      const previewView = document.getElementById('html-preview-view');
+      const codeView = document.getElementById('html-code-view');
+      const toggleBtn = document.getElementById('html-toggle-btn');
+      const refreshBtn = document.getElementById('html-refresh-btn');
+      const bar = document.getElementById('html-preview-bar');
+
+      if (!previewView || !codeView) return;
+
+      const showingPreview = previewView.style.display !== 'none';
+
+      if (showingPreview) {
+        previewView.style.display = 'none';
+        codeView.style.display = 'block';
+        bar.style.display = 'none';
+        toggleBtn.innerHTML = '<i class="fas fa-eye"></i> Preview';
+        toggleBtn.classList.remove('active');
+        refreshBtn.style.display = 'none';
+      } else {
+        codeView.style.display = 'none';
+        previewView.style.display = 'block';
+        bar.style.display = 'flex';
+        toggleBtn.innerHTML = '<i class="fas fa-code"></i> Code';
+        toggleBtn.classList.add('active');
+        refreshBtn.style.display = '';
+        refreshHtmlPreview();
+      }
+    }
+
+    function refreshHtmlPreview() {
+      const iframe = document.getElementById('html-preview-iframe');
+      const f = rpState.activeFile;
+      if (!iframe || !f || !f.isHtml) return;
+      /* Force full re-render by clearing first */
+      iframe.srcdoc = '';
+      requestAnimationFrame(() => {
+        iframe.srcdoc = f.content;
+      });
+    }
+
     /* ═══════════════ UI RENDERING ═══════════════ */
     const $msg = () => document.getElementById('messages');
     function switchToChat() { document.getElementById('welcome').style.display = 'none'; $msg().style.display = 'flex'; }
@@ -12271,6 +12456,10 @@ STEP: Run pytest to verify changes`;
     function renderFilePreview() {
       const f = rpState.activeFile;
       if (!f) return;
+      if (f.isHtml) {
+        renderHtmlFilePreview(f);
+        return;
+      }
 
       const ext = f.path.split('.').pop();
       const langMap = {
@@ -12413,7 +12602,21 @@ STEP: Run pytest to verify changes`;
           previewEl.style.display = 'block';
           return;
         }
-
+        /* ── HTML files: code + rendered preview ── */
+        const isHtml = /\.(html?|xhtml?)$/i.test(path);
+        if (isHtml) {
+          rpState.activeFile = {
+            path, content,
+            lines: content.split('\n'),
+            isHtml: true,
+            truncated: result.output.includes('TRUNCATED'),
+            meta: header
+          };
+          renderFilePreview();
+          emptyEl.style.display = 'none';
+          previewEl.style.display = 'block';
+          return;
+        }
         /* ── Text file: render with syntax highlighting ── */
         const lines = content.split('\n');
         rpState.activeFile = {
