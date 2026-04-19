@@ -8256,17 +8256,26 @@ Python command: {{PYTHON_CMD}}`;
 
             result = await editFileSafe(args.path, args.edits, state.requireEditApproval);
 
-            if (result && !result._pendingApproval && !String(result.output || '').includes('ERROR')) {
+            /* ── Determine if the edit actually succeeded ──
+              Check for explicit ERROR markers in the output.
+              Only refresh tree and run syntax check on SUCCESS. */
+            const editSucceeded = result
+              && !result._pendingApproval
+              && !String(result.output || '').includes('ERROR')
+              && !String(result.output || '').includes('not found');
+
+            if (editSucceeded) {
               debouncedFileTreeRefresh();
-            }
-            if (result && state.compConnected && ((args.path || '').endsWith('.py') || (args.path || '').endsWith('.js'))) {
-              try {
-                const check = await execViaCompanion(
-                  (args.path || '').endsWith('.py') ? 'python3 -m py_compile "' + args.path + '" || python -m py_compile "' + args.path + '"' : 'node -c "' + args.path + '"',
-                  15, signal
-                );
-                if (typeof check === 'string' && check.trim()) result.output += '\n\n⚠️ SYNTAX CHECK WARNING:\n' + check.trim();
-              } catch (_) { /* don't let syntax check crash the tool result */ }
+              /* ── Syntax check: only for files that changed, only on success ── */
+              if (state.compConnected && (args.path || '').endsWith('.py')) {
+                try {
+                  const check = await execViaCompanion(
+                    'python3 -m py_compile "' + args.path + '" || python -m py_compile "' + args.path + '"',
+                    15, signal
+                  );
+                  if (typeof check === 'string' && check.trim()) result.output += '\n\n⚠️ SYNTAX CHECK WARNING:\n' + check.trim();
+                } catch (_) { /* don't let syntax check crash the tool result */ }
+              }
             }
             break;
           }
@@ -8290,17 +8299,23 @@ Python command: {{PYTHON_CMD}}`;
             }
             result = await writeFileSafe(args.path, args.content, state.requireEditApproval);
 
-            if (result && !result._pendingApproval && !String(result.output || '').includes('ERROR')) {
+            const writeSucceeded = result
+              && !result._pendingApproval
+              && !String(result.output || '').includes('Error');
+
+            if (writeSucceeded) {
               debouncedFileTreeRefresh();
-            }
-            if (result && state.compConnected && (args.path || '').endsWith('.py') || (args.path || '').endsWith('.js')) {
-              try {
-                const check = await execViaCompanion(
-                  (args.path || '').endsWith('.py') ? 'python3 -m py_compile "' + args.path + '" || python -m py_compile "' + args.path + '"' : 'node -c "' + args.path + '"',
-                  15, signal
-                );
-                if (typeof check === 'string' && check.trim()) result.output += '\n\n⚠️ SYNTAX CHECK WARNING:\n' + check.trim();
-              } catch (_) { /* don't let syntax check crash the tool result */ }
+              /* Skip JS syntax check for .js files — node -c doesn't handle ESM (import/export).
+                Only check .py files where py_compile works reliably. */
+              if (state.compConnected && (args.path || '').endsWith('.py')) {
+                try {
+                  const check = await execViaCompanion(
+                    'python3 -m py_compile "' + args.path + '" || python -m py_compile "' + args.path + '"',
+                    15, signal
+                  );
+                  if (typeof check === 'string' && check.trim()) result.output += '\n\n⚠️ SYNTAX CHECK WARNING:\n' + check.trim();
+                } catch (_) { }
+              }
             }
             break;
           }
@@ -10051,7 +10066,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           let result;
           try {
             result = await executeTool(tc.function.name, tc.function.arguments, toolAbortCtrls[i].signal, toolPanels[i]);
-            updateToolStatus(toolPanels[i], 'ok');
+            const toolFailed = result && String(result.output || '').includes('ERROR');
+            updateToolStatus(toolPanels[i], toolFailed ? 'err' : 'ok');
           } catch (e) {
             if (toolAbortCtrls[i].signal.aborted) {
               updateToolStatus(toolPanels[i], 'err'); updateToolResult(toolPanels[i], 'Cancelled by user.');
@@ -10060,20 +10076,17 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             result = { output: 'Error: ' + e.message }; updateToolStatus(toolPanels[i], 'err');
           }
 
-          /* ── Guard: executeTool can return undefined if a switch case falls through ── */
           if (result === undefined || result === null || typeof result !== 'object') {
             const badResult = !result
               ? 'Tool returned nothing (internal error — this is a bug in executeTool for "' + tc.function.name + '")'
               : 'Tool returned non-object: ' + typeof result + ' — ' + JSON.stringify(result).slice(0, 120);
             console.error('[executeTool] INVALID RESULT', {
-            tool: _debugName,
-            args: _debugArgs,
-            result: result,
-            typeof: typeof result,
-            stack: new Error().stack
-          });
-
-
+              tool: tc.function.name,
+              args: tc.function.arguments?.slice(0, 300),
+              result: result,
+              typeof: typeof result,
+              stack: new Error().stack
+            });
             updateToolStatus(toolPanels[i], 'err');
             updateToolResult(toolPanels[i], badResult);
             return { tc, outText: badResult, diff: null, searchData: null };
@@ -10092,7 +10105,6 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           if (searchData) showSearchPanel(searchData);
 
           /* ── Inline approval: show diff + buttons as a standalone panel ── */
-          /* ── Inline approval ── */
           if (result._pendingApproval === true) {
             const approved = await new Promise((resolve) => {
               let decided = false;
@@ -10222,8 +10234,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
                 rpState.addChange(tArgs.path, isNewFile ? 'created' : 'modified', actual.diff);
                 previewFile(tArgs.path);
                 debouncedFileTreeRefresh();
-                if (state.compConnected && (tArgs.path.endsWith('.py') || tArgs.path.endsWith('.js'))) {
-                  const ck = await execViaCompanion(tArgs.path.endsWith('.py') ? 'python3 -m py_compile "' + tArgs.path + '" || python -m py_compile "' + tArgs.path + '"' : 'node -c "' + tArgs.path + '"', 15);
+                if (state.compConnected && (tArgs.path.endsWith('.py'))) {
+                  const ck = await execViaCompanion('python3 -m py_compile "' + tArgs.path + '" || python -m py_compile "' + tArgs.path + '"', 15);
                   if (typeof ck === 'string' && ck.trim()) actual.output += '\n\n⚠️ SYNTAX CHECK:\n' + ck.trim();
                 }
               }
@@ -10853,7 +10865,6 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
     
     function updateToolStatus(w, s) {
-      // Accept either { el: element } or a plain element — same pattern as updateToolResult
       const el = w?.el || w;
       if (!el || !el.querySelector) return;
       const st = el.querySelector('.tool-status');
@@ -10864,17 +10875,20 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       if (stopBtn) stopBtn.style.display = s === 'run' ? '' : 'none';
       const expandBtn = el.querySelector('.tool-expand-btn');
       if (expandBtn && s !== 'run') expandBtn.style.display = '';
-      if (s === 'err') {
-        const existing = el.querySelector('.tool-retry-btn');
-        if (existing) existing.remove();
-        const retryBtn = document.createElement('button');
-        retryBtn.className = 'msg-act tool-retry-btn';
-        retryBtn.innerHTML = '<i class="fas fa-rotate-right"></i> Retry';
-        retryBtn.title = 'Retry this tool call';
-        retryBtn.onclick = (e) => { e.stopPropagation(); retrySingleTool({ el, _toolCallId: null, _toolName: '', _toolArgs: '', _resultText: '' }); };
-        el.querySelector('.tool-hdr').appendChild(retryBtn);
+      /* Only show retry button on error, and only for edit_file / write_file
+        (not for "file not found" errors — those need a different fix, not a retry) */
+        if (s === 'err') {
+          const existing = el.querySelector('.tool-retry-btn');
+          if (existing) existing.remove();
+          const retryBtn = document.createElement('button');
+          retryBtn.className = 'msg-act tool-retry-btn';
+          retryBtn.innerHTML = '<i class="fas fa-rotate-right"></i> Retry';
+          retryBtn.title = 'Retry this tool call';
+          retryBtn.onclick = (e) => { e.stopPropagation(); retrySingleTool({ el, _toolCallId: el._toolCallId, _toolName: el._toolName, _toolArgs: el._toolArgs, _resultText: el._resultText || '' }); };
+          el.querySelector('.tool-hdr').appendChild(retryBtn);
+        }
       }
-    }
+    
 
     function updateToolResult(w, r) {
       if (!w || !w.el) return;
