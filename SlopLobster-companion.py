@@ -123,6 +123,8 @@ def run_cmd(cmd, cwd=None, timeout=DEFAULT_TIMEOUT):
             if shutil.which(alt):
                 cmd = alt + stripped[len(first_word):]
     if WINDOWS_BASH:
+        # Translate Windows command syntax to Unix/bash equivalents for Git Bash
+        cmd = _translate_for_cmd_bash(cmd)
         kw = dict(args=[WINDOWS_BASH, "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=base_cwd)
     elif platform.system() == "Windows":
         translated = _translate_for_cmd(cmd)
@@ -421,6 +423,26 @@ def search_ddg(query, num=8):
     if not results:
         return [{"error": "No results parsed from HTML."}]
     return results
+
+def _translate_for_cmd_bash(cmd):
+    """Translate Windows command syntax to bash equivalents for Git Bash on Windows."""
+    import re
+    parts = cmd.strip().split(None, 1)
+    if not parts: return cmd
+    base = parts[0].lower()
+    rest = parts[1] if len(parts) > 1 else ""
+
+    cmd_map = {"dir": "ls", "type": "cat", "findstr": "grep", "del": "rm",
+               "move": "mv", "copy": "cp", "cls": "clear", "where": "which",
+               "rmdir": "rmdir", "ren": "mv", "erase": "rm",
+               "xcopy": "cp -r", "robocopy": "cp -r"}
+    if base in cmd_map:
+        base = cmd_map[base]
+
+    # Convert Windows /flags to Unix -flags: /s → -s, /b → -b, /a → -a
+    new_rest = re.sub(r'\s+/([a-zA-Z])', r' -\1', rest)
+
+    return base + " " + new_rest
 
 def stream_cmd(write_fn, cmd, cwd=None, timeout=DEFAULT_TIMEOUT):
     base_cwd = cwd or os.getcwd()
