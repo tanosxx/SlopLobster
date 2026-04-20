@@ -9896,6 +9896,13 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           el.innerHTML = '<i class="fas fa-file-lines"></i><span>Progress saved to <code style="font-family:JetBrains Mono,monospace;font-size:11px;background:var(--bg-3);padding:1px 4px;border-radius:3px">' + getProgressFile() + '</code> — agent reads it for full context after compact</span>';
           $msg().appendChild(el);
         }
+        if (state.currentPlan && state.currentPlan.steps.length) {
+          renderPlanPanel(state.currentPlan.steps);
+          state.currentPlan.steps.forEach((s, i) => {
+            if (s.status !== 'pending') updatePlanStep(i, s.status);
+          });
+          updatePlanProgress();
+        }
         updateContextMeter(); saveCurrentConv();
       } catch (e) {
         state.messages = state.messages.slice(-4);
@@ -10572,7 +10579,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           '<span class="rp-file-name"><i class="fas fa-globe" style="color:var(--accent);margin-right:4px"></i>' + esc(f.path) + '</span>' +
           '<span class="rp-file-meta">' + f.lines.length + ' lines · ' + sizeKB + ' KB</span>' +
           '<div class="rp-file-actions">' +
-            '<button class="rp-file-act html-toggle-btn" id="html-toggle-btn" onclick="toggleHtmlPreview()" title="Switch between code and rendered preview">' +
+            '<button class="rp-file-act html-toggle-btn active" id="html-toggle-btn" onclick="toggleHtmlPreview()" title="Switch between code and rendered preview">' +
               '<i class="fas fa-code"></i> Code' +
             '</button>' +
             '<button class="rp-file-act" id="html-refresh-btn" onclick="refreshHtmlPreview()" title="Refresh preview" style="display:none">' +
@@ -10583,7 +10590,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             '</button>' +
           '</div>' +
         '</div>' +
-        '<div class="html-preview-bar" id="html-preview-bar" style="display:none">' +
+        '<div class="html-preview-bar" id="html-preview-bar" style="display:flex">' +
           '<span style="font-size:9px;color:var(--tx-4);font-family:JetBrains Mono,monospace;margin-right:auto">Viewport:</span>' +
           '<button class="device-btn active" data-width="100%" onclick="setHtmlPreviewWidth(this, \'100%\')"><i class="fas fa-desktop" style="font-size:9px"></i> Desktop</button>' +
           '<button class="device-btn" data-width="768px" onclick="setHtmlPreviewWidth(this, \'768px\')"><i class="fas fa-tablet-screen-button" style="font-size:9px"></i> Tablet</button>' +
