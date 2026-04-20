@@ -4367,6 +4367,68 @@
       color: var(--cyan);
       border-color: rgba(34, 211, 238, .2);
     }
+
+    /* ── Checkpoint Timeline ── */
+    .cp-popup {
+      position: absolute;
+      top: 42px;
+      right: 240px;
+      z-index: 60;
+      background: var(--bg-1);
+      border: 1px solid var(--border-l);
+      border-radius: 10px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.5);
+      width: 340px;
+      max-height: 420px;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+      backdrop-filter: blur(8px);
+    }
+    .cp-popup.open { display: flex; }
+    .cp-popup-hdr {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px; font-weight: 700; color: var(--tx-0);
+    }
+    .cp-popup-hdr button {
+      background: none; border: none; color: var(--tx-3); cursor: pointer;
+      font-size: 14px; padding: 2px 6px; border-radius: 4px; transition: .12s;
+    }
+    .cp-popup-hdr button:hover { color: var(--tx-0); background: var(--bg-3); }
+    .cp-list { overflow-y: auto; flex: 1; padding: 6px; }
+    .cp-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px; border-radius: 6px; cursor: pointer;
+      transition: .12s; margin-bottom: 2px;
+    }
+    .cp-item:hover { background: var(--bg-3); }
+    .cp-item.current { background: var(--accent-glow); border: 1px solid rgba(232,160,35,.15); }
+    .cp-iter {
+      font-size: 9px; font-family: 'JetBrains Mono', monospace; color: var(--tx-4);
+      min-width: 22px; text-align: center;
+      background: var(--bg-3); padding: 1px 5px; border-radius: 3px;
+    }
+    .cp-desc {
+      flex: 1; font-size: 11px; color: var(--tx-1); min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .cp-time {
+      font-size: 9px; color: var(--tx-4); font-family: 'JetBrains Mono', monospace;
+      flex-shrink: 0;
+    }
+    .cp-empty {
+      padding: 20px; text-align: center; font-size: 11px; color: var(--tx-4);
+    }
+    .hdr-btn.cp-btn { position: relative; }
+    .cp-badge {
+      position: absolute; top: -2px; right: -2px;
+      min-width: 14px; height: 14px; border-radius: 7px;
+      font-size: 8px; font-weight: 700; display: grid; place-items: center;
+      background: var(--accent); color: var(--bg-0); font-family: 'JetBrains Mono', monospace;
+    }
+    .cp-badge.hidden { display: none; }
   </style>
 </head>
 
@@ -4414,7 +4476,7 @@
         SlopLobster
       </div>
       <div class="hdr-sep"></div>
-      <button class="hdr-btn" onclick="newConversation()" title="New conversation (Ctrl+Shift+N)"><i
+      <button class="hdr-btn" onclick="doNewConversation()" title="New conversation (Ctrl+Shift+N)"><i
           class="fas fa-plus"></i></button>
       <select id="model-sel" class="model-sel" disabled>
         <option>No models</option>
@@ -4442,6 +4504,7 @@
       <button class="hdr-btn" onclick="openShortcuts()" title="Keyboard shortcuts"><i
           class="fas fa-keyboard"></i></button>
       <button class="hdr-btn" onclick="exportConversation()" title="Export"><i class="fas fa-download"></i></button>
+      <button class="hdr-btn cp-btn" id="cp-btn" onclick="toggleCheckpointPopup()" title="Rewind to a previous state"><i class="fas fa-clock-rotate-left"></i><span class="cp-badge hidden" id="cp-badge">0</span></button>
       <button class="hdr-btn" onclick="testConnection()" title="Reconnect"><i class="fas fa-rotate"></i></button>
       <button class="hdr-btn" onclick="openSettings()" title="Settings"><i class="fas fa-gear"></i></button>
     </header>
@@ -4856,6 +4919,8 @@ def run_cmd(cmd, cwd=None, timeout=DEFAULT_TIMEOUT):
             if shutil.which(alt):
                 cmd = alt + stripped[len(first_word):]
     if WINDOWS_BASH:
+        # Translate Windows command syntax to Unix/bash equivalents for Git Bash
+        cmd = _translate_for_cmd_bash(cmd)
         kw = dict(args=[WINDOWS_BASH, "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=base_cwd)
     elif platform.system() == "Windows":
         translated = _translate_for_cmd(cmd)
@@ -5154,6 +5219,26 @@ def search_ddg(query, num=8):
     if not results:
         return [{"error": "No results parsed from HTML."}]
     return results
+
+def _translate_for_cmd_bash(cmd):
+    """Translate Windows command syntax to bash equivalents for Git Bash on Windows."""
+    import re
+    parts = cmd.strip().split(None, 1)
+    if not parts: return cmd
+    base = parts[0].lower()
+    rest = parts[1] if len(parts) > 1 else ""
+
+    cmd_map = {"dir": "ls", "type": "cat", "findstr": "grep", "del": "rm",
+               "move": "mv", "copy": "cp", "cls": "clear", "where": "which",
+               "rmdir": "rmdir", "ren": "mv", "erase": "rm",
+               "xcopy": "cp -r", "robocopy": "cp -r"}
+    if base in cmd_map:
+        base = cmd_map[base]
+
+    # Convert Windows /flags to Unix -flags: /s → -s, /b → -b, /a → -a
+    new_rest = re.sub(r'\\s+/([a-zA-Z])', r' -\\1', rest)
+
+    return base + " " + new_rest
 
 def stream_cmd(write_fn, cmd, cwd=None, timeout=DEFAULT_TIMEOUT):
     base_cwd = cwd or os.getcwd()
@@ -5818,6 +5903,8 @@ if __name__ == "__main__":
       planExecuting: false,
       planStepIndex: -1,
       smartContextThreshold: 0,
+      checkpoints: [],
+      checkpointEnabled: true,
       modelCtxOverride: 0,       // 0 = use model default
       modelFlashAttn: true,
       modelKvOffload: true,
@@ -6760,7 +6847,14 @@ Python command: {{PYTHON_CMD}}`;
     }
 
     /* ═══════════════ FILE SYSTEM ═══════════════ */
-    const SKIP = new Set(['node_modules', '.git', '.svn', '__pycache__', '.venv', 'venv', '.next', '.nuxt', 'dist', 'build', '.cache', '.parcel-cache', 'coverage', '.tox', '.DS_Store', 'Thumbs.db', '.mypy_cache', '.pytest_cache', '.turbo', 'SlopLobster-companion.py', '.hg']);
+    const SKIP = new Set([
+      'node_modules', '.git', '.svn', '__pycache__', '.venv', 'venv',
+      '.next', '.nuxt', 'dist', 'build', '.cache', '.parcel-cache',
+      'coverage', '.tox', '.DS_Store', 'Thumbs.db',
+      '.mypy_cache', '.pytest_cache', '.turbo',
+      'SlopLobster-companion.py', '.sloplobster', '.hg'
+    ]);
+    
     const MAX_CACHE_BYTES = 50 * 1024 * 1024;
     function cacheSet(key, value) {
       state.fileCache.set(key, value);
@@ -6775,7 +6869,9 @@ Python command: {{PYTHON_CMD}}`;
       const segs = raw.replace(/\\/g, '/').split('/').filter(Boolean);
       if (!segs.length) return false;
       const fileName = segs[segs.length - 1];
-      return SKIP.has(fileName) || SKIP.has(segs[0]);
+      if (SKIP.has(fileName) || SKIP.has(segs[0])) return true;
+      if (/^\.sloplobster-progress-/.test(fileName)) return true;
+      return false;
     }
 
     /* ═══════════════ SMART CONTEXT INJECTION ═══════════════ */
@@ -7653,18 +7749,32 @@ Python command: {{PYTHON_CMD}}`;
     }
 
     async function searchFilesSafe(pattern) {
-      requireWorkspace(); const results = []; let re;
+      requireWorkspace();
+      const results = [];
+      let re;
       try { re = new RegExp('^' + pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$', 'i'); }
       catch { re = new RegExp(pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&'), 'i'); }
-      async function walk(h, pfx, d) { if (d > 6 || results.length >= 100) return; for await (const [name, kh] of h.entries()) { if (SKIP.has(name)) continue; const full = pfx ? pfx + '/' + name : name; if (re.test(name)) results.push(full); if (kh.kind === 'directory' && results.length < 100) await walk(kh, full, d + 1); } }
-      await walk(state.dirHandle, '', 0); return results.length ? results.join('\n') : 'No files found.';
+      async function walk(h, pfx, d) {
+        if (d > 6 || results.length >= 100) return;
+        for await (const [name, kh] of h.entries()) {
+          if (isSkippedPath(pfx ? pfx + '/' + name : name)) continue;  // ← CHANGED
+          const full = pfx ? pfx + '/' + name : name;
+          if (re.test(name)) results.push(full);
+          if (kh.kind === 'directory' && results.length < 100) await walk(kh, full, d + 1);
+        }
+      }
+      await walk(state.dirHandle, '');
+      return results.length ? results.join('\n') : 'No files found.';
     }
 
     async function grepSafe(pattern, searchPath, includeGlob, contextLines) {
-      requireWorkspace(); const ctx = Math.min(contextLines || 0, 10);
-      let regex; try { regex = new RegExp(pattern, 'g'); } catch { return `Invalid regex: ${pattern}`; }
-      const dh = searchPath ? await resolvePath(searchPath) : state.dirHandle;
-      const results = []; let fileCount = 0; const MAX_FILES = 50, MAX_MATCHES = 200;
+      requireWorkspace();
+      let regex;
+      try { regex = new RegExp(pattern, 'g'); }
+      catch { return `Invalid regex: ${pattern}`; }
+      const ctx = Math.min(contextLines || 0, 10);
+      let fileCount = 0;
+      const MAX_FILES = 50, MAX_MATCHES = 200;
       async function searchFile(fileHandle, filePath) {
         const f = await fileHandle.getFile();
         if (f.type && f.type.startsWith('image/') && !f.type.includes('svg')) return;
@@ -7674,7 +7784,8 @@ Python command: {{PYTHON_CMD}}`;
         if (bytes.some(b => b === 0)) return;
         const text = await f.text();
         if (!includeGlob || filePath.endsWith(includeGlob.replace(/^\*/, ''))) {
-          const lines = text.split('\n'); let matches = 0;
+          const lines = text.split('\n');
+          let matches = 0;
           for (let i = 0; i < lines.length && matches < MAX_MATCHES; i++) {
             regex.lastIndex = 0;
             if (regex.test(lines[i])) {
@@ -7693,7 +7804,8 @@ Python command: {{PYTHON_CMD}}`;
       async function walk(h, pfx, d) {
         if (d > 8 || fileCount >= MAX_FILES) return;
         for await (const [name, kh] of h.entries()) {
-          if (SKIP.has(name)) continue; const full = pfx ? pfx + '/' + name : name;
+          if (isSkippedPath(pfx ? pfx + '/' + name : name)) continue;  // ← CHANGED
+          const full = pfx ? pfx + '/' + name : name;
           if (kh.kind === 'file') await searchFile(kh, full);
           else if (kh.kind === 'directory') await walk(kh, full, d + 1);
         }
@@ -8330,6 +8442,29 @@ Python command: {{PYTHON_CMD}}`;
             result = await grepSafe(args.pattern, args.path || '', args.include || '', args.context_lines || 0); break;
           case 'delete_file':
             if (!args.path) return { output: 'Error: "path" is required for delete_file' };
+            if (!args._confirmDelete) {
+              return new Promise(resolve => {
+                const isRec = !!args.recursive;
+                const warn = isRec ? ' This will delete all contents.' : '';
+                const overlay = document.createElement('div');
+                overlay.className = 'modal-overlay open';
+                overlay.style.zIndex = '150';
+                const dialog = document.createElement('div');
+                dialog.className = 'modal';
+                dialog.style.width = '400px';
+                dialog.innerHTML = `<div class="modal-hdr"><h2 style="display:flex;align-items:center;gap:6px"><i class="fas fa-triangle-exclamation" style="color:var(--red)"></i> Delete File</h2><button class="modal-close" id="df-close"><i class="fas fa-xmark"></i></button></div><div class="modal-body" style="gap:10px"><p style="font-size:13px;color:var(--tx-1);line-height:1.5;margin:0">Delete <code style="font-family:'JetBrains Mono',monospace;font-size:12px;background:var(--bg-3);padding:1px 5px;border-radius:3px;word-break:break-all">${esc(args.path)}</code>?${warn}</p><p style="font-size:11px;color:var(--tx-3);margin:0;font-style:italic">This cannot be undone.</p><div style="display:flex;gap:8px;justify-content:flex-end"><button class="sb-btn" id="df-cancel" style="padding:7px 14px;font-size:12px">Cancel</button><button class="sb-btn" id="df-ok" style="padding:7px 14px;font-size:12px;background:var(--red);color:white;border-color:var(--red)">Delete</button></div></div>`;
+                overlay.appendChild(dialog);
+                document.body.appendChild(overlay);
+                const cleanup = () => overlay.remove();
+                dialog.querySelector('#df-close').onclick = cleanup;
+                dialog.querySelector('#df-cancel').onclick = cleanup;
+                overlay.addEventListener('click', e => { if (e.target === overlay) cleanup(); });
+                dialog.querySelector('#df-ok').onclick = () => {
+                  cleanup();
+                  resolve(executeTool('delete_file', JSON.stringify({ ...safeParseArgs(argsStr), _confirmDelete: true, recursive: args.recursive }), signal, panel));
+                };
+              });
+            }
             result = { output: await deleteFileSafe(args.path, args.recursive) };
             debouncedFileTreeRefresh(); break;
           case 'move_file':
@@ -8503,6 +8638,104 @@ Python command: {{PYTHON_CMD}}`;
       document.getElementById('proj-badge-area').innerHTML = '<div class="proj-badge unknown">Unknown project type</div>';
     }
 
+    /* ═══════════════ CHECKPOINT SYSTEM ═══════════════ */
+    function saveCheckpoint(iteration) {
+      if (!state.checkpointEnabled || modifiedFiles.size === 0) return;
+      const snapshot = {};
+      for (const path of modifiedFiles) {
+        const content = state.fileCache.get(path);
+        if (content !== undefined) snapshot[path] = content;
+      }
+      if (!Object.keys(snapshot).length) return;
+
+      // Build a meaningful description from recent tool calls
+      const recent = toolCallHistory.slice(-5);
+      const actions = recent.filter(r => r.success).map(r => {
+        const m = r.sig.match(/^(\w+):(.{2,60})/);
+        return m ? m[1] + ': ' + m[2].trim() : r.sig.slice(0, 50);
+      });
+      const desc = actions.length
+        ? actions.reverse().join(' → ')
+        : `${modifiedFiles.size} file${modifiedFiles.size > 1 ? 's' : ''} modified`;
+
+      state.checkpoints.push({
+        id: Date.now(),
+        iteration,
+        timestamp: Date.now(),
+        description: desc,
+        files: snapshot,
+        messageCount: state.messages.length
+      });
+      if (state.checkpoints.length > 30) state.checkpoints.shift();
+      updateCheckpointUI();
+      updateCheckpointList();
+    }
+
+    async function rewindToCheckpoint(checkpointId) {
+      const cp = state.checkpoints.find(c => c.id === checkpointId);
+      if (!cp) return;
+      if (state.running) { state.abortCtrl?.abort(); state.running = false; updateSendBtn(); }
+      for (const [path, content] of Object.entries(cp.files)) {
+        try { await writeFileSafe(path, content); } catch (e) { showToast(`Rewind failed for ${path}: ${e.message}`, 'err'); }
+      }
+      state.messages = state.messages.slice(0, cp.messageCount);
+      state.checkpoints = state.checkpoints.filter(c => c.id <= checkpointId);
+      const parent = $msg(); while (parent.firstChild) parent.firstChild.remove();
+      streamEl = null;
+      if (state.messages.length) { switchToChat(); replayMessages(state.messages); updateContextMeter(); }
+      else { document.getElementById('welcome').style.display = 'flex'; $msg().style.display = 'none'; }
+      updateCheckpointUI(); saveCurrentConv();
+      showToast(`Rewound to: ${cp.description}`, 'ok');
+    }
+
+    function toggleCheckpointPopup() {
+      const popup = document.getElementById('cp-popup') || renderCheckpointPopup();
+      if (!popup.parentNode) document.body.appendChild(popup);
+      popup.classList.toggle('open');
+      if (popup.classList.contains('open')) {
+        requestAnimationFrame(() => updateCheckpointList());
+      }
+      if (!popup.classList.contains('open')) setTimeout(() => { if (popup.parentNode) popup.remove(); }, 250);
+    }
+
+    function renderCheckpointPopup() {
+      const popup = document.createElement('div');
+      popup.id = 'cp-popup';
+      popup.className = 'cp-popup';
+      popup.onclick = e => { if (e.target === popup) toggleCheckpointPopup(); };
+      popup.innerHTML = `<div class="cp-popup-hdr"><span><i class="fas fa-clock-rotate-left" style="color:var(--accent);margin-right:6px"></i>Checkpoints</span><button onclick="event.stopPropagation();clearCheckpoints()"><i class="fas fa-trash"></i></button></div><div class="cp-list" id="cp-list"></div>`;
+      return popup;
+    }
+
+    function updateCheckpointUI() {
+      const badge = document.getElementById('cp-badge');
+      if (!badge) return;
+      const n = state.checkpoints.length;
+      badge.textContent = n;
+      badge.classList.toggle('hidden', n === 0);
+    }
+
+    function updateCheckpointList() {
+      const list = document.getElementById('cp-list');
+      if (!list) return;
+      if (!state.checkpoints.length) {
+        const reason = !state.dirHandle ? 'Open a workspace first' : 'Checkpoints are saved automatically before each iteration when files are modified';
+        list.innerHTML = `<div class="cp-empty"><i class="fas fa-info-circle" style="margin-bottom:4px;opacity:.5"></i>${reason}</div>`;
+        return;
+      }
+      list.innerHTML = [...state.checkpoints].reverse().map(cp => {
+        const ago = timeAgo(cp.timestamp);
+        const isCurrent = cp.id === (state.checkpoints[state.checkpoints.length - 1]?.id);
+        return `<div class="cp-item${isCurrent ? ' current' : ''}" onclick="event.stopPropagation(); rewindToCheckpoint(${cp.id})"><span class="cp-iter">#${cp.iteration}</span><span class="cp-desc" title="${esc(cp.description)}">${esc(cp.description)}</span><span class="cp-time">${ago}</span></div>`;
+      }).join('');
+    }
+
+    function clearCheckpoints() {
+      state.checkpoints = [];
+      updateCheckpointUI(); updateCheckpointList();
+      showToast('Checkpoints cleared', 'info');
+    }
+
     /* ═══════════════ API CLIENT ═══════════════ */
 
     async function fetchModelInfo() {
@@ -8618,7 +8851,7 @@ Start the companion for real shell access, git, and web search.`;
         const isWin = plat === 'Windows';
         let text = `**Full shell** (${shell}) on ${plat} via companion. All OS commands work.`;
         if (isWin) {
-          text += `\n⚠️ You are on Windows. Use Windows commands: dir (not ls), type (not cat), findstr (not grep), del (not rm), move (not mv), copy (not cp), where (not which). Git bash is available so Unix flags work with git commands.`;
+          text += `\n⚠️ You are on Windows, running through Git Bash. Use Unix/Linux command syntax:\n- ls (not dir), cat (not type), grep (not findstr)\n- rm (not del), mv (not move), cp (not copy), find (not dir /s)\n- Flags use - prefix: -la not /a, -R not /s\n- Python: use \`${pythonCmd}\` (companion auto-falls back between python/python3)`;
         }
         text += `\nUse \`${pythonCmd}\` for Python. The companion auto-falls back between python/python3.`;
         text += `\nTimeout: ${state.cmdTimeout}s default, auto-extended to 300s for package installs (pip, npm, cargo, etc.).`;
@@ -9923,6 +10156,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const sessionChanges = { modified: new Set(), created: new Set(), deleted: new Set(), moved: [] };
       toolCallHistory.length = 0;
       textLoopBuffer.length = 0;
+      // Save checkpoint before this iteration's tools run
+      saveCheckpoint(iters);
 
       while (state.running) {
         const ctxPct = getContextPct();
@@ -11259,14 +11494,15 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           if (Array.isArray(parsed)) {
             state.conversations = parsed;
           } else {
+            console.warn('[conv] stored data was not an array, resetting');
             state.conversations = [];
           }
         }
-      } catch {
+      } catch (e) {
+        console.error('[conv] load failed:', e);
         state.conversations = [];
       }
       if (!Array.isArray(state.conversations)) state.conversations = [];
-      // Restore originalTask from active conversation
       if (state.activeConvId) {
         const c = state.conversations.find(c => c.id === state.activeConvId);
         if (c?._originalTask) state.originalTask = c._originalTask;
@@ -11275,51 +11511,36 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     }
 
     function saveConversations() {
+      // Update lightweight cache in localStorage (titles only, no message content)
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(
-          state.conversations.map(c => ({
-            ...c,
-            messages: c.messages.map(m => {
-              const clean = { ...m };
-              delete clean._diff;
-              delete clean._searchData;
-              delete clean._images;       // ← strip image data
-              // Keep a small marker so replay knows images existed
-              if (m._images?.length) {
-                clean._hadImages = m._images.length;
-                delete clean._images;
-              }
-              if (m._imageDataUrl) {
-                clean._hadImagePreview = true;
-                delete clean._imageDataUrl;
-              }
-              if (clean.role === 'tool' && typeof clean.content === 'string' && clean.content.length > 2000) {
-                clean.content = clean.content.slice(0, 2000) + '\n... [truncated in storage]';
-              }
-              return clean;
-            })
+        const cache = {
+          activeConvId: state.activeConvId,
+          titles: state.conversations.map(c => ({
+            id: c.id, title: c.title || 'Untitled',
+            created: c.created, updated: c.updated
           }))
-        ));
+        };
+        localStorage.setItem('SlopLobster_convCache', JSON.stringify(cache));
       } catch (e) {
-        if (e.name === 'QuotaExceededError') {
-          showToast('Storage full — image data excluded from save', 'warn');
-          // Retry without images
-          try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(
-              state.conversations.map(c => ({
-                ...c,
-                messages: c.messages.map(m => {
-                  const clean = { ...m };
-                  delete clean._diff; delete clean._searchData; delete clean._images;
-                  if (m._images?.length) clean._hadImages = m._images.length;
-                  return clean;
-                })
-              }))
-            ));
-          } catch { /* truly full */ }
+            if (e.name === 'QuotaExceededError') {
+              showToast('Storage full — image data excluded from save', 'warn');
+              // Retry without images
+              try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(
+                  state.conversations.map(c => ({
+                    ...c,
+                    messages: c.messages.map(m => {
+                      const clean = { ...m };
+                      delete clean._diff; delete clean._searchData; delete clean._images;
+                      if (m._images?.length) clean._hadImages = m._images.length;
+                      return clean;
+                    })
+                  }))
+                ));
+              } catch { /* truly full */ }
+            }
+          }
         }
-      }
-    }
 
     function saveCurrentConv() {
       if (!state.activeConvId) return;
@@ -11327,31 +11548,71 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       c.messages = state.messages.map(m => ({ ...m }));
       c.updated = Date.now();
       c._originalTask = state.originalTask;
-      if (!c.title || c.title === 'New conversation') { const f = state.messages.find(m => m.role === 'user' && m.content && m.content !== '[Image(s) attached]'); if (f) c.title = f.content.slice(0, 60) + (f.content.length > 60 ? '...' : ''); }
-      saveConversations(); renderConvList();
+      if (!c.title || c.title === 'New conversation') {
+        const f = state.messages.find(m =>
+          m.role === 'user' &&
+          m.content &&
+          m.content !== '[Image(s) attached]' &&
+          !m.content.startsWith('[')
+        );
+        if (f) c.title = f.content.slice(0, 60) + (f.content.length > 60 ? '...' : '');
+      }
+      try { saveConversations(); renderConvList(); }
+      catch (e) { console.error('[conv] save failed:', e); }
     }
 
-    function newConversation() {
-      if (state.running) return;
-      if (state.messages.length > 0 && !state._dismissedNewWarning) {
-        const overlay = document.createElement('div');
-        overlay.className = 'modal-overlay open';
-        overlay.style.zIndex = '150';
-        const dialog = document.createElement('div');
-        dialog.className = 'modal';
-        dialog.style.width = '400px';
-        dialog.innerHTML = `<div class="modal-hdr"><h2>New Conversation</h2><button class="modal-close" id="nc-close"><i class="fas fa-xmark"></i></button></div><div class="modal-body" style="gap:12px"><p style="font-size:13px;color:var(--tx-1);line-height:1.6;margin:0">Current chat will be saved automatically. Start a new conversation?</p><div style="display:flex;gap:8px;justify-content:flex-end"><button class="sb-btn" id="nc-dont" style="padding:7px 14px;font-size:12px">Don\u2019t ask again</button><button class="sb-btn" id="nc-cancel" style="padding:7px 14px;font-size:12px">Cancel</button><button class="sb-btn primary" id="nc-ok" style="padding:7px 14px;font-size:12px">New Chat</button></div></div>`;
-        overlay.appendChild(dialog);
-        document.body.appendChild(overlay);
-        dialog.querySelector('#nc-close').onclick = () => overlay.remove();
-        dialog.querySelector('#nc-cancel').onclick = () => overlay.remove();
-        dialog.querySelector('#nc-dont').onclick = () => { overlay.remove(); state._dismissedNewWarning = true; doNewConversation(); };
-        dialog.querySelector('#nc-ok').onclick = () => { overlay.remove(); doNewConversation(); };
-        overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
-        return;
+    async function doNewConversation() {
+      _wsWarningDismissed = false;
+      updateWorkspaceBanner();
+      if (state.messages.length > 0 && state.activeConvId) {
+        // Flush pending save before switching
+        clearTimeout(_convSaveTimer);
+        const prev = state.conversations.find(c => c.id === state.activeConvId);
+        if (prev) await saveConvToWorkspace(prev);
       }
-      doNewConversation();
+
+      const oldProgressFile = state.activeConvId ? `.sloplobster-progress-${state.activeConvId}.md` : null;
+      if (state.dirHandle && oldProgressFile) {
+        try { await deleteFileSafe(oldProgressFile, false); } catch { }
+      }
+
+      const id = 'conv_' + Date.now();
+      state.conversations.unshift({
+        id, title: 'New conversation',
+        messages: [], created: Date.now(), updated: Date.now()
+      });
+      state.activeConvId = id;
+      state.messages = [];
+      state.fileCache.clear();
+      modifiedFiles.clear();
+      state.pendingImages = [];
+      state.originalTask = null;
+      state.currentPlan = null;
+      state.planExecuting = false;
+      state.planStepIndex = -1;
+      toolCallHistory.length = 0;
+      state._autoVerifyRetries = 0;
+      textLoopBuffer.length = 0;
+      addImageAttachmentsToInputArea();
+      rpState.clearChanges();
+      rpState.activeFile = null;
+      document.getElementById('rp-files-empty').style.display = '';
+      document.getElementById('rp-file-preview').style.display = 'none';
+
+      $msg().innerHTML = '';
+      streamEl = null;
+      document.getElementById('welcome').style.display = 'flex';
+      $msg().style.display = 'none';
+      saveConversations();
+      renderConvList();
+      updateContextMeter();
+      refreshFileTree();
+
+      // Save to workspace immediately
+      saveConvToWorkspace(state.conversations[0]);
+      scheduleConvIndexSave();
     }
+
 
 
     async function doNewConversation() {
@@ -11370,6 +11631,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         updated: Date.now()
       });
       state.activeConvId = id;
+      localStorage.setItem('SlopLobster_activeConvId', state.activeConvId); 
       state.messages = [];
       state.fileCache.clear();
       modifiedFiles.clear();
@@ -11406,17 +11668,47 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       refreshFileTree();
     }
 
-    function switchConv(id) {
-      if (state.running) return; saveCurrentConv();
-      const c = state.conversations.find(c => c.id === id); if (!c) return;
-      state.activeConvId = id; state.messages = c.messages || []; state.fileCache.clear(); modifiedFiles.clear();
-      // Restore original task from conversation history
+    async function switchConv(id) {
+      if (state.running) return;
+
+      // Flush pending save
+      if (state.activeConvId) {
+        clearTimeout(_convSaveTimer);
+        const prev = state.conversations.find(c => c.id === state.activeConvId);
+        if (prev) await saveConvToWorkspace(prev);
+      }
+
+      const c = state.conversations.find(c => c.id === id);
+      if (!c) return;
+
+      // If conversation was loaded from cache only (no messages), try loading from workspace
+      if (c.messages.length === 0 && !c._loadError && state.dirHandle) {
+        try {
+          await ensureConvDir();
+          const slopDir = await state.dirHandle.getDirectoryHandle('.sloplobster');
+          const convDir = await slopDir.getDirectoryHandle('conversations');
+          const convFile = await convDir.getFileHandle(id + '.json');
+          const data = JSON.parse(await (await convFile.getFile()).text());
+          if (data.messages && data.messages.length) {
+            c.messages = data.messages;
+            c._originalTask = data._originalTask || null;
+          }
+        } catch { /* not found, stay empty */ }
+      }
+
+      state.activeConvId = id;
+      state.messages = c.messages || [];
+      state.fileCache.clear();
+      modifiedFiles.clear();
       state.originalTask = c._originalTask || null;
       toolCallHistory.length = 0;
       textLoopBuffer.length = 0;
-      rpState.clearChanges(); rpState.activeFile = null;
-      document.getElementById('rp-files-empty').style.display = ''; document.getElementById('rp-file-preview').style.display = 'none';
-      /* Replay changes from conversation history into right panel */
+      rpState.clearChanges();
+      rpState.activeFile = null;
+      document.getElementById('rp-files-empty').style.display = '';
+      document.getElementById('rp-file-preview').style.display = 'none';
+
+      // Replay changes from history into right panel
       for (const m of state.messages) {
         if (m.role !== 'tool') continue;
         const tc = findParentToolCall(m); if (!tc) continue;
@@ -11426,46 +11718,90 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         if (tc.function.name === 'delete_file') { const a = safeParseArgs(tc.function.arguments); if (a.path) rpState.addChange(a.path, 'deleted', null); }
         if (tc.function.name === 'move_file') { const a = safeParseArgs(tc.function.arguments); if (a.destination) rpState.addChange(a.destination, 'moved', null); }
       }
-      $msg().innerHTML = ''; streamEl = null;
+
+      $msg().innerHTML = '';
+      streamEl = null;
       if (state.messages.length) { switchToChat(); replayMessages(state.messages); updateContextMeter(); }
       else { document.getElementById('welcome').style.display = 'flex'; $msg().style.display = 'none'; }
       renderConvList();
     }
 
-    function forkConv(id, e) {
-      if (e) e.stopPropagation(); if (state.running) return;
-      const src = state.conversations.find(c => c.id === id); if (!src || !src.messages.length) return;
+
+    async function forkConv(id, e) {
+      if (e) e.stopPropagation();
+      if (state.running) return;
+      const src = state.conversations.find(c => c.id === id);
+      if (!src || !src.messages.length) return;
       const newId = 'conv_' + Date.now();
-      state.conversations.unshift({ id: newId, title: '(fork) ' + (src.title || 'Untitled'), messages: [...src.messages], created: Date.now(), updated: Date.now() });
-      switchConv(newId); showToast('Conversation forked', 'ok');
+      const fork = { ...src, id: newId, title: '(fork) ' + (src.title || 'Untitled'), created: Date.now(), updated: Date.now() };
+      state.conversations.unshift(fork);
+      if (state.dirHandle) {
+        await ensureConvDir();  // fire-and-forget is fine here, saveConvToWorkspace checks again
+        await saveConvToWorkspace(fork);
+        scheduleConvIndexSave();
+      }
+      switchConv(newId);
+      showToast('Conversation forked', 'ok');
     }
 
-    function deleteConv(id, e) {
-      e.stopPropagation(); if (state.running) return;
+    async function deleteConv(id, e) {
+      e.stopPropagation();
+      if (state.running) return;
+      if (state.dirHandle) {
+        try {
+          if (!(await ensureConvDir())) return;
+          const slopDir = await state.dirHandle.getDirectoryHandle('.sloplobster');
+          const convDir = await slopDir.getDirectoryHandle('conversations');
+          await convDir.removeEntry(id + '.json');
+        } catch (err) { console.warn('[conv] file delete error:', err.message); }
+      }
+
       state.conversations = state.conversations.filter(c => c.id !== id);
-      if (state.activeConvId === id) { if (state.conversations.length) switchConv(state.conversations[0].id); else newConversation(); }
-      saveConversations(); renderConvList(); showToast('Deleted', 'info');
+      if (state.activeConvId === id) {
+        if (state.conversations.length) switchConv(state.conversations[0].id);
+        else await doNewConversation();
+      }
+      saveConversations();
+      renderConvList();
+      scheduleConvIndexSave();
+      showToast('Deleted', 'info');
     }
 
     function filterConversations(query) { state.convSearchQuery = query.toLowerCase().trim(); renderConvList(); }
 
     function renderConvList() {
       const el = document.getElementById('conv-list');
-      let convs = state.conversations;
+      let convs = [...state.conversations];
       if (state.convSearchQuery) convs = convs.filter(c => (c.title || '').toLowerCase().includes(state.convSearchQuery));
-      if (!convs.length) { el.innerHTML = `<div style="padding:8px 12px;font-size:10px;color:var(--tx-4)">${state.convSearchQuery ? 'No matches' : 'No conversations'}</div>`; return; }
-      el.innerHTML = convs.map(c => {
+      convs.sort((a, b) => (b.updated || 0) - (a.updated || 0));
+
+      const status = getConvStorageStatus();
+
+      let header = '';
+      if (!state.dirHandle) {
+        header = '<div style="padding:4px 8px;font-size:9px;color:var(--yellow);font-family:JetBrains Mono,monospace;background:rgba(234,179,8,.06);border:1px solid rgba(234,179,8,.12);border-radius:4px;margin:0 0 4px"><i class="fas fa-triangle-exclamation" style="margin-right:3px"></i>Open workspace to persist conversations</div>';
+      } else if (status.count > 0) {
+        header = '<div style="padding:2px 8px;font-size:9px;color:var(--tx-4);font-family:JetBrains Mono,monospace">' + status.count + ' saved</div>';
+      }
+
+      if (!convs.length) {
+        el.innerHTML = header + `<div style="padding:8px 12px;font-size:10px;color:var(--tx-4)">${state.convSearchQuery ? 'No matches' : 'No conversations yet'}</div>`;
+        return;
+      }
+      el.innerHTML = header + convs.map(c => {
         const a = c.id === state.activeConvId ? 'active' : '';
         const ago = timeAgo(c.updated);
         const msgCount = c.messages ? c.messages.filter(m => m.role === 'user').length : 0;
-        return `<div class="conv-item ${a}" onclick="switchConv('${c.id}')">
-      <i class="fas fa-message" style="font-size:9px;color:var(--tx-4);flex-shrink:0"></i>
-      <span class="conv-title">${esc(c.title || 'Untitled')}</span>
-      ${msgCount > 0 ? `<span style="font-size:8px;color:var(--tx-4);flex-shrink:0;font-family:'JetBrains Mono',monospace">${msgCount}m</span>` : ''}
-      <span style="font-size:9px;color:var(--tx-4);flex-shrink:0;font-family:'JetBrains Mono',monospace">${ago}</span>
-      <button class="conv-fork" onclick="forkConv('${c.id}',event)" title="Fork"><i class="fas fa-code-branch"></i></button>
-      <button class="conv-del" onclick="deleteConv('${c.id}',event)" title="Delete"><i class="fas fa-xmark"></i></button>
-    </div>`;
+        const isGhost = !c.messages.length && !c._loadError;
+        const opacity = isGhost ? 'opacity:.5' : '';
+        return `<div class="conv-item ${a}" style="${opacity}" onclick="switchConv('${c.id}')">
+          <i class="fas fa-message" style="font-size:9px;color:var(--tx-4);flex-shrink:0"></i>
+          <span class="conv-title">${esc(c.title || 'Untitled')}${c._loadError ? ' ⚠' : ''}</span>
+          ${msgCount > 0 ? `<span style="font-size:8px;color:var(--tx-4);flex-shrink:0;font-family:'JetBrains Mono,monospace">${msgCount}m</span>` : ''}
+          <span style="font-size:9px;color:var(--tx-4);flex-shrink:0;font-family:'JetBrains Mono,monospace">${ago}</span>
+          <button class="conv-fork" onclick="forkConv('${c.id}',event)" title="Fork"><i class="fas fa-code-branch"></i></button>
+          <button class="conv-del" onclick="deleteConv('${c.id}',event)" title="Delete"><i class="fas fa-xmark"></i></button>
+        </div>`;
       }).join('');
     }
 
@@ -11648,10 +11984,15 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     function persistSettings() {
       try {
         localStorage.setItem(SETTINGS_KEY, JSON.stringify({
-          apiUrl: state.apiUrl, compUrl: state.compUrl, temp: state.temp,
-          maxTokens: state.maxTokens, maxReadKB: state.maxReadKB,
-          cmdTimeout: state.cmdTimeout, ctxWindow: state.ctxWindow,
-          autoCompactPct: state.autoCompactPct, maxIters: state.maxIters,
+          apiUrl: state.apiUrl,
+          compUrl: state.compUrl,
+          temp: state.temp,
+          maxTokens: state.maxTokens,
+          maxReadKB: state.maxReadKB,
+          cmdTimeout: state.cmdTimeout,
+          ctxWindow: state.ctxWindow,
+          autoCompactPct: state.autoCompactPct,
+          maxIters: state.maxIters,
           verifyWrites: state.verifyWrites,
           modelCtxOverride: state.modelCtxOverride,
           modelFlashAttn: state.modelFlashAttn,
@@ -11664,7 +12005,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           autoVerifyCommand: state.autoVerifyCommand,
           autoVerifyMaxRetries: state.autoVerifyMaxRetries,
           wsWarningDismissed: _wsWarningDismissed,
-          smartContextThreshold: state.smartContextThreshold          
+          smartContextThreshold: state.smartContextThreshold
+          // NO conversation data here anymore
         }));
       } catch { }
     }
@@ -11848,7 +12190,39 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         showToast(`Workspace: ${state.dirName}`, 'ok');
         _wsWarningDismissed = false;
         updateWorkspaceBanner();
-        await refreshFileTree(); await detectProject(); checkGitRepo(); updateWelcomeStatus();
+
+        // Load conversations from workspace
+        const loaded = await loadConversationsFromWorkspace();
+
+        // One-time import from localStorage
+        await importFromLocalStorage();
+
+        if (loaded) {
+          // Reload current active conversation into view
+          const c = state.conversations.find(c => c.id === state.activeConvId);
+          if (c && c.messages.length) {
+            state.messages = c.messages;
+            state.originalTask = c._originalTask || null;
+            toolCallHistory.length = 0;
+            textLoopBuffer.length = 0;
+            $msg().innerHTML = '';
+            streamEl = null;
+            switchToChat();
+            replayMessages(state.messages);
+            updateContextMeter();
+          } else if (state.conversations.length) {
+            $msg().innerHTML = '';
+            streamEl = null;
+            document.getElementById('welcome').style.display = 'flex';
+            $msg().style.display = 'none';
+          }
+          renderConvList();
+        }
+
+        await refreshFileTree();
+        await detectProject();
+        checkGitRepo();
+        updateWelcomeStatus();
       } catch (e) { if (e.name !== 'AbortError') showToast(e.message, 'err'); }
     }
 
@@ -11926,7 +12300,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const p = c.split(/\s+/); const rest = c.slice(p[0].length).trim();
       switch (p[0]) {
         case '/help': appendMsg('system', 'Commands: /help, /new, /compact, /dir, /model, /tools, /shell, /status, /export, /clear'); break;
-        case '/clear': case '/new': newConversation(); break;
+        case '/clear': case '/new': doNewConversation(); break;
         case '/compact': smartCompact(); break;
         case '/dir': openDirectory(); break;
         case '/model': { const ms = [...document.getElementById('model-sel').options].map(o => o.value).filter(Boolean); appendMsg('system', `Models: ${ms.join(', ') || 'none'}`); break; }
@@ -12624,11 +12998,19 @@ STEP: Run pytest to verify changes`;
           return;
         }
         /* ── HTML files: code + rendered preview ── */
+        /* ── HTML files: code + rendered preview ── */
+        /* ── HTML files: code + rendered preview ── */
         const isHtml = /\.(html?|xhtml?)$/i.test(path);
         if (isHtml) {
+          // Always use full content for preview, even when agent got a skeleton
+          let realContent = content;
+          if (result.output.includes('→ structure skeleton')) {
+            const cached = state.fileCache.get(path);
+            if (cached) realContent = cached;
+          }
           rpState.activeFile = {
-            path, content,
-            lines: content.split('\n'),
+            path, content: realContent,
+            lines: realContent.split('\n'),
             isHtml: true,
             truncated: result.output.includes('TRUNCATED'),
             meta: header
@@ -12842,17 +13224,213 @@ STEP: Run pytest to verify changes`;
       }
     }
 
+    /* ═══════════════ WORKSPACE CONVERSATION STORAGE ═══════════════ */
+    const CONV_DIR = '.sloplobster/conversations';
+
+    let _convSaveTimer = null;
+    let _convIndexTimer = null;
+    let _localStorageImported = false;
+
+    /** Create .sloplobster/conversations/ directory if it doesn't exist */
+    async function ensureConvDir() {
+      if (!state.dirHandle) return false;
+      try {
+        const slopDir = await state.dirHandle.getDirectoryHandle('.sloplobster', { create: true });
+        await slopDir.getDirectoryHandle('conversations', { create: true });
+        return true;
+      } catch (e) {
+        console.error('[conv] ensureConvDir error:', e.message);
+        return false;
+      }
+    }
+
+    /** Save a single conversation JSON to workspace */
+    async function saveConvToWorkspace(conv) {
+      if (!state.dirHandle) return false;
+      try {
+        if (!(await ensureConvDir())) return false;
+        const slopDir = await state.dirHandle.getDirectoryHandle('.sloplobster');
+        const convDir = await slopDir.getDirectoryHandle('conversations');
+        const file = await convDir.getFileHandle(conv.id + '.json', { create: true });
+        const writable = await file.createWritable();
+        const clean = {
+          id: conv.id, title: conv.title || 'Untitled',
+          created: conv.created, updated: conv.updated,
+          _originalTask: conv._originalTask || null,
+          messages: conv.messages.map(m => {
+            const c = { role: m.role, content: m.content || null };
+            if (m.tool_calls) c.tool_calls = m.tool_calls;
+            if (m.tool_call_id) c.tool_call_id = m.tool_call_id;
+            if (m._hadImages) c._hadImages = m._hadImages;
+            if (c.role === 'tool' && typeof c.content === 'string' && c.content.length > 8000) {
+              c.content = c.content.slice(0, 8000) + '\n... [truncated in file storage]';
+            }
+            return c;
+          })
+        };
+        await writable.write(JSON.stringify(clean, null, 2));
+        await writable.close();
+        return true;
+      } catch (e) {
+        console.error('[conv] save file error:', e.message);
+        return false;
+      }
+    }
+
+    /** Save index.json (debounced) */
+    function scheduleConvIndexSave() {
+      clearTimeout(_convIndexTimer);
+      _convIndexTimer = setTimeout(async () => {
+        if (!state.dirHandle) return;
+        try {
+          if (!(await ensureConvDir())) return;
+          const slopDir = await state.dirHandle.getDirectoryHandle('.sloplobster');
+          const convDir = await slopDir.getDirectoryHandle('conversations');
+          const file = await convDir.getFileHandle('index.json', { create: true });
+          const writable = await file.createWritable();
+          const index = {
+            version: 1,
+            activeId: state.activeConvId,
+            conversations: state.conversations.map(c => ({
+              id: c.id, title: c.title || 'Untitled',
+              created: c.created, updated: c.updated
+            }))
+          };
+          await writable.write(JSON.stringify(index, null, 2));
+          await writable.close();
+        } catch (e) { console.error('[conv] index save error:', e.message); }
+      }, 1000);
+    }
+
+    /** Load all conversations from workspace folder */
+    async function loadConversationsFromWorkspace() {
+      if (!state.dirHandle) return false;
+      try {
+        if (!(await ensureConvDir())) return false;
+        const slopDir = await state.dirHandle.getDirectoryHandle('.sloplobster');
+        const convDir = await slopDir.getDirectoryHandle('conversations');
+
+        // Read index
+        let indexData = null;
+        try {
+          const indexFile = await convDir.getFileHandle('index.json');
+          indexData = JSON.parse(await (await indexFile.getFile()).text());
+        } catch { /* No index yet — first time */ }
+
+        if (!indexData || !Array.isArray(indexData.conversations)) {
+          // Scan for any conv_*.json files and build index from scratch
+          const files = [];
+          for await (const [name, handle] of convDir.entries()) {
+            if (name === 'index.json' || !name.startsWith('conv_') || !name.endsWith('.json')) continue;
+            try {
+              const data = JSON.parse(await (await handle.getFile()).text());
+              if (data.id) files.push({ id: data.id, title: data.title || 'Untitled', created: data.created || Date.now(), updated: data.updated || Date.now() });
+            } catch { /* skip corrupted */ }
+          }
+          if (files.length) {
+            state.conversations = [];
+            state.activeConvId = null;
+            scheduleConvIndexSave();
+            return true;
+          }
+          return false;
+        }
+
+        // Load each conversation from its file
+        const loaded = [];
+        for (const meta of indexData.conversations) {
+          try {
+            const convFile = await convDir.getFileHandle(meta.id + '.json');
+            const raw = await (await convFile.getFile()).text();
+            const data = JSON.parse(raw);
+            loaded.push({
+              id: data.id || meta.id,
+              title: data.title || meta.title || 'Untitled',
+              messages: data.messages || [],
+              created: data.created || meta.created || Date.now(),
+              updated: data.updated || meta.updated || Date.now(),
+              _originalTask: data._originalTask || null
+            });
+          } catch (e) {
+            console.warn('[conv] failed to load', meta.id, e.message);
+            loaded.push({
+              id: meta.id, title: meta.title || '(load error)',
+              messages: [], created: meta.created || Date.now(),
+              updated: meta.updated || Date.now(), _loadError: true
+            });
+          }
+        }
+
+        state.conversations = loaded;
+        state.activeConvId = indexData.activeId && loaded.find(c => c.id === indexData.activeId)
+          ? indexData.activeId
+          : (loaded.length ? loaded[0].id : null);
+        return true;
+
+      } catch (e) {
+        console.warn('[conv] workspace load error:', e.message);
+        return false;
+      }
+    }
+
+    /** One-time import from localStorage into workspace */
+    async function importFromLocalStorage() {
+      if (_localStorageImported || !state.dirHandle) return;
+      _localStorageImported = true;
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        if (!Array.isArray(data) || !data.length) return;
+        let imported = 0;
+        for (const conv of data) {
+          if (!conv.id || !conv.messages || !conv.messages.length) continue;
+          if (state.conversations.find(c => c.id === conv.id)) continue;
+          state.conversations.push(conv);
+          if (!(await ensureConvDir())) break;
+          await saveConvToWorkspace(conv);
+          imported++;
+        }
+
+        if (imported > 0) {
+          scheduleConvIndexSave();
+          // Clean up localStorage
+          localStorage.removeItem(STORAGE_KEY);
+          showToast(`Imported ${imported} conversation${imported > 1 ? 's' : ''} from browser cache to workspace`, 'ok');
+        }
+      } catch (e) {
+        console.warn('[conv] import error:', e.message);
+      }
+    }
+
+    /** Get storage status for UI display */
+    function getConvStorageStatus() {
+      if (!state.dirHandle) return { source: 'memory', label: 'In memory', icon: 'fa-memory' };
+      if (state.conversations.length === 0) return { source: 'workspace', label: 'Workspace', icon: 'fa-folder-open' };
+      return { source: 'workspace', label: 'Workspace', icon: 'fa-folder-open', count: state.conversations.length };
+    }
+
     /* ═══════════════ INIT ═══════════════ */
     function init() {
-      loadSettings(); loadConversations();
+      loadSettings();
+      loadConversations();
       renderWelcomeGrid();
-      if (state.conversations.length && !state.activeConvId) state.activeConvId = state.conversations[0].id;
-      if (state.activeConvId) {
-        const c = state.conversations.find(c => c.id === state.activeConvId);
-        if (c && c.messages && c.messages.length) { state.messages = c.messages; switchToChat(); replayMessages(state.messages); updateContextMeter(); }
-      }
-      renderConvList(); renderToolList(); renderReferenceSites(); setupFileDrop(); setupScrollDetection();
 
+      /* Don't pre-load conversations from old localStorage —
+        they come from the workspace folder after openDirectory().
+        The lightweight cache only stores titles for sidebar display. */
+      if (!state.conversations.length) {
+        document.getElementById('welcome').style.display = 'flex';
+        $msg().style.display = 'none';
+      }
+
+      renderConvList();
+      renderToolList();
+      renderReferenceSites();
+      setupFileDrop();
+      setupScrollDetection();
+
+      /* ── Paste: auto-attach images from clipboard ── */
       document.addEventListener('paste', async e => {
         if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
         const items = [...(e.clipboardData?.items || [])];
@@ -12864,7 +13442,8 @@ STEP: Run pytest to verify changes`;
               const dataUrl = await fileToBase64(file);
               const sizeKB = Math.round((dataUrl.length * 3 / 4) / 1024);
               state.pendingImages.push({ dataUrl, name: 'pasted-image.jpg', size: sizeKB + ' KB' });
-              addImageAttachmentsToInputArea(); updateSendBtn();
+              addImageAttachmentsToInputArea();
+              updateSendBtn();
               showToast('Image pasted — press Enter to send', 'ok');
               document.getElementById('msg-input').focus();
             } catch (err) { showToast('Could not read pasted image', 'err'); }
@@ -12873,102 +13452,241 @@ STEP: Run pytest to verify changes`;
         }
       });
 
+      /* ── Input: auto-resize, history, send on Enter ── */
       const inp = document.getElementById('msg-input');
-      inp.addEventListener('input', () => { inputHistoryIdx = -1; inp.style.height = 'auto'; inp.style.height = Math.min(inp.scrollHeight, 150) + 'px'; updateSendBtn(); });
+      inp.addEventListener('input', () => {
+        inputHistoryIdx = -1;
+        inp.style.height = 'auto';
+        inp.style.height = Math.min(inp.scrollHeight, 150) + 'px';
+        updateSendBtn();
+      });
       inp.addEventListener('keydown', e => {
         if (e.key === 'ArrowUp') {
           if (inputHistory.length && (inputHistoryIdx < inputHistory.length - 1 || inp.value !== inputHistory[inputHistoryIdx])) {
             if (inputHistoryIdx === -1) inputDraft = inp.value;
             inputHistoryIdx = Math.min(inputHistoryIdx + 1, inputHistory.length - 1);
-            inp.value = inputHistory[inputHistoryIdx]; inp.style.height = 'auto'; inp.style.height = Math.min(inp.scrollHeight, 150) + 'px'; updateSendBtn(); e.preventDefault();
+            inp.value = inputHistory[inputHistoryIdx];
+            inp.style.height = 'auto';
+            inp.style.height = Math.min(inp.scrollHeight, 150) + 'px';
+            updateSendBtn();
+            e.preventDefault();
           }
           return;
         }
         if (e.key === 'ArrowDown') {
           if (inputHistoryIdx > -1) {
-            inputHistoryIdx--; inp.value = inputHistoryIdx === -1 ? inputDraft : inputHistory[inputHistoryIdx];
-            inp.style.height = 'auto'; inp.style.height = Math.min(inp.scrollHeight, 150) + 'px'; updateSendBtn(); e.preventDefault();
+            inputHistoryIdx--;
+            inp.value = inputHistoryIdx === -1 ? inputDraft : inputHistory[inputHistoryIdx];
+            inp.style.height = 'auto';
+            inp.style.height = Math.min(inp.scrollHeight, 150) + 'px';
+            updateSendBtn();
+            e.preventDefault();
           }
           return;
         }
-        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          handleSend();
+        }
       });
 
+      /* ── Model selector: load vs switch ── */
       document.getElementById('model-sel').addEventListener('change', async e => {
         const newModel = e.target.value;
         if (!newModel) return;
-        // If it's already loaded, just update local state
         if (activeInstance?.identifier === newModel) {
           state.model = newModel;
-          updateVisionUI(); updateModelMeta(); updateModelLoadBtn();
-          updateSendBtn(); updateWelcomeStatus();
+          updateVisionUI();
+          updateModelMeta();
+          updateModelLoadBtn();
+          updateSendBtn();
+          updateWelcomeStatus();
           return;
         }
-        // Otherwise unload old and load new
         if (state.running) {
           showToast('Wait for current response to finish', 'warn');
-          e.target.value = state.model; // revert dropdown
+          e.target.value = state.model;
           return;
         }
         state.model = newModel;
-        updateVisionUI(); updateModelMeta(); updateSendBtn(); updateWelcomeStatus();
+        updateVisionUI();
+        updateModelMeta();
+        updateSendBtn();
+        updateWelcomeStatus();
         await requestModelLoad(newModel);
       });
 
-      /* ── Show model metadata hint ── */
+      /* ── Model metadata hint ── */
       const meta = document.getElementById('model-meta');
       const info = state.modelInfoMap.get(state.model);
-      if (meta && info) {
+      if (info) { 
         const parts = [];
         if (info.paramsString) parts.push(info.paramsString);
         if (info.contextLength) parts.push((info.contextLength / 1000).toFixed(0) + 'k ctx');
         if (info.trainedForToolUse) parts.push('tools');
         if (info.vision) parts.push('👁');
         meta.textContent = parts.length ? '(' + parts.join(' · ') + ')' : '';
-      } else if (meta) { meta.textContent = ''; }
-      updateVisionUI(); updateSendBtn(); updateWelcomeStatus();
+      } else {
+        meta.textContent = '';
+      }
+      updateVisionUI();
+      updateSendBtn();
+      updateWelcomeStatus();
 
-      document.getElementById('s-temp').addEventListener('input', e => { document.getElementById('s-temp-val').textContent = e.target.value; });
-
-      document.getElementById('settings-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeSettings(); });
-      document.getElementById('shortcuts-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeShortcuts(); });
-
-      document.addEventListener('keydown', e => {
-        if (e.key === 'Escape') {
-          if (document.getElementById('img-viewer').classList.contains('open')) { closeImgViewer(); return; }
-          if (document.getElementById('settings-modal').classList.contains('open')) { closeSettings(); return; }
-          if (document.getElementById('shortcuts-modal').classList.contains('open')) { closeShortcuts(); return; }
-          if (state.running) { state.abortCtrl?.abort(); state.running = false; updateSendBtn(); return; }
-        }
-        if (e.ctrlKey && e.shiftKey && e.key === 'N') { e.preventDefault(); newConversation(); }
-        if (e.ctrlKey && !e.shiftKey && e.key === 'b') { e.preventDefault(); toggleSidebar(); }
-        if (e.ctrlKey && !e.shiftKey && e.key === 'k') { e.preventDefault(); document.getElementById('conv-search-input').focus(); }
-        if (e.ctrlKey && e.key === ',') { e.preventDefault(); openSettings(); }
-        if (e.ctrlKey && e.shiftKey && e.key === 'E') { e.preventDefault(); exportConversation(); }
-        if (e.ctrlKey && e.shiftKey && e.key === 'M') { e.preventDefault(); smartCompact(); }
-        if (e.ctrlKey && e.shiftKey && e.key === 'P') { e.preventDefault(); togglePlanMode(); }
-        if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) { e.preventDefault(); inp.focus(); }
+      /* ── Settings sliders ── */
+      document.getElementById('s-temp').addEventListener('input', e => {
+        document.getElementById('s-temp-val').textContent = e.target.value;
       });
 
-      updateWorkspaceBanner();
-      if (!document.getElementById('s-sys-prompt').value) document.getElementById('s-sys-prompt').value = DEFAULT_SYS;
-      updateWelcomeStatus(); updateScrollLockBtn();
-      initRightPanel();initRightPanelResize();
-      setTimeout(() => testConnection(3), 800);
-      const _intervals = [];
-      function startPolling() {
-        _intervals.push(setInterval(checkCompanion, 20000));
-        // _intervals.push(setInterval(pollModel, 30000));
-      }
-      window.addEventListener('beforeunload', () => _intervals.forEach(clearInterval));
+      /* ── Modal close on backdrop click ── */
+      document.getElementById('settings-modal').addEventListener('click', e => {
+        if (e.target === e.currentTarget) closeSettings();
+      });
+      document.getElementById('shortcuts-modal').addEventListener('click', e => {
+        if (e.target === e.currentTarget) closeShortcuts();
+      });
 
-      // Poll LM Studio for model changes (user might switch in LM Studio UI)
+      /* ── Keyboard shortcuts ── */
+      document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') {
+          if (document.getElementById('img-viewer').classList.contains('open')) {
+            closeImgViewer();
+            return;
+          }
+          if (document.getElementById('settings-modal').classList.contains('open')) {
+            closeSettings();
+            return;
+          }
+          if (document.getElementById('shortcuts-modal').classList.contains('open')) {
+            closeShortcuts();
+            return;
+          }
+          if (state.running) {
+            state.abortCtrl?.abort();
+            state.running = false;
+            updateSendBtn();
+            return;
+          }
+        }
+        if (e.ctrlKey && e.shiftKey && e.key === 'N') {
+          e.preventDefault();
+          doNewConversation();
+        }
+        if (e.ctrlKey && !e.shiftKey && e.key === 'b') {
+          e.preventDefault();
+          toggleSidebar();
+        }
+        if (e.ctrlKey && !e.shiftKey && e.key === 'k') {
+          e.preventDefault();
+          document.getElementById('conv-search-input').focus();
+        }
+        if (e.ctrlKey && e.key === ',') {
+          e.preventDefault();
+          openSettings();
+        }
+        if (e.ctrlKey && e.shiftKey && e.key === 'E') {
+          e.preventDefault();
+          exportConversation();
+        }
+        if (e.ctrlKey && e.shiftKey && e.key === 'M') {
+          e.preventDefault();
+          smartCompact();
+        }
+        if (e.ctrlKey && e.shiftKey && e.key === 'P') {
+          e.preventDefault();
+          togglePlanMode();
+        }
+        if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+          e.preventDefault();
+          inp.focus();
+        }
+      });
+
+      /* ── Workspace warning banner ── */
+      updateWorkspaceBanner();
+
+      /* ── Default system prompt ── */
+      if (!document.getElementById('s-sys-prompt').value) {
+        document.getElementById('s-sys-prompt').value = DEFAULT_SYS;
+      }
+
+      /* ── Auto-scroll indicator ── */
+      updateScrollLockBtn();
+
+      /* ── Right panel ── */
+      initRightPanel();
+      initRightPanelResize();
+
+      /* ── Initial connection checks ── */
+      setTimeout(() => testConnection(3), 800);
+
+      /* ── Poll companion health every 20s ── */
+      const _intervals = [];
+      _intervals.push(setInterval(checkCompanion, 20000));
+
+      /* ── Poll LM Studio for model changes every 30s ── */
       setInterval(async () => {
         if (state.connected && !state.running) {
-          try { await refreshModels(false); } catch { /* silent */ }
+          try {
+            await refreshModels(false);
+          } catch { /* silent */ }
         }
       }, 30000);
 
+      window.addEventListener('beforeunload', () => {
+        if (state.messages.length > 0 && state.activeConvId) {
+          const c = state.conversations.find(c => c.id === state.activeConvId);
+          if (c) {
+            c.messages = state.messages.map(m => {
+              const clean = { ...m };
+              delete clean._diff; delete clean._searchData; delete clean._images;
+              if (m._images?.length) { clean._hadImages = m._images.length; delete clean._images; }
+              if (clean.role === 'tool' && typeof clean.content === 'string' && clean.content.length > 2000) {
+                clean.content = clean.content.slice(0, 2000) + '\n... [truncated]';
+              }
+              return clean;
+            });
+            c.updated = Date.now();
+            try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.conversations)); } catch (e) { /* silent */ }
+          }
+        }
+      });
+
+      window.addEventListener('beforeunload', () => {
+        _intervals.forEach(clearInterval);
+        /* Flush any pending workspace save on page close */
+        clearTimeout(_convSaveTimer);
+        clearTimeout(_convIndexTimer);
+        if (state.activeConvId && state.dirHandle) {
+          const c = state.conversations.find(c => c.id === state.activeConvId);
+          if (c) saveConvToWorkspace(c);
+        }
+      });
+
+      /* ── Clean up old conversation data from localStorage ──
+        After workspace is confirmed working, remove the legacy
+        SlopLobster_conversations blob to free up ~5MB. */
+      setTimeout(async () => {
+        try {
+          const old = localStorage.getItem(STORAGE_KEY);
+          if (!old) return;
+          const parsed = JSON.parse(old);
+          if (!Array.isArray(parsed) || !parsed.length) {
+            localStorage.removeItem(STORAGE_KEY);
+            return;
+          }
+          /* If workspace is open and has conversations, safe to delete.
+            If no workspace, keep as fallback until one is opened
+            (importFromLocalStorage handles the actual import). */
+          if (state.dirHandle) {
+            const workspaceLoaded = state.conversations.some(c => c.messages.length > 0);
+            if (workspaceLoaded) {
+              localStorage.removeItem(STORAGE_KEY);
+              console.info('[init] removed old localStorage conversations — workspace storage active');
+            }
+          }
+        } catch { /* ignore parse errors */ }
+      }, 5000);
     }
 
     init();
