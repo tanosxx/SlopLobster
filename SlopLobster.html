@@ -8345,7 +8345,11 @@ Python command: {{PYTHON_CMD}}`;
 
           case 'edit_file': {
             if (args._parseError) {
-              result = { output: 'Error: edit_file received invalid arguments — ' + args._parseError + '\n\nFix: Provide "path" and "edits" as valid JSON. The old_text content was likely too long and got truncated. Use smaller search/replace blocks.\n\nExample:\nedit_file({\n  "path": "src/example.py",\n  "edits": [{"old_text": "old line", "new_text": "new line"}]\n})' };
+              const isTruncated = args._parseError.includes('empty') || args._parseError.includes('truncated');
+              const msg = isTruncated
+                ? 'TRUNCATED — edit_file JSON was cut off mid-stream. The file content in old_text/new_text was too large for a single tool call.\n\nFix: Use edit_file with SMALLER search/replace blocks (10-20 lines max per block). Split large edits into multiple sequential edit_file calls, each targeting a specific section.'
+                : 'Error: edit_file received invalid arguments — ' + args._parseError + '\n\nFix: Provide "path" and "edits" as valid JSON. The old_text content was likely too long and got truncated. Use smaller search/replace blocks.\n\nExample:\nedit_file({\n  "path": "src/example.py",\n  "edits": [{"old_text": "old line", "new_text": "new line"}]\n})';
+              result = { output: msg, _truncatedWrite: isTruncated };
               break;
             }
             if (!args.path) {
@@ -9001,10 +9005,10 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         signal: state.abortCtrl.signal
       });
 
-      if (!res.ok) {
-        const errRaw = await res.text().catch(() => res.statusText);
-        /* Strip HTML error pages from LM Studio into a clean message */
-        let err = errRaw;
+        if (!res.ok) {
+          const errRaw = await res.text().catch(() => '');
+          let err = errRaw || res.statusText || 'Unknown error';
+
         if (err.includes('<!DOCTYPE') || err.includes('<html')) {
           const tmp = document.createElement('DIV'); tmp.innerHTML = err;
           err = tmp.textContent || tmp.innerText || 'Unknown error';
@@ -9012,7 +9016,14 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         }
         /* Truncate very long errors */
         if (err.length > 300) err = err.slice(0, 300) + '...';
-        throw new Error(`API ${res.status}: ${err}`);
+        const hints = res.status === 500
+            ? '\n\nCommon fixes:\n• Model may have crashed — check LM Studio console\n• Context too large — run /compact first\n• GPU out of memory — try a smaller model or shorter context\n• Try again in a few seconds (LM Studio may be recovering)'
+            : res.status === 422
+            ? '\n\nThis usually means invalid tool call format. The agent will self-correct on the next iteration.'
+            : res.status === 503
+            ? '\n\nLM Studio is busy or restarting. Wait a moment and try again.'
+            : '';
+          throw new Error(`API ${res.status}: ${err}${hints}`);
       }
 
       const reader = res.body.getReader(), dec = new TextDecoder();
@@ -10595,28 +10606,29 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           /* Detect repeated missing-argument errors — LLM keeps forgetting params */
           if (toolCallHistory.length >= 2) {
             const recent = toolCallHistory.slice(-4);
-            const missingArgErrors = recent.filter(r =>
-              !r.success &&
-              (r.sig.includes('"path" is required') ||
-               r.sig.includes('"content" is required') ||
-               r.sig.includes('"edits" must be') ||
-               r.sig.includes('"command" is required') ||
-               r.sig.includes('"query" is required') ||
-               r.sig.includes('"task" is required') ||
-               r.sig.includes('invalid arguments') ||
-               r.sig.includes('truncated JSON'))
+            const malformedErrors = recent.filter(r =>
+              !r.success && (
+                r.sig.includes('"path" is required') ||
+                r.sig.includes('"content" is required') ||
+                r.sig.includes('"edits" must be') ||
+                r.sig.includes('"command" is required') ||
+                r.sig.includes('"query" is required') ||
+                r.sig.includes('"task" is required') ||
+                r.sig.includes('invalid arguments') ||
+                r.sig.includes('truncated JSON') ||
+                r.sig.includes('empty arguments')
+              )
             );
-            if (missingArgErrors.length >= 2) {
-              const lastErr = recent.filter(r => !r.success).slice(-1)[0];
+            if (malformedErrors.length >= 2) {
+              const isTruncation = recent.some(r => r.sig.includes('truncated') || r.sig.includes('empty'));
               const wEl = document.createElement('div');
               wEl.className = 'health-warning';
-              wEl.innerHTML = '<i class="fas fa-triangle-exclamation"></i><span>Agent repeatedly sending malformed tool calls — injecting format reminder</span>';
-              $msg().appendChild(wEl);
-              scrollBottom();
-              state.messages.push({
-                role: 'user',
-                content: '[SYSTEM: You have sent ' + missingArgErrors.length + ' tool calls with missing or malformed arguments. This usually means the argument JSON is too long and getting truncated, or you are forgetting required fields.\n\nRULES:\n1. Every tool call MUST have ALL required parameters as valid JSON\n2. If a file is very large (>30KB), do NOT use write_file with the full content — use edit_file instead with small search/replace blocks\n3. Double-check your JSON: every { has a matching }, every " has a matching "\n4. Last error was: "' + lastErr.sig + '"\n\nDo NOT retry the same broken call. Fix the argument format first.]'
-              });
+              wEl.innerHTML = `<i class="fas fa-triangle-exclamation"></i><span>Agent repeatedly sending ${isTruncation ? 'TRUNCATED' : 'malformed'} tool calls — injecting fix</span>`;
+              $msg().appendChild(wEl); scrollBottom();
+              const hint = isTruncation
+                ? '[SYSTEM: Your tool call JSON is being TRUNCATED mid-stream. This happens when old_text or content is too long.\n\nIMMEDIATE FIX:\n• For files >30KB: NEVER use write_file — use edit_file with 5-15 line blocks\n• For edit_file: keep each old_text under 500 characters\n• Split large edits into MULTIPLE edit_file calls (each targeting a different section)\n• Do NOT put entire file contents in a single tool call\n\nDo NOT retry the same call. Split it into smaller pieces.]'
+                : '[SYSTEM: You have sent ' + malformedErrors.length + ' tool calls with missing or malformed arguments.\n\nRULES:\n1. Every tool call MUST have ALL required parameters as valid JSON\n2. If a file is very large (>30KB), do NOT use write_file with the full content — use edit_file instead with small search/replace blocks\n3. Double-check your JSON: every { has a matching }, every " has a matching "\n\nDo NOT retry the same broken call. Fix the argument format first.]';
+              state.messages.push({ role: 'user', content: hint });
               toolCallHistory.length = 0;
             }
           }
