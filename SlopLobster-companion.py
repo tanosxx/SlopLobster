@@ -753,6 +753,7 @@ def _check_dev_ready(port, timeout=3):
         return True
     except: return False    
 
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def handle_one_request(self):
         try:
@@ -1080,6 +1081,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif path == '/browser_close':
             _close_browser()
             self.send_json(200, {"ok": True})
+
+        elif path == '/embed':
+            try:
+                body = self.read_body()
+                texts = body.get("texts", [])
+                if not texts or not isinstance(texts, list) or len(texts) == 0:
+                    return self.send_json(400, {"error": "texts is required (non-empty list of strings)"})
+                if len(texts) > 100:
+                    return self.send_json(400, {"error": "max 100 texts per batch"})
+                try:
+                    from sentence_transformers import SentenceTransformer
+                    model = SentenceTransformer('all-MiniLM-L6-v2')
+                    embeddings = model.encode(texts, normalize_embeddings=True)
+                    return self.send_json(200, {"embeddings": embeddings.tolist(), "dim": int(embeddings.shape[1]), "backend": "companion"})
+                except ImportError:
+                    return self.send_json(200, {"error": "sentence-transformers not installed", "fallback": True, "hint": "pip install sentence-transformers", "backend": "none"})
+            except Exception as e:
+                return self.send_json(500, {"error": str(e)})    
        
         elif path == '/dev_start':
             try:
