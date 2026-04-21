@@ -5495,6 +5495,7 @@ def _get_console_filtered(types=None, since=None, limit=100):
         msgs = [m for m in msgs if m["time"] > since]
     return msgs[-limit:]    
 
+    
 class Handler(http.server.BaseHTTPRequestHandler):
     def handle_one_request(self):
         try:
@@ -10359,6 +10360,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
           /* ── Inline approval: show diff + buttons as a standalone panel ── */
           if (result._pendingApproval === true) {
+            const isNewFile = result._pendingIsNewFile === true;
             const approved = await new Promise((resolve) => {
               let decided = false;
               const onDecide = (val) => { if (decided) return; decided = true; resolve(val); };
@@ -10367,7 +10369,6 @@ Use git_diff to review changes before committing. git_diff without arguments sho
               wrapper.className = 'diff-panel pending';
               wrapper.style.border = '2px solid rgba(234, 179, 8, .45)';
 
-              const isNewFile = result._pendingIsNewFile === true;
               const pendingPath = result._pendingPath || '(unknown)';
 
               const hdr = document.createElement('div');
