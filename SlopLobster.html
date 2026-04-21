@@ -4470,6 +4470,26 @@
     #rp-preview-status i {
       font-size: 8px;
     }
+
+    .embed-status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      transition: background .3s, box-shadow .3s;
+    }
+    .embed-status-dot.loading { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); animation: pulse 1.5s infinite }
+    .embed-status-dot.ready { background: var(--green); box-shadow: 0 0 6px var(--green) }
+    .embed-status-dot.error { background: var(--red); box-shadow: 0 0 6px var(--red) }
+    .embed-status-dot.unavailable { background: var(--tx-4) }
+
+    .embed-retry {
+      background: none; border: 1px solid var(--border);
+      color: var(--tx-3); cursor: pointer; font-size: 9px; padding: 2px 7px; border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace; transition: .15s; display: none;
+    }
+    .embed-status.has-error .embed-retry { display: inline-flex; align-items: center; gap: 3px; }
+    .embed-retry:hover { color: var(--tx-0); background: var(--bg-3); border-color: var(--border-l); }
   </style>
 </head>
 
@@ -4575,6 +4595,17 @@
         <div class="sb-section" style="flex-shrink:0">
           <div class="sb-title">Tools</div>
           <div class="tools-list" id="tools-list"></div>
+        </div>
+        <div class="sb-section" style="flex-shrink:0">
+          <div class="sb-title">Semantic Index</div>
+          <div id="embed-status-wrap" class="">
+            <span class="embed-status-dot unavailable"></span>
+            <span id="embed-status-text" style="font-size:10px;color:var(--tx-3);line-height:1.5">Not loaded</span>
+            <button class="embed-retry" onclick="embeddingService.retryLoad()"><i class="fas fa-rotate-right"></i></button>
+          </div>
+          <div class="tools-list" style="gap:3px">
+            <div class="tool-tag"><i class="fas fa-brain" style="color:var(--cyan)"></i> semantic_search</div>
+          </div>
         </div>
       </div>
     </aside>
@@ -5638,6 +5669,7 @@ def _check_dev_ready(port, timeout=3):
         return True
     except: return False    
 
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def handle_one_request(self):
         try:
@@ -5965,6 +5997,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif path == '/browser_close':
             _close_browser()
             self.send_json(200, {"ok": True})
+
+        elif path == '/embed':
+            try:
+                body = self.read_body()
+                texts = body.get("texts", [])
+                if not texts or not isinstance(texts, list) or len(texts) == 0:
+                    return self.send_json(400, {"error": "texts is required (non-empty list of strings)"})
+                if len(texts) > 100:
+                    return self.send_json(400, {"error": "max 100 texts per batch"})
+                try:
+                    from sentence_transformers import SentenceTransformer
+                    model = SentenceTransformer('all-MiniLM-L6-v2')
+                    embeddings = model.encode(texts, normalize_embeddings=True)
+                    return self.send_json(200, {"embeddings": embeddings.tolist(), "dim": int(embeddings.shape[1]), "backend": "companion"})
+                except ImportError:
+                    return self.send_json(200, {"error": "sentence-transformers not installed", "fallback": True, "hint": "pip install sentence-transformers", "backend": "none"})
+            except Exception as e:
+                return self.send_json(500, {"error": str(e)})    
        
         elif path == '/dev_start':
             try:
@@ -6888,6 +6938,7 @@ Python command: {{PYTHON_CMD}}`;
         { type: 'function', function: { name: 'start_dev_server', description: 'Start a local dev server in the background. The preview appears in the Preview panel. Supports hot-reload. Use browser_screenshot and browser_console to inspect the running app.', parameters: { type: 'object', properties: { command: { type: 'string', description: 'Shell command to start the dev server, e.g. "npm run dev", "python -m http.server 8000", "cargo run"' }, port: { type: 'number', description: 'Port number (default: 3000)' } }, required: ['command'] } } },
         { type: 'function', function: { name: 'delete_file', description: 'Delete a file or empty directory. Use recursive=true for directories with contents. Use with caution — this cannot be undone.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path to delete' }, recursive: { type: 'boolean', description: 'Delete directory and all contents (default: false)' } }, required: ['path'] } } },
         { type: 'function', function: { name: 'move_file', description: 'Move or rename a file or directory. Creates parent directories in destination if needed.', parameters: { type: 'object', properties: { source: { type: 'string', description: 'Current relative path' }, destination: { type: 'string', description: 'New relative path' } }, required: ['source', 'destination'] } } },
+        { type: 'function', function: { name: 'semantic_search', description: 'Semantic code search using embeddings. Finds files by meaning, not exact string match. Best for conceptual queries like "find the auth middleware" or "where is DB config". Falls back to grep if model not loaded. Returns ranked file paths with relevance scores and context snippets.', parameters: { type: 'object', properties: { query: { type: 'string', description: 'Natural language description of what to find' }, top_k: { type: 'number', description: 'Max results (default 8)' } }, required: ['query'] } } },
       ];
       if (state.visionCapable) {
         tools.push({ type: 'function', function: { name: 'screenshot', description: 'Capture a region of the user\'s screen. A prompt appears asking the user to share their screen and select an area. Use this to see error messages in terminals, other windows, IDE output, or anything outside SlopLobster. The captured image is included in your next context so you can see it. Falls back to capturing the SlopLobster UI if screen sharing is unavailable.', parameters: { type: 'object', properties: { reason: { type: 'string', description: 'Brief note on what you are looking for — shown to the user so they know what to capture' } }, required: [] } } });
@@ -6956,7 +7007,7 @@ Python command: {{PYTHON_CMD}}`;
       const el = document.getElementById('tools-list');
       el.innerHTML = defs.map(t => {
         const n = t.function.name;
-        const icons = { think: 'brain', read_file: 'file-code', read_file_lines: 'file-lines', view_image: 'image', edit_file: 'pen-to-square', write_file: 'file-circle-plus', list_directory: 'list', search_files: 'magnifying-glass', grep: 'magnifying-glass-plus', web_search: 'globe', fetch_url: 'magnifying-glass', execute_command: 'terminal', git_status: 'code-branch', git_diff: 'code-compare', git_log: 'clock-rotate-left', git_add: 'plus', git_commit: 'check', browser_launch: 'rocket', browser_navigate: 'compass', browser_screenshot: 'camera', browser_console: 'terminal', browser_click: 'hand-pointer', browser_type: 'keyboard', browser_evaluate: 'code', browser_get_content: 'file-lines', browser_wait_for: 'hourglass', browser_hover: 'arrow-pointer', browser_select_option: 'list-dropdown', browser_press_key: 'keyboard', browser_scroll: 'arrows-up-down', browser_go_back: 'arrow-left', browser_go_forward: 'arrow-right', browser_close: 'xmark' };
+        const icons = { think: 'brain', read_file: 'file-code', read_file_lines: 'file-lines', view_image: 'image', edit_file: 'pen-to-square', write_file: 'file-circle-plus', list_directory: 'list', search_files: 'magnifying-glass', grep: 'magnifying-glass-plus', web_search: 'globe', fetch_url: 'magnifying-glass', execute_command: 'terminal', git_status: 'code-branch', git_diff: 'code-compare', git_log: 'clock-rotate-left', git_add: 'plus', git_commit: 'check', browser_launch: 'rocket', browser_navigate: 'compass', browser_screenshot: 'camera', browser_console: 'terminal', browser_click: 'hand-pointer', browser_type: 'keyboard', browser_evaluate: 'code', browser_get_content: 'file-lines', browser_wait_for: 'hourglass', browser_hover: 'arrow-pointer', browser_select_option: 'list-dropdown', browser_press_key: 'keyboard', browser_scroll: 'arrows-up-down', browser_go_back: 'arrow-left', browser_go_forward: 'arrow-right', browser_close: 'xmark', browser_selection: 'hand_pointer', semantic_search: 'brain' };
         const live = ((n === 'execute_command' || n === 'web_search') && state.compConnected) || (n.startsWith('browser_') && state.browserAvailable) ? ' live' : '';
         return `<div class="tool-tag${live}" title="${t.function.description}"><i class="fas fa-${icons[n] || 'bolt'}"></i> ${n}</div>`;
       }).join('');
@@ -7187,6 +7238,346 @@ Python command: {{PYTHON_CMD}}`;
       document.querySelectorAll('#rp-preview-bar .device-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
     }
+
+    /* ═══════════════ SEMANTIC CODE SEARCH ═══════════════ */
+    function openIDB(name, version, storeName) {
+        return new Promise((resolve, reject) => {
+          const req = indexedDB.open(name, version);
+          req.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (storeName && !db.objectStoreNames.contains(storeName)) {
+              db.createObjectStore(storeName, { keyPath: 'path' });
+            }
+          };
+          req.onerror = () => reject(req.error);
+          req.onsuccess = () => resolve(req.result);
+        });
+    }
+
+    function cosineSimilarity(a, b) {
+      let dot = 0, na = 0, nb = 0;
+      const len = Math.min(a.length, b.length);
+      for (let i = 0; i < len; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+      return dot / (Math.sqrt(na) * Math.sqrt(nb) + 1e-8);
+    }
+
+    class EmbeddingService {
+      constructor() { this.model = null; this.ready = false; this.loading = false; this.error = null; this._loadPromise = null; }
+      async load() {
+        if (this._loadPromise) return this._loadPromise;
+        this._loadPromise = this._doLoad();
+        return this._loadPromise;
+      }
+      async _doLoad() {
+        this.loading = true; this.error = null;
+        updateEmbeddingUI('loading');
+        try {
+          const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
+          env.allowLocalModels = false;
+          this.model = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+            progress_callback: (p) => {
+              if (p.status === 'progress') updateEmbeddingUI('downloading', p.progress);
+              else if (p.status === 'ready') updateEmbeddingUI('ready');
+              else if (p.status === 'downloading') updateEmbeddingUI('downloading', 0);
+            }
+          });
+          const test = await this.model('test query', { pooling: 'mean', normalize: true });
+          if (!test?.data?.length) throw new Error('Model output unexpected');
+          this.ready = true; this.loading = false;
+          updateEmbeddingUI('ready');
+        } catch (e) {
+          this.error = e.message; this.loading = false; this.ready = false;
+          updateEmbeddingUI('error', e.message);
+          console.error('[embed] load error:', e);
+        }
+      }
+      async embed(text) {
+        if (!this.ready) throw new Error(this.error || 'Model not loaded');
+        const r = await this.model(text, { pooling: 'mean', normalize: true });
+        return new Float32Array(r.data);
+      }
+      async embedBatch(texts, bs = 16) {
+            if (!this.ready) throw new Error(this.error || 'Model not loaded');
+            const out = await this.model(texts, { pooling: 'mean', normalize: true });
+            // out.data is a flat Float32Array of shape [n * dim]
+            // Xenova's output.dims is [n, dim] for array input
+            const dim = out.dims
+              ? out.dims[out.dims.length - 1]
+              : (texts.length > 1 ? Math.floor(out.data.length / texts.length) : out.data.length);
+            const res = [];
+            for (let j = 0; j < out.data.length; j += dim) {
+              res.push(new Float32Array(out.data.slice(j, j + dim)));
+            }
+            return res;
+          }
+      isReady() { return this.ready; }
+      retryLoad() {
+        this.error = null; this._loadPromise = null;
+        this.load().catch(e => { this.error = e.message; updateEmbeddingUI('error', e.message); });
+      }
+    }
+
+    const embeddingService = new EmbeddingService();
+
+    class SemanticIndex {
+      constructor() {
+        this.embeddings = new Map();
+        this.fileMeta = new Map();
+        this.indexing = false;
+        this.cancelled = false;
+        this.lastIndexed = null;
+      }
+      clear() {
+        this.embeddings.clear();
+        this.fileMeta.clear();
+        this.indexing = false;
+        this.lastIndexed = null;
+        updateEmbeddingUI('empty');
+      }
+
+      get size() { return this.embeddings.size; }
+
+      has(p) { return this.embeddings.has(p); }
+
+      async addFile(path, content) {
+        const mx = 6000;
+        let t = content;
+        if (t.length > mx) t = t.slice(0, mx) + '...';
+        const emb = await embeddingService.embed(t);
+        this.embeddings.set(path, emb);
+        this.fileMeta.set(path, {
+          summary: content.split('\n').slice(0, 3).join('\n').slice(0, 120),
+          charCount: content.length,
+          timestamp: Date.now()
+        });
+      }
+
+      remove(p) {
+        this.embeddings.delete(p);
+        this.fileMeta.delete(p);
+      }
+
+      search(qEmb, topK = 8) {
+        const r = [];
+        for (const [p, e] of this.embeddings) {
+          r.push({
+            path: p,
+            score: cosineSimilarity(qEmb, e),
+            summary: (this.fileMeta.get(p) || {}).summary || ''
+          });
+        }
+        r.sort((a, b) => b.score - a.score);
+        return r.slice(0, topK);
+      }
+    }
+
+    const semanticIndex = new SemanticIndex();
+
+    const _embedUpdateTimers = new Map();
+    function debouncedEmbedUpdate(path) {
+      clearTimeout(_embedUpdateTimers.get(path) || 0);
+      _embedUpdateTimers.set(path, setTimeout(async () => {
+        try {
+          if (!embeddingService.isReady() || !state.dirHandle) return;
+          const c = state.fileCache.get(path); if (!c) return;
+          await semanticIndex.addFile(path, c);
+          semanticIndex.indexedFiles = semanticIndex.size;
+          updateEmbeddingUI(semanticIndex.indexing ? 'indexing' : 'ready');
+          debouncedPersistEmbeddings();
+        } catch { }
+      }, 2000));
+    }
+
+    let _embedPersistTimer = null;
+    function debouncedPersistEmbeddings() {
+      clearTimeout(_embedPersistTimer);
+      _embedPersistTimer = setTimeout(persistEmbeddingsToIDB, 10000);
+    }
+
+    async function persistEmbeddingsToIDB() {
+          try {
+            const db = await openIDB('sloplobster', 2, 'embeddings');
+            const tx = db.transaction('embeddings', 'readwrite');
+            const store = tx.objectStore('embeddings');
+            store.clear();
+            let c = 0;
+            
+            await new Promise((resolve, reject) => {
+              const req = store.openCursor();
+              req.onerror = () => reject(req.error);
+              req.onsuccess = function(event) {
+                const cursor = event.target.result;
+                if (!cursor) { resolve(); return; }
+                const val = cursor.value;
+                if (val && val.embedding) {
+                  semanticIndex.embeddings.set(cursor.primaryKey, new Float32Array(val.embedding));
+                  semanticIndex.fileMeta.set(cursor.primaryKey, { summary: val.summary || '', charCount: val.charCount || 0, timestamp: val.timestamp || 0 });
+                  c++;
+                }
+                cursor.continue();
+              };
+            });
+            
+            console.log('[index] persisted', c, 'embeddings to IndexedDB');
+          } catch (e) { console.error('[index] IndexedDB persist error:', e); }
+        }
+
+    async function loadEmbeddingsFromIDB() {
+          try {
+            const db = await openIDB('sloplobster', 2, 'embeddings');
+            const tx = db.transaction('embeddings', 'readonly');
+            const store = tx.objectStore('embeddings');
+            const entries = [];
+            
+            await new Promise((resolve, reject) => {
+              const req = store.openCursor();
+              req.onerror = () => reject(req.error);
+              req.onsuccess = function(event) {
+                const cursor = event.target.result;
+                if (!cursor) { resolve(entries); return; }
+                const val = cursor.value;
+                if (val && val.embedding) {
+                  entries.push({
+                    key: cursor.primaryKey,
+                    value: new Float32Array(val.embedding),
+                    meta: { summary: val.summary || '', charCount: val.charCount || 0, timestamp: val.timestamp || 0 }
+                  });
+                  c++;
+                }
+                cursor.continue();
+              };
+            });
+            
+            semanticIndex.indexedFiles = entries.length;
+            for (const entry of entries) {
+              semanticIndex.embeddings.set(entry.key, entry.value);
+              semanticIndex.fileMeta.set(entry.key, entry.meta);
+            }
+          } catch (e) { console.error('[index] IndexedDB load error:', e); }
+        }
+
+    async function startIndexing() {
+      if (!state.dirHandle || semanticIndex.indexing) return;
+      semanticIndex.clear();
+      semanticIndex.indexing = true;
+      semanticIndex.cancelled = false;
+      updateEmbeddingUI('indexing');
+      try {
+        const files = [];
+        let skippedCount = 0;
+        async function walk(h, pfx, d) {
+          if (d > 5) return;
+          try {
+            for await (const [n, kh] of h.entries()) {
+              if (SKIP.has(n)) { skippedCount++; continue; }
+              const full = pfx ? pfx + '/' + n : n;
+              if (kh.kind === 'file') files.push(full);
+              if (kh.kind === 'directory') {
+                try { await walk(kh, full, d + 1); } catch {}
+              }
+            }
+          } catch (e) {
+            if (files.length === 0) throw e;
+          }
+        }
+        await walk(state.dirHandle, '', 0);
+        semanticIndex.totalFiles = files.length;
+        if (files.length === 0 && skippedCount > 0) {
+          semanticIndex.indexing = false; updateEmbeddingUI('empty'); return;
+        }
+        if (files.length === 0) { semanticIndex.indexing = false; updateEmbeddingUI('empty'); return; }
+
+        const skipExts = new Set(['png','jpg','jpeg','gif','webp','bmp','ico','pdf','zip','tar','gz','exe','dll','so','o','a','wasm','svg','mp3','mp4','wav','ogg','mpg','mov','avi']);
+        const embeddable = files.filter(f => !skipExts.has(f.split('.').pop().toLowerCase()));
+        if (!embeddingService.isReady()) { semanticIndex.indexing = false; updateEmbeddingUI('unavailable'); return; }
+
+        const BATCH_READ = 10, BATCH_EMBED = 16, MAX_FILE = 50000;
+        let rb = []; let rc = 0;
+        for (let i = 0; i < embeddable.length; i++) {
+          if (semanticIndex.cancelled) break;
+          rb.push(embeddable[i]); rc++;
+          updateEmbeddingUI('reading', null, null, null, rc, embeddable.length);
+          if (rb.length >= BATCH_READ || i === embeddable.length - 1) {
+            const contents = [], vp = [];
+            for (const p of rb) {
+              try {
+                const h = await resolvePath(p); if (h.kind !== 'file') continue;
+                const f = await h.getFile();
+                if (f.size > MAX_FILE) continue;
+                const b = await f.slice(0, 8000).arrayBuffer(); const by = new Uint8Array(b);
+                if (by.some(x => x === 0)) continue;
+                contents.push(await f.text()); vp.push(p);
+              } catch { /* skip */ }
+            }
+            rb = [];
+            if (vp.length > 0) {
+              const embs = await embeddingService.embedBatch(contents, BATCH_EMBED);
+              for (let j = 0; j < vp.length; j++) {
+                if (semanticIndex.cancelled) break;
+                semanticIndex.embeddings.set(vp[j], embs[j]);
+                semanticIndex.fileMeta.set(vp[j], { summary: contents[j].split('\n').slice(0, 3).join('\n').slice(0, 120), charCount: contents[j].length, timestamp: Date.now() });
+                semanticIndex.indexedFiles++;
+                updateEmbeddingUI('indexing', null, null, null, semanticIndex.indexedFiles, embeddable.length);
+              }
+            }
+          }
+        }
+        semanticIndex.indexing = false; semanticIndex.lastIndexed = Date.now();
+        updateEmbeddingUI('ready');
+        debouncedPersistEmbeddings();
+      } catch (e) {
+        console.error('[index] error:', e);
+        semanticIndex.indexing = false;
+        updateEmbeddingUI('error', e.message);
+      }
+    }
+
+    function cancelIndexing() {
+      semanticIndex.cancelled = true;
+      if (semanticIndex.indexing) { semanticIndex.indexing = false; updateEmbeddingUI('ready'); }
+    }
+
+    async function getQueryEmbedding(text) {
+      if (!embeddingService.isReady()) {
+        return null;
+      }
+      try {
+        return await embeddingService.embed(text);
+      } catch {
+        return null;
+      }
+    }
+
+    async function doSemanticSearch(query, topK = 8) {
+      let output = '';
+      if (!state.dirHandle) return { output: 'No workspace open. Open a directory to enable semantic search.' };
+      if (!embeddingService.isReady()) {
+        const gr = await grepSafe(query, '', '', '', 0);
+        return { output: '[Semantic search not ready — ' + (embeddingService.error || 'model still loading') + '. Using grep fallback. Results may be less accurate.]\n\n' + gr.output + '\n\n[TIP: Wait for the model to finish loading (~22MB first-time download), then call semantic_search again for better results.]', _fallback: true };
+      }
+      const qEmb = await getQueryEmbedding(query);
+      const results = semanticIndex.search(qEmb, topK);
+      if (results.length === 0) return { output: semanticIndex.totalFiles ? 'No indexed files found. Index may still be building...' : 'No indexed files. Open a workspace.' };
+      const CTX = 5;
+      for (let i = 0; i < Math.min(results.length, CTX); i++) {
+        let snip = '';
+        try {
+          const h = await resolvePath(results[i].path);
+          if (h.kind !== 'file') continue;
+          const f = await h.getFile();
+          const t = await f.text();
+          snip = t.split('\n').slice(0, 4).join('\n');
+        } catch { /* skip */ }
+        output += `${i + 1}. ${results[i].path} (relevance: ${results[i].score.toFixed(2)})\n`;
+        if (snip.trim()) output += `   ${snip.trimEnd()}\n`;
+        output += '\n';
+      }
+      for (let i = CTX; i < results.length; i++) {
+        output += `${i + 1}. ${results[i].path} (relevance: ${results[i].score.toFixed(2)})\n`;
+      }
+      output += '\n[Top ${CTX} results include context lines. Use read_file or read_file_lines for details. Score: 1.0 = perfect, 0.0 = unrelated]';
+      return { output, _results: results };
+    } 
 
     /* ═══════════════ FILE SYSTEM ═══════════════ */
     const SKIP = new Set([
@@ -8113,7 +8504,7 @@ Python command: {{PYTHON_CMD}}`;
       requireWorkspace();
       let regex;
       try { regex = new RegExp(pattern, 'g'); }
-      catch { return `Invalid regex: ${pattern}`; }
+      catch { return { output: `Invalid regex: ${pattern}` }; }
       const ctx = Math.min(contextLines || 0, 10);
       let fileCount = 0;
       const MAX_FILES = 50, MAX_MATCHES = 200;
@@ -8146,17 +8537,18 @@ Python command: {{PYTHON_CMD}}`;
       async function walk(h, pfx, d) {
         if (d > 8 || fileCount >= MAX_FILES) return;
         for await (const [name, kh] of h.entries()) {
-          if (isSkippedPath(pfx ? pfx + '/' + name : name)) continue;  // ← CHANGED
+          if (isSkippedPath(pfx ? pfx + '/' + name : name)) continue;
           const full = pfx ? pfx + '/' + name : name;
           if (kh.kind === 'file') await searchFile(kh, full);
           else if (kh.kind === 'directory') await walk(kh, full, d + 1);
         }
       }
-      if (dh.kind === 'file') { await searchFile(dh, searchPath); }
-      else { await walk(dh, searchPath || '', 0); }
+      const results = [];
+      await walk(state.dirHandle, searchPath || '', 0);
       const totalMatches = results.filter(l => l.includes('>>')).length;
       return { output: results.length ? `Found ${totalMatches} match(es) in ${fileCount} file(s):${results.join('\n')}` : 'No matches found.' };
     }
+
 
     /* ═══════════════ BROWSER API ═══════════════ */
     async function browserApi(endpoint, args) {
@@ -8724,6 +9116,7 @@ Python command: {{PYTHON_CMD}}`;
 
             if (editSucceeded) {
               debouncedFileTreeRefresh();
+              debouncedEmbedUpdate(args.path);
               /* ── Syntax check: only for files that changed, only on success ── */
               if (state.compConnected && (args.path || '').endsWith('.py')) {
                 try {
@@ -8763,6 +9156,7 @@ Python command: {{PYTHON_CMD}}`;
 
             if (writeSucceeded) {
               debouncedFileTreeRefresh();
+              debouncedEmbedUpdate(args.path);
               /* Skip JS syntax check for .js files — node -c doesn't handle ESM (import/export).
                 Only check .py files where py_compile works reliably. */
               if (state.compConnected && (args.path || '').endsWith('.py')) {
@@ -8818,6 +9212,11 @@ Python command: {{PYTHON_CMD}}`;
             if (!args.destination) return { output: 'Error: "destination" is required for move_file' };
             result = { output: await moveFileSafe(args.source, args.destination) };
             debouncedFileTreeRefresh(); break;
+          case 'semantic_search':
+            if (!args.query) return { output: 'Error: "query" is required for semantic_search. Example: semantic_search({"query": "find the auth middleware"})' };
+            try { result = await doSemanticSearch(args.query, args.top_k || 8); }
+            catch (e) { result = { output: 'Error: ' + e.message }; }
+            break;
           case 'start_dev_server': {
             if (!state.compConnected) return { output: 'start_dev_server requires the companion server.' };
             if (!args.command) return { output: 'Error: "command" is required. Example: start_dev_server({"command": "npm run dev", "port": 3000})' };
@@ -9250,6 +9649,18 @@ fetch_url uses urllib which CANNOT execute JavaScript. Many modern sites (news s
 - Instead use: web_search with query "site:domain.com <topic>" fetch_top=1-2
 - DuckDuckGo's crawler runs JavaScript when indexing, so search results contain the real content
 - This is NOT a cookie wall or blocking issue — it's a fundamental limitation of non-browser HTTP clients
+
+**When to use semantic_search instead of grep:**
+- The term is conceptual ("authentication", "middleware", "error handling") rather than a literal string
+- You don't know the exact variable/function name
+- You're exploring an unfamiliar codebase
+- grep returned no results but you know the concept must exist
+
+**When to prefer grep over semantic_search:**
+- You know the exact string to match
+- You need ALL occurrences (not just relevant files)
+- Performance matters more than accuracy
+- Searching for specific error messages or log patterns
 
 **When to use which:**
 - Static docs (MDN, Python docs, GitHub README, Wikipedia) → fetch_url works perfectly
@@ -12564,7 +12975,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
     /* ═══════════════ EVENTS ═══════════════ */
     async function openDirectory() {
-      if (!window.showDirectoryPicker) { showToast('File System Access API requires Chrome/Edge', 'err'); return; }
+      if (!window.showDirectoryPicker) { showToast('File System Access Access API requires Chrome/Edge', 'err'); return; }
       try {
         state.dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
         state.dirName = state.dirHandle.name;
@@ -12605,6 +13016,15 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         await detectProject();
         checkGitRepo();
         updateWelcomeStatus();
+
+        // Lazy-load embedding model for semantic search (non-blocking)
+        embeddingService.load().then(() => {
+          if (state.dirHandle) startIndexing();
+        }).catch(e => {
+          console.warn('[embed] lazy load skipped:', e.message);
+          updateEmbeddingUI('error', e.message);
+        });
+        updateEmbeddingUI(semanticIndex.size > 0 ? 'ready' : 'empty');
       } catch (e) { if (e.name !== 'AbortError') showToast(e.message, 'err'); }
     }
 
@@ -13792,15 +14212,68 @@ STEP: Run pytest to verify changes`;
       return { source: 'workspace', label: 'Workspace', icon: 'fa-folder-open', count: state.conversations.length };
     }
 
+    function updateEmbeddingUI(status, progress, indexTotal, current, totalFiles) {
+      const dot = document.querySelector('#embed-status-wrap .embed-status-dot');
+      const text = document.getElementById('embed-status-text');
+      const retryBtn = document.querySelector('.embed-retry');
+      if (retryBtn && status !== 'error') retryBtn.style.display = 'none';
+      if (!dot || !text) return;
+
+      // Reset classes
+      dot.className = 'embed-status-dot';
+
+      switch (status) {
+        case 'loading':
+          dot.classList.add('loading');
+          text.textContent = 'Loading embedding model...';
+          break;
+        case 'downloading':
+          dot.classList.add('loading');
+          text.textContent = 'Downloading model weights...' + (progress != null ? ' ' + Math.round(progress) + '%' : '');
+          break;
+        case 'ready':
+          dot.classList.add('ready');
+          const count = typeof totalFiles === 'number' && typeof current === 'number'
+            ? current + '/' + totalFiles + ' files indexed'
+            : semanticIndex.size + ' embeddings loaded';
+          text.textContent = count;
+          break;
+        case 'indexing':
+          dot.classList.add('loading');
+          text.textContent = 'Indexing files...' + (typeof current === 'number' && typeof totalFiles === 'number'
+            ? ' ' + current + '/' + totalFiles
+            : '');
+          break;
+        case 'reading':
+          dot.classList.add('loading');
+          text.textContent = 'Reading files...' + (typeof current === 'number' && typeof totalFiles === 'number'
+            ? ' ' + current + '/' + totalFiles
+            : '');
+          break;
+        case 'error':
+          document.getElementById('embed-status-wrap').classList.add('has-error');
+          dot.classList.add('error');
+          text.textContent = (progress || 'Failed to load embedding model');
+          const retryBtn = document.querySelector('.embed-retry');
+          if (retryBtn) retryBtn.style.display = '';
+          break;
+
+        case 'empty':
+          dot.classList.add('unavailable');
+          text.textContent = 'Not loaded';
+          break;
+        default:
+          dot.classList.add('unavailable');
+          text.textContent = 'Not loaded';
+      }
+    }
+
     /* ═══════════════ INIT ═══════════════ */
     function init() {
       loadSettings();
       loadConversations();
       renderWelcomeGrid();
 
-      /* Don't pre-load conversations from old localStorage —
-        they come from the workspace folder after openDirectory().
-        The lightweight cache only stores titles for sidebar display. */
       if (!state.conversations.length) {
         document.getElementById('welcome').style.display = 'flex';
         $msg().style.display = 'none';
@@ -13901,7 +14374,7 @@ STEP: Run pytest to verify changes`;
       /* ── Model metadata hint ── */
       const meta = document.getElementById('model-meta');
       const info = state.modelInfoMap.get(state.model);
-      if (info) { 
+      if (info) {
         const parts = [];
         if (info.paramsString) parts.push(info.paramsString);
         if (info.contextLength) parts.push((info.contextLength / 1000).toFixed(0) + 'k ctx');
@@ -13997,6 +14470,8 @@ STEP: Run pytest to verify changes`;
 
       /* ── Right panel ── */
       initRightPanel();
+      initRightPanelResize();
+
       document.getElementById('rp-preview-reload').onclick = () => reloadDevPreview();
       document.getElementById('rp-preview-open').onclick = () => {
         if (state.devServer) window.open(`http://localhost:${state.devServer.port}`, '_blank');
@@ -14005,7 +14480,6 @@ STEP: Run pytest to verify changes`;
         stopDevServer();
         showToast('Dev server stopped', 'info');
       };
-      initRightPanelResize();
 
       /* ── Initial connection checks ── */
       setTimeout(() => testConnection(3), 800);
@@ -14022,6 +14496,14 @@ STEP: Run pytest to verify changes`;
           } catch { /* silent */ }
         }
       }, 30000);
+
+      /* ── Load persisted embeddings from IndexedDB on startup ── */
+      loadEmbeddingsFromIDB().then(() => {
+        if (semanticIndex.size > 0) {
+          embeddingService.load().catch(() => {});
+        }
+        updateEmbeddingUI(semanticIndex.size > 0 ? 'ready' : 'empty');
+      });
 
       window.addEventListener('beforeunload', () => {
         if (state.messages.length > 0 && state.activeConvId) {
@@ -14044,7 +14526,6 @@ STEP: Run pytest to verify changes`;
 
       window.addEventListener('beforeunload', () => {
         _intervals.forEach(clearInterval);
-        /* Flush any pending workspace save on page close */
         clearTimeout(_convSaveTimer);
         clearTimeout(_convIndexTimer);
         if (state.activeConvId && state.dirHandle) {
@@ -14053,9 +14534,7 @@ STEP: Run pytest to verify changes`;
         }
       });
 
-      /* ── Clean up old conversation data from localStorage ──
-        After workspace is confirmed working, remove the legacy
-        SlopLobster_conversations blob to free up ~5MB. */
+      /* ── Clean up old conversation data from localStorage ── */
       setTimeout(async () => {
         try {
           const old = localStorage.getItem(STORAGE_KEY);
@@ -14065,9 +14544,6 @@ STEP: Run pytest to verify changes`;
             localStorage.removeItem(STORAGE_KEY);
             return;
           }
-          /* If workspace is open and has conversations, safe to delete.
-            If no workspace, keep as fallback until one is opened
-            (importFromLocalStorage handles the actual import). */
           if (state.dirHandle) {
             const workspaceLoaded = state.conversations.some(c => c.messages.length > 0);
             if (workspaceLoaded) {
