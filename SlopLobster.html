@@ -6181,7 +6181,16 @@ if __name__ == "__main__":
     let inputDraft = '';
     const toolCallHistory = [];
     let fileTreeRefreshTimer = null;
-    function debouncedFileTreeRefresh() { clearTimeout(fileTreeRefreshTimer); fileTreeRefreshTimer = setTimeout(() => refreshFileTree(), 300); }
+    function debouncedFileTreeRefresh() {
+      clearTimeout(fileTreeRefreshTimer);
+      fileTreeRefreshTimer = setTimeout(() => {
+        refreshFileTree();
+        // Re-index if embeddings are ready
+        if (embeddingService.isReady() && state.dirHandle) {
+          startIndexing();
+        }
+      }, 300);
+    }
     const DEFAULT_SYS = `You are SlopLobster, a local AI coding agent with direct filesystem access, shell execution, web search, and optional image understanding.
 
 ═══ CURRENT DATE ═══
@@ -7294,19 +7303,18 @@ Python command: {{PYTHON_CMD}}`;
       async embed(text) {
         if (!this.ready) throw new Error(this.error || 'Model not loaded');
         const r = await this.model(text, { pooling: 'mean', normalize: true });
-        return new Float32Array(r.data);
+        // all-MiniLM-L6-v2 has fixed dimension 384
+        return new Float32Array(r.data.slice(0, 384));
       }
       async embedBatch(texts, bs = 16) {
             if (!this.ready) throw new Error(this.error || 'Model not loaded');
             const out = await this.model(texts, { pooling: 'mean', normalize: true });
             // out.data is a flat Float32Array of shape [n * dim]
-            // Xenova's output.dims is [n, dim] for array input
-            const dim = out.dims
-              ? out.dims[out.dims.length - 1]
-              : (texts.length > 1 ? Math.floor(out.data.length / texts.length) : out.data.length);
+            // For all-MiniLM-L6-v2 model, embedding dimension is fixed at 384
+            const DIM = 384; // Hardcoded for all-MiniLM-L6-v2
             const res = [];
-            for (let j = 0; j < out.data.length; j += dim) {
-              res.push(new Float32Array(out.data.slice(j, j + dim)));
+            for (let j = 0; j < out.data.length; j += DIM) {
+              res.push(new Float32Array(out.data.slice(j, j + DIM)));
             }
             return res;
           }
@@ -7395,66 +7403,66 @@ Python command: {{PYTHON_CMD}}`;
     }
 
     async function persistEmbeddingsToIDB() {
-          try {
-            const db = await openIDB('sloplobster', 2, 'embeddings');
-            const tx = db.transaction('embeddings', 'readwrite');
-            const store = tx.objectStore('embeddings');
-            store.clear();
-            let c = 0;
-            
-            await new Promise((resolve, reject) => {
-              const req = store.openCursor();
-              req.onerror = () => reject(req.error);
-              req.onsuccess = function(event) {
-                const cursor = event.target.result;
-                if (!cursor) { resolve(); return; }
-                const val = cursor.value;
-                if (val && val.embedding) {
-                  semanticIndex.embeddings.set(cursor.primaryKey, new Float32Array(val.embedding));
-                  semanticIndex.fileMeta.set(cursor.primaryKey, { summary: val.summary || '', charCount: val.charCount || 0, timestamp: val.timestamp || 0 });
-                  c++;
-                }
-                cursor.continue();
-              };
+        try {
+          const db = await openIDB('sloplobster', 2, 'embeddings');
+          const tx = db.transaction('embeddings', 'readwrite');
+          const store = tx.objectStore('embeddings');
+          store.clear();
+
+          for (const [path, embedding] of semanticIndex.embeddings) {
+            const meta = semanticIndex.fileMeta.get(path) || {};
+            store.put({
+              path,
+              embedding: Array.from(embedding),
+              summary: meta.summary || '',
+              charCount: meta.charCount || 0,
+              timestamp: meta.timestamp || 0
             });
-            
-            console.log('[index] persisted', c, 'embeddings to IndexedDB');
-          } catch (e) { console.error('[index] IndexedDB persist error:', e); }
+          }
+
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error);
+          });
+
+          console.log('[index] persisted', semanticIndex.embeddings.size);
+        } catch (e) {
+          console.error('[index] persist error:', e);
         }
+    }
 
     async function loadEmbeddingsFromIDB() {
-          try {
-            const db = await openIDB('sloplobster', 2, 'embeddings');
-            const tx = db.transaction('embeddings', 'readonly');
-            const store = tx.objectStore('embeddings');
-            const entries = [];
-            
-            await new Promise((resolve, reject) => {
-              const req = store.openCursor();
-              req.onerror = () => reject(req.error);
-              req.onsuccess = function(event) {
-                const cursor = event.target.result;
-                if (!cursor) { resolve(entries); return; }
-                const val = cursor.value;
-                if (val && val.embedding) {
-                  entries.push({
-                    key: cursor.primaryKey,
-                    value: new Float32Array(val.embedding),
-                    meta: { summary: val.summary || '', charCount: val.charCount || 0, timestamp: val.timestamp || 0 }
-                  });
-                  c++;
-                }
-                cursor.continue();
-              };
-            });
-            
-            semanticIndex.indexedFiles = entries.length;
-            for (const entry of entries) {
-              semanticIndex.embeddings.set(entry.key, entry.value);
-              semanticIndex.fileMeta.set(entry.key, entry.meta);
-            }
-          } catch (e) { console.error('[index] IndexedDB load error:', e); }
-        }
+        try {
+          const db = await openIDB('sloplobster', 2, 'embeddings');
+          const tx = db.transaction('embeddings', 'readonly');
+          const store = tx.objectStore('embeddings');
+          const entries = [];
+
+          await new Promise((resolve, reject) => {
+            const req = store.openCursor();
+            req.onerror = () => reject(req.error);
+            req.onsuccess = function(event) {
+              const cursor = event.target.result;
+              if (!cursor) { resolve(entries); return; }
+              const val = cursor.value;
+              if (val && val.embedding) {
+                entries.push({
+                  key: cursor.primaryKey,
+                  value: new Float32Array(val.embedding),
+                  meta: { summary: val.summary || '', charCount: val.charCount || 0, timestamp: val.timestamp || 0 }
+                });
+              }
+              cursor.continue();
+            };
+          });
+
+          semanticIndex.indexedFiles = entries.length;
+          for (const entry of entries) {
+            semanticIndex.embeddings.set(entry.key, entry.value);
+            semanticIndex.fileMeta.set(entry.key, entry.meta);
+          }
+        } catch (e) { console.error('[index] load error:', e); }
+    }
 
     async function startIndexing() {
       if (!state.dirHandle || semanticIndex.indexing) return;
@@ -7549,35 +7557,83 @@ Python command: {{PYTHON_CMD}}`;
     }
 
     async function doSemanticSearch(query, topK = 8) {
-      let output = '';
-      if (!state.dirHandle) return { output: 'No workspace open. Open a directory to enable semantic search.' };
-      if (!embeddingService.isReady()) {
-        const gr = await grepSafe(query, '', '', '', 0);
-        return { output: '[Semantic search not ready — ' + (embeddingService.error || 'model still loading') + '. Using grep fallback. Results may be less accurate.]\n\n' + gr.output + '\n\n[TIP: Wait for the model to finish loading (~22MB first-time download), then call semantic_search again for better results.]', _fallback: true };
+        if (!query) return { output: 'Error: "query" is required for semantic_search. Example: semantic_search({"query": "find the auth middleware"})' };
+
+        if (!state.dirHandle) return { output: 'No workspace open. Open a directory to enable semantic search.' };
+
+        const indexedCount = semanticIndex.size;
+        const isReady = embeddingService.isReady();
+
+        // ── Not ready: fall back to grep ──
+        if (!isReady) {
+          const gr = await grepSafe(query, '', '', '', 0);
+          return {
+            output: '[Semantic search not ready — ' + (embeddingService.error || 'model still loading') + '. Using grep fallback. Results may be less accurate.]\n\n' + gr.output + '\n\n[TIP: Wait for the model to finish loading (~22MB first-time download), then call semantic_search again for better results.]',
+            _fallback: true
+          };
+        }
+
+        // ── Empty index: tell the agent what's going on ──
+        if (indexedCount === 0) {
+          return { output: '[Semantic index is empty — no files indexed yet. Indexing runs when you open a directory and after file changes. Try again in a moment.]' };
+        }
+
+        // ── Get query embedding ──
+        const qEmb = await getQueryEmbedding(query);
+        if (!qEmb) {
+          // getQueryEmbedding already logs the error internally
+          const gr = await grepSafe(query, '', '', '', 0);
+          return { output: '[Failed to generate query embedding. Using grep fallback.]\n\n' + gr.output, _fallback: true };
+        }
+
+        // ── Search the index ──
+        const results = semanticIndex.search(qEmb, topK);
+
+        // ── No matches: give actionable diagnostics ──
+        if (results.length === 0) {
+          const workspaceFiles = state.fileTree.filter(f => f.k === 'file' && !SKIP.has(f.n));
+          const unindexed = workspaceFiles.length - indexedCount;
+          const diagnostics = [];
+          if (unindexed > 0) {
+            diagnostics.push(unindexed + ' file(s) not yet indexed');
+          }
+          const fallbackHint = diagnostics.length
+            ? '\n\n[Indexed ' + indexedCount + ' of ' + workspaceFiles.length + ' workspace files. ' + diagnostics.join('. ') + '.]'
+            : '';
+
+          const gr = await grepSafe(query, '', '', '', 0);
+          return {
+            output: '[No semantic matches in ' + indexedCount + ' indexed file' + (indexedCount !== 1 ? 's' : '') + '. Your query may be too specific or use different terminology than the actual code.' + fallbackHint + '\n\n[Falling back to grep:]\n' + gr.output,
+            _fallback: true
+          };
+        }
+
+        // ── Build result output with context snippets ──
+        const CTX = 5;
+        let output = '';
+
+        for (let i = 0; i < Math.min(results.length, CTX); i++) {
+          let snip = '';
+          try {
+            const h = await resolvePath(results[i].path);
+            if (h.kind !== 'file') continue;
+            const f = await h.getFile();
+            const t = await f.text();
+            snip = t.split('\n').slice(0, 4).join('\n');
+          } catch { /* skip unreadable files */ }
+          output += (i + 1) + '. ' + results[i].path + ' (relevance: ' + results[i].score.toFixed(2) + ')\n';
+          if (snip.trim()) output += '   ' + snip.trimEnd() + '\n';
+          output += '\n';
+        }
+
+        for (let i = CTX; i < results.length; i++) {
+          output += (i + 1) + '. ' + results[i].path + ' (relevance: ' + results[i].score.toFixed(2) + ')\n';
+        }
+
+        output += '\n[Top ' + CTX + ' results include context lines. Use read_file or read_file_lines for details. Score: 1.0 = perfect, 0.0 = unrelated]';
+
+        return { output, _results: results };
       }
-      const qEmb = await getQueryEmbedding(query);
-      const results = semanticIndex.search(qEmb, topK);
-      if (results.length === 0) return { output: semanticIndex.totalFiles ? 'No indexed files found. Index may still be building...' : 'No indexed files. Open a workspace.' };
-      const CTX = 5;
-      for (let i = 0; i < Math.min(results.length, CTX); i++) {
-        let snip = '';
-        try {
-          const h = await resolvePath(results[i].path);
-          if (h.kind !== 'file') continue;
-          const f = await h.getFile();
-          const t = await f.text();
-          snip = t.split('\n').slice(0, 4).join('\n');
-        } catch { /* skip */ }
-        output += `${i + 1}. ${results[i].path} (relevance: ${results[i].score.toFixed(2)})\n`;
-        if (snip.trim()) output += `   ${snip.trimEnd()}\n`;
-        output += '\n';
-      }
-      for (let i = CTX; i < results.length; i++) {
-        output += `${i + 1}. ${results[i].path} (relevance: ${results[i].score.toFixed(2)})\n`;
-      }
-      output += '\n[Top ${CTX} results include context lines. Use read_file or read_file_lines for details. Score: 1.0 = perfect, 0.0 = unrelated]';
-      return { output, _results: results };
-    } 
 
     /* ═══════════════ FILE SYSTEM ═══════════════ */
     const SKIP = new Set([
@@ -8455,6 +8511,7 @@ Python command: {{PYTHON_CMD}}`;
             }
             }
             entries.push((kh.kind === 'directory' ? 'DIR ' : 'FILE ') + full + suffix);
+            files.push(full);
             if (recursive && kh.kind === 'directory') {
               try { await walk(kh, full, d + 1); } catch { entries.push('  ' + full + '/ [error reading]'); }
             }
@@ -9066,6 +9123,11 @@ Python command: {{PYTHON_CMD}}`;
             result = await readFileSummarySafe(args.path);
             break;
           }  
+
+          case '/reindex': 
+            showToast('Re-indexing...', 'info');
+            startIndexing().then(() => showToast('Indexed ' + semanticIndex.size + ' files', 'ok'));
+            break;
 
           case 'view_image':
             if (args._parseError) return { output: 'Error: view_image received invalid arguments — ' + args._parseError };
