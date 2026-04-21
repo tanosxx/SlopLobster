@@ -699,6 +699,60 @@ def _get_console_filtered(types=None, since=None, limit=100):
         msgs = [m for m in msgs if m["time"] > since]
     return msgs[-limit:]    
 
+_dev_processes = {}
+
+def _start_dev_process(cmd, port, cwd):
+    port_s = str(port)
+    if port_s in _dev_processes:
+        try:
+            p = _dev_processes[port_s]
+            if p['alive'][0]:
+                kill_tree(p['proc'].pid)
+        except: pass
+    stripped = cmd.strip()
+    first_word = stripped.split(None, 1)[0] if stripped else ''
+    if first_word in ('python', 'python3'):
+        import shutil
+        if not shutil.which(first_word):
+            alt = 'python3' if first_word == 'python' else 'python'
+            if shutil.which(alt):
+                cmd = alt + stripped[len(first_word):]
+    if WINDOWS_BASH:
+        kw = dict(args=[WINDOWS_BASH, "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd or os.getcwd())
+    elif platform.system() == "Windows":
+        kw = dict(shell=True, args=cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd or os.getcwd())
+    else:
+        kw = dict(shell=True, args=cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd or os.getcwd(), start_new_session=True)
+    proc = subprocess.Popen(**kw)
+    buf = []
+    lock = threading.Lock()
+    alive = [True]
+    def reader(stream, kind):
+        try:
+            for line in iter(stream.readline, ''):
+                if not alive[0]: break
+                with lock:
+                    buf.append(kind + line)
+                    if len(buf) > 2000:
+                        buf.pop(0)
+        except: pass
+    for s in (proc.stdout, proc.stderr):
+        t = threading.Thread(target=reader, args=(s, 'o' if s is proc.stdout else 'e'), daemon=True)
+        t.start()
+    def monitor():
+        try: proc.wait()
+        except: pass
+        alive[0] = False
+    threading.Thread(target=monitor, daemon=True).start()
+    _dev_processes[port_s] = {'proc': proc, 'buf': buf, 'lock': lock, 'alive': alive, 'cmd': cmd, 'cwd': cwd or os.getcwd(), 'pid': proc.pid, 'start': time.time()}
+    return {'ok': True, 'port': port, 'pid': proc.pid}
+
+def _check_dev_ready(port, timeout=3):
+    try:
+        urllib.request.urlopen("http://127.0.0.1:" + str(port) + "/", timeout=timeout)
+        return True
+    except: return False    
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def handle_one_request(self):
         try:
@@ -1026,6 +1080,66 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif path == '/browser_close':
             _close_browser()
             self.send_json(200, {"ok": True})
+       
+        elif path == '/dev_start':
+            try:
+                body = self.read_body()
+                cmd = body.get("command", "")
+                if not cmd:
+                    return self.send_json(400, {"error": "command is required"})
+                port = int(body.get("port", 3000))
+                cwd = body.get("cwd") or None
+                result = _start_dev_process(cmd, port, cwd)
+                self.send_json(200, result)
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
+
+        elif path == '/dev_status':
+            try:
+                body = self.read_body()
+                port = int(body.get("port", 3000))
+                ps = _dev_processes.get(str(port))
+                if not ps:
+                    return self.send_json(200, {"alive": False, "ready": False, "port": port})
+                alive = ps['alive'][0]
+                ready = alive and _check_dev_ready(port)
+                with ps['lock']:
+                    output = ''.join(ps['buf'][-50:])
+                return self.send_json(200, {"alive": alive, "ready": ready, "port": port, "output_tail": output})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
+
+        elif path == '/dev_output':
+            try:
+                body = self.read_body()
+                port = int(body.get("port", 3000))
+                tail = int(body.get("tail", 100))
+                ps = _dev_processes.get(str(port))
+                if not ps:
+                    return self.send_json(200, {"output": "", "alive": False})
+                with ps['lock']:
+                    output = ''.join(ps['buf'][-tail:])
+                return self.send_json(200, {"output": output, "alive": ps['alive'][0]})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
+
+        elif path == '/dev_stop':
+            try:
+                body = self.read_body()
+                port = int(body.get("port", 3000))
+                port_s = str(port)
+                ps = _dev_processes.get(port_s)
+                killed = False
+                if ps:
+                    try:
+                        kill_tree(ps['proc'].pid)
+                        killed = True
+                    except: pass
+                    ps['alive'][0] = False
+                    del _dev_processes[port_s]
+                self.send_json(200, {"ok": True, "killed": killed, "port": port})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})    
         else:
             self.send_json(404, {"error": "not found"})
 
