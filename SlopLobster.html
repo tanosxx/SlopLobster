@@ -4429,6 +4429,47 @@
       background: var(--accent); color: var(--bg-0); font-family: 'JetBrains Mono', monospace;
     }
     .cp-badge.hidden { display: none; }
+
+    #rp-preview-badge {
+      font-size: 7px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      padding: 0;
+      min-width: 8px;
+      line-height: 8px;
+      display: none;
+      place-items: center;
+    }
+
+    #rp-preview-badge.visible {
+      display: block;
+      animation: pulse 2s infinite;
+    }
+
+    #rp-preview-active {
+      background: white;
+    }
+
+    #rp-preview-iframe-wrap {
+      position: relative;
+    }
+
+    #rp-preview-iframe-wrap::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 24px;
+      background: linear-gradient(180deg, rgba(255,255,255,.9) 0%, transparent 100%);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    #rp-preview-status i {
+      font-size: 8px;
+    }
   </style>
 </head>
 
@@ -4575,6 +4616,9 @@
         <div class="rp-tabs">
           <button class="rp-tab active" data-tab="files" onclick="switchRpTab('files')"><i class="fas fa-file-code"></i>
             Files</button>
+          <button class="rp-tab" data-tab="preview" onclick="switchRpTab('preview')"><i
+              class="fas fa-eye"></i> Preview <span class="rp-tab-badge"
+              id="rp-preview-badge" style="display:none">●</span></button>  
           <button class="rp-tab" data-tab="changes" onclick="switchRpTab('changes')"><i class="fas fa-code-compare"></i>
             Changes <span class="rp-tab-badge" id="rp-changes-badge" style="display:none">0</span></button>
           <button class="rp-tab" data-tab="term" onclick="switchRpTab('term')"><i class="fas fa-terminal"></i>
@@ -4587,6 +4631,51 @@
             <div class="rp-empty-state" id="rp-files-empty"><i class="fas fa-file-code"></i><span>Click a file in the
                 sidebar to preview</span></div>
             <div id="rp-file-preview" style="display:none"></div>
+          </div>
+          <div class="rp-pane" id="rp-preview">
+            <div class="rp-empty-state" id="rp-preview-empty"><i class="fas fa-eye"
+                style="font-size:24px;opacity:.4"></i><span>No dev server running</span>
+              <small style="color:var(--tx-4)">Use <code
+                  style="font-family:JetBrains Mono,monospace;font-size:10px;background:var(--bg-3);padding:0 4px;border-radius:3px">start_dev_server</code>
+                to launch a preview</small>
+            </div>
+            <div id="rp-preview-active" style="display:none;flex-direction:column;height:100%">
+              <div class="rp-file-header" id="rp-preview-header">
+                <span class="rp-file-name"><i class="fas fa-globe"
+                    style="color:var(--green);margin-right:4px"></i> <span
+                    id="rp-preview-url">localhost:3000</span></span>
+                <span class="rp-file-meta" id="rp-preview-status"></span>
+                <div class="rp-file-actions">
+                  <button class="rp-file-act" id="rp-preview-reload"
+                    title="Reload"><i class="fas fa-rotate"></i></button>
+                  <button class="rp-file-act" id="rp-preview-open"
+                    title="Open in browser"><i class="fas fa-external-link"></i></button>
+                  <button class="rp-file-act" id="rp-preview-stop"
+                    title="Stop server"><i class="fas fa-stop"></i></button>
+                </div>
+              </div>
+              <div class="html-preview-bar" id="rp-preview-bar" style="display:none">
+                <span
+                  style="font-size:9px;color:var(--tx-4);font-family:JetBrains Mono,monospace;margin-right:auto">Viewport:</span>
+                <button class="device-btn active" data-width="100%"
+                  onclick="setDevPreviewWidth(this, '100%')"><i
+                    class="fas fa-desktop" style="font-size:9px"></i> Desktop</button>
+                <button class="device-btn" data-width="768px"
+                  onclick="setDevPreviewWidth(this, '768px')"><i
+                    class="fas fa-tablet-screen-button" style="font-size:9px"></i>
+                  Tablet</button>
+                <button class="device-btn" data-width="375px"
+                  onclick="setDevPreviewWidth(this, '375px')"><i
+                    class="fas fa-mobile-screen-button" style="font-size:9px"></i>
+                  Mobile</button>
+              </div>
+              <div id="rp-preview-iframe-wrap"
+                style="flex:1;overflow:hidden;background:white;border-radius:0 0 6px 6px">
+                <iframe id="rp-preview-iframe"
+                  sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin allow-downloads"
+                  style="width:100%;height:100%;border:none"></iframe>
+              </div>
+            </div>
           </div>
           <div class="rp-pane" id="rp-changes">
             <div class="rp-empty-state" id="rp-changes-empty"><i class="fas fa-code-compare"></i><span>No file changes
@@ -5495,7 +5584,60 @@ def _get_console_filtered(types=None, since=None, limit=100):
         msgs = [m for m in msgs if m["time"] > since]
     return msgs[-limit:]    
 
-    
+_dev_processes = {}
+
+def _start_dev_process(cmd, port, cwd):
+    port_s = str(port)
+    if port_s in _dev_processes:
+        try:
+            p = _dev_processes[port_s]
+            if p['alive'][0]:
+                kill_tree(p['proc'].pid)
+        except: pass
+    stripped = cmd.strip()
+    first_word = stripped.split(None, 1)[0] if stripped else ''
+    if first_word in ('python', 'python3'):
+        import shutil
+        if not shutil.which(first_word):
+            alt = 'python3' if first_word == 'python' else 'python'
+            if shutil.which(alt):
+                cmd = alt + stripped[len(first_word):]
+    if WINDOWS_BASH:
+        kw = dict(args=[WINDOWS_BASH, "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd or os.getcwd())
+    elif platform.system() == "Windows":
+        kw = dict(shell=True, args=cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd or os.getcwd())
+    else:
+        kw = dict(shell=True, args=cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd or os.getcwd(), start_new_session=True)
+    proc = subprocess.Popen(**kw)
+    buf = []
+    lock = threading.Lock()
+    alive = [True]
+    def reader(stream, kind):
+        try:
+            for line in iter(stream.readline, ''):
+                if not alive[0]: break
+                with lock:
+                    buf.append(kind + line)
+                    if len(buf) > 2000:
+                        buf.pop(0)
+        except: pass
+    for s in (proc.stdout, proc.stderr):
+        t = threading.Thread(target=reader, args=(s, 'o' if s is proc.stdout else 'e'), daemon=True)
+        t.start()
+    def monitor():
+        try: proc.wait()
+        except: pass
+        alive[0] = False
+    threading.Thread(target=monitor, daemon=True).start()
+    _dev_processes[port_s] = {'proc': proc, 'buf': buf, 'lock': lock, 'alive': alive, 'cmd': cmd, 'cwd': cwd or os.getcwd(), 'pid': proc.pid, 'start': time.time()}
+    return {'ok': True, 'port': port, 'pid': proc.pid}
+
+def _check_dev_ready(port, timeout=3):
+    try:
+        urllib.request.urlopen("http://127.0.0.1:" + str(port) + "/", timeout=timeout)
+        return True
+    except: return False    
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def handle_one_request(self):
         try:
@@ -5823,6 +5965,66 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif path == '/browser_close':
             _close_browser()
             self.send_json(200, {"ok": True})
+       
+        elif path == '/dev_start':
+            try:
+                body = self.read_body()
+                cmd = body.get("command", "")
+                if not cmd:
+                    return self.send_json(400, {"error": "command is required"})
+                port = int(body.get("port", 3000))
+                cwd = body.get("cwd") or None
+                result = _start_dev_process(cmd, port, cwd)
+                self.send_json(200, result)
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
+
+        elif path == '/dev_status':
+            try:
+                body = self.read_body()
+                port = int(body.get("port", 3000))
+                ps = _dev_processes.get(str(port))
+                if not ps:
+                    return self.send_json(200, {"alive": False, "ready": False, "port": port})
+                alive = ps['alive'][0]
+                ready = alive and _check_dev_ready(port)
+                with ps['lock']:
+                    output = ''.join(ps['buf'][-50:])
+                return self.send_json(200, {"alive": alive, "ready": ready, "port": port, "output_tail": output})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
+
+        elif path == '/dev_output':
+            try:
+                body = self.read_body()
+                port = int(body.get("port", 3000))
+                tail = int(body.get("tail", 100))
+                ps = _dev_processes.get(str(port))
+                if not ps:
+                    return self.send_json(200, {"output": "", "alive": False})
+                with ps['lock']:
+                    output = ''.join(ps['buf'][-tail:])
+                return self.send_json(200, {"output": output, "alive": ps['alive'][0]})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
+
+        elif path == '/dev_stop':
+            try:
+                body = self.read_body()
+                port = int(body.get("port", 3000))
+                port_s = str(port)
+                ps = _dev_processes.get(port_s)
+                killed = False
+                if ps:
+                    try:
+                        kill_tree(ps['proc'].pid)
+                        killed = True
+                    except: pass
+                    ps['alive'][0] = False
+                    del _dev_processes[port_s]
+                self.send_json(200, {"ok": True, "killed": killed, "port": port})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})    
         else:
             self.send_json(404, {"error": "not found"})
 
@@ -5920,7 +6122,8 @@ if __name__ == "__main__":
       originalTask: null,
       projectType: null, projectMeta: null,
       browserAvailable: false,
-      convSearchQuery: ''
+      convSearchQuery: '',
+      devServer: null  // { port, command, pollInterval, ready }
     };
 
     const inputHistory = [];
@@ -6682,6 +6885,7 @@ Python command: {{PYTHON_CMD}}`;
         { type: 'function', function: { name: 'list_directory', description: 'List files and directories. Image files are marked with [IMAGE].', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path (default: root)' }, recursive: { type: 'boolean', description: 'List recursively' } }, required: [] } } },
         { type: 'function', function: { name: 'search_files', description: 'Search for files by name pattern.', parameters: { type: 'object', properties: { pattern: { type: 'string', description: 'Substring or glob pattern' } }, required: ['pattern'] } } },
         { type: 'function', function: { name: 'grep', description: 'Search for text patterns in files with line numbers and context.', parameters: { type: 'object', properties: { pattern: { type: 'string', description: 'Regex or text to search for' }, path: { type: 'string', description: 'File or directory to search (default: root)' }, include: { type: 'string', description: 'File glob to include, e.g. "*.py"' }, context_lines: { type: 'number', description: 'Lines of context around matches (default: 0)' } }, required: ['pattern'] } } },
+        { type: 'function', function: { name: 'start_dev_server', description: 'Start a local dev server in the background. The preview appears in the Preview panel. Supports hot-reload. Use browser_screenshot and browser_console to inspect the running app.', parameters: { type: 'object', properties: { command: { type: 'string', description: 'Shell command to start the dev server, e.g. "npm run dev", "python -m http.server 8000", "cargo run"' }, port: { type: 'number', description: 'Port number (default: 3000)' } }, required: ['command'] } } },
         { type: 'function', function: { name: 'delete_file', description: 'Delete a file or empty directory. Use recursive=true for directories with contents. Use with caution — this cannot be undone.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path to delete' }, recursive: { type: 'boolean', description: 'Delete directory and all contents (default: false)' } }, required: ['path'] } } },
         { type: 'function', function: { name: 'move_file', description: 'Move or rename a file or directory. Creates parent directories in destination if needed.', parameters: { type: 'object', properties: { source: { type: 'string', description: 'Current relative path' }, destination: { type: 'string', description: 'New relative path' } }, required: ['source', 'destination'] } } },
       ];
@@ -6845,6 +7049,143 @@ Python command: {{PYTHON_CMD}}`;
       // and handle all SVGs, image previews, and diff rendering natively.
       streamEl = null;
       agentLoop();
+    }
+
+    /* ═══════════════ DEV SERVER ═══════════════ */
+    function pollDevServer(port) {
+      stopDevPolling();
+      const maxPolls = 60; // 60 * 2s = 2 minutes max startup wait
+
+      state.devServer.pollInterval = setInterval(async () => {
+        if (!state.devServer || state.devServer.port !== port) {
+          stopDevPolling();
+          return;
+        }
+
+        try {
+          const res = await fetch(`${state.compUrl}/dev_status?port=${port}`, {
+            signal: AbortSignal.timeout(3000)
+          });
+          const data = await res.json();
+
+          if (!data.alive) {
+            stopDevPolling();
+            updateDevPreviewUI('error');
+            appendMsg('system', `Dev server exited unexpectedly (port ${port}). Check the terminal output for errors.`);
+            state.devServer = null;
+            return;
+          }
+
+          if (data.ready && !state.devServer.ready) {
+            state.devServer.ready = true;
+            updateDevPreviewUI('ready');
+            switchRpTab('preview');
+            showToast(`Dev server ready → http://localhost:${port}`, 'ok');
+          }
+        } catch {
+          // Network error — companion may have disconnected
+        }
+      }, 2000);
+    }
+
+    function stopDevPolling() {
+      if (state.devServer?.pollInterval) {
+        clearInterval(state.devServer.pollInterval);
+        state.devServer.pollInterval = null;
+      }
+    }
+
+    async function stopDevServer() {
+      if (!state.devServer) return;
+      const { port } = state.devServer;
+      stopDevPolling();
+
+      try {
+        await fetch(`${state.compUrl}/dev_stop`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ port }),
+          signal: AbortSignal.timeout(5000)
+        });
+      } catch { /* ignore */ }
+
+      state.devServer = null;
+      updateDevPreviewUI('stopped');
+    }
+
+    function updateDevPreviewUI(status) {
+      const header = document.getElementById('rp-preview-header');
+      const statusEl = document.getElementById('rp-preview-status');
+      const iframe = document.getElementById('rp-preview-iframe');
+      const emptyEl = document.getElementById('rp-preview-empty');
+      const activeEl = document.getElementById('rp-preview-active');
+      const bar = document.getElementById('rp-preview-bar');
+      const badge = document.getElementById('rp-preview-badge');
+
+      if (!state.devServer) {
+        emptyEl.style.display = '';
+        activeEl.style.display = 'none';
+        if (badge) badge.style.display = 'none';
+        return;
+      }
+
+      emptyEl.style.display = 'none';
+      activeEl.style.display = 'flex';
+      if (bar) bar.style.display = 'flex';
+
+      const { port } = state.devServer;
+      const urlEl = document.getElementById('rp-preview-url');
+      if (urlEl) urlEl.textContent = `localhost:${port}`;
+
+      const statusMap = {
+        starting: { text: 'Starting...', color: 'var(--yellow)', icon: 'fa-spinner fa-spin', badgeColor: 'var(--yellow)' },
+        ready: { text: 'Running', color: 'var(--green)', icon: 'fa-circle', badgeColor: 'var(--green)' },
+        error: { text: 'Error', color: 'var(--red)', icon: 'fa-circle-exclamation', badgeColor: 'var(--red)' },
+        stopped: { text: 'Stopped', color: 'var(--tx-4)', icon: 'fa-stop', badgeColor: 'var(--tx-4)' }
+      };
+      const s = statusMap[status] || statusMap.stopped;
+
+      if (statusEl) {
+        statusEl.innerHTML = `<i class="fas ${s.icon}" style="font-size:8px"></i> ${s.text}`;
+        statusEl.style.color = s.color;
+      }
+      if (badge) {
+        badge.style.display = '';
+        badge.style.background = s.badgeColor;
+      }
+
+      if (status === 'ready' && iframe && iframe.src !== `http://localhost:${port}/`) {
+        iframe.src = `http://localhost:${port}/`;
+      }
+
+      if (status === 'error' && header) {
+        header.style.borderBottomColor = 'rgba(239,68,68,.3)';
+      } else if (header) {
+        header.style.borderBottomColor = '';
+      }
+    }
+
+    function reloadDevPreview() {
+      const iframe = document.getElementById('rp-preview-iframe');
+      if (iframe && state.devServer) {
+        iframe.src = iframe.src;
+      }
+    }
+
+    function setDevPreviewWidth(btn, width) {
+      const wrap = document.getElementById('rp-preview-iframe-wrap');
+      if (!wrap) return;
+      if (width === '100%') {
+        wrap.style.maxWidth = 'none';
+        wrap.style.margin = '0';
+        iframe.style.maxWidth = 'none';
+      } else {
+        wrap.style.maxWidth = width;
+        wrap.style.margin = '0 auto';
+        iframe.style.maxWidth = width;
+      }
+      document.querySelectorAll('#rp-preview-bar .device-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
     }
 
     /* ═══════════════ FILE SYSTEM ═══════════════ */
@@ -8477,6 +8818,34 @@ Python command: {{PYTHON_CMD}}`;
             if (!args.destination) return { output: 'Error: "destination" is required for move_file' };
             result = { output: await moveFileSafe(args.source, args.destination) };
             debouncedFileTreeRefresh(); break;
+          case 'start_dev_server': {
+            if (!state.compConnected) return { output: 'start_dev_server requires the companion server.' };
+            if (!args.command) return { output: 'Error: "command" is required. Example: start_dev_server({"command": "npm run dev", "port": 3000})' };
+            const port = parseInt(args.port) || 3000;
+
+            try {
+              const res = await fetch(`${state.compUrl}/dev_start`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: args.command, port, cwd: null }),
+                signal: AbortSignal.timeout(15000)
+              });
+              const data = await res.json();
+              if (data.error) return { output: `[Dev Server Error] ${data.error}` };
+
+              state.devServer = { port, command: args.command, pollInterval: null, ready: false };
+
+              // Switch to preview tab and start polling
+              switchRpTab('preview');
+              updateDevPreviewUI('starting');
+              pollDevServer(port);
+
+              return { output: `Dev server starting: "${args.command}" → http://localhost:${port}\n\nPreview is loading in the Preview panel. The server runs in the background — you can continue coding while it starts.\n\nUse browser_screenshot to capture the preview, browser_console to check for errors, or fetch_url to read pages.` };
+            } catch (e) {
+              return { output: `[Dev Server Error] ${e.message}` };
+            }
+            break;
+          }  
           case 'execute_command': {
             const cmd = String(args.command || '').trim();
             if (!cmd) return { output: 'Error: "command" is required for execute_command' };
@@ -13628,6 +13997,14 @@ STEP: Run pytest to verify changes`;
 
       /* ── Right panel ── */
       initRightPanel();
+      document.getElementById('rp-preview-reload').onclick = () => reloadDevPreview();
+      document.getElementById('rp-preview-open').onclick = () => {
+        if (state.devServer) window.open(`http://localhost:${state.devServer.port}`, '_blank');
+      };
+      document.getElementById('rp-preview-stop').onclick = () => {
+        stopDevServer();
+        showToast('Dev server stopped', 'info');
+      };
       initRightPanelResize();
 
       /* ── Initial connection checks ── */
