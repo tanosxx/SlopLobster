@@ -7043,7 +7043,7 @@ Python command: {{PYTHON_CMD}}`;
       for (let i = toolResultIdx - 1; i >= 0; i--) {
         const m = state.messages[i];
         if (m.role === 'assistant' && m.tool_calls) {
-          const foundTc = m.tool_calls.find(t => t.id === toolCallId);
+          const foundTc = m.toolCalls.find(t => t.id === toolCallId);
           if (foundTc) { assistantIdx = i; targetToolCall = foundTc; break; }
         }
       }
@@ -7053,50 +7053,67 @@ Python command: {{PYTHON_CMD}}`;
         return;
       }
 
-      // 2. Truncate history to BEFORE the assistant message.
-      // This safely discards the entire parallel batch, all tool results, 
-      // and any subsequent assistant replies, preventing API format violations.
-      state.messages = state.messages.slice(0, assistantIdx);
-
-      // 3. Inject a targeted instruction forcing the LLM to re-execute exactly this tool.
-      // We inject this as a 'user' message so the API accepts it cleanly.
+      // 2. Preserve the assistant's text content so context isn't lost on retry
+      const assistantMsg = state.messages[assistantIdx];
+      const preservedText = assistantMsg.content || null;
       const toolName = targetToolCall.function.name;
       const toolArgs = targetToolCall.function.arguments;
 
+      // 3. Truncate history to BEFORE the assistant message.
+      //    This safely discards the entire parallel batch, all tool results,
+      //    and any subsequent assistant replies, preventing API format violations.
+      state.messages = state.messages.slice(0, assistantIdx);
+
+      // 4. Inject a targeted instruction forcing the LLM to re-execute exactly this tool.
+      //    We inject this as a 'user' message so the API accepts it cleanly.
       state.messages.push({
         role: 'user',
         content: `[SYSTEM: Retry specific tool. You MUST call exactly this tool and ONLY this tool in your response. Do not output any text.\n\nTool: ${toolName}\nArguments: ${toolArgs}]`
       });
 
-      // 4. Clean up the DOM from the assistant message down to the bottom.
+      // 5. Restore assistant text as a synthetic "thinking" block so context is preserved.
+      //    Without this, any explanation or context the assistant provided would be silently
+      //    lost, potentially breaking the agent's understanding of what it was doing.
+      if (preservedText) {
+        state.messages.push({
+          role: 'tool',
+          tool_call_id: toolCallId,
+          content: '[Previous assistant context preserved for retry — ' + preservedText.slice(0, 400) + (preservedText.length > 400 ? '...' : '') + ']'
+        });
+      }
+
+      // 6. Clean up the DOM from the assistant message down to the bottom.
+      //    Walk backwards to find the full extent of the parallel batch (tool panels,
+      //    think blocks, diff panels, search panels, sub-agent panels, etc.) so
+      //    we remove everything related to this turn, not just the first tool panel.
       let domElToRemove = panel.el;
       let prev = panel.el.previousElementSibling;
 
       while (prev) {
-        // Walk backwards through tool panels belonging to the same parallel batch
+        // Tool panels belonging to the same parallel batch
         if (prev.classList.contains('tool-panel') && prev._batchId === panel.el._batchId) {
           domElToRemove = prev;
           prev = prev.previousElementSibling;
+          continue;
         }
-        // Stop when we hit the assistant message that initiated the batch
-        else if (prev.classList.contains('msg') && prev._role === 'assistant') {
+        // The assistant message that initiated the batch — include in deletion
+        if (prev.classList.contains('msg') && prev._role === 'assistant') {
           if (prev._msgIndex === assistantIdx) {
-            domElToRemove = prev; // Include the assistant message in the deletion
+            domElToRemove = prev;
           }
           break;
         }
-        // Stop if we hit an unrelated user/agent message (safety boundary)
-        else if (prev.classList.contains('msg')) {
+        // Unrelated user/agent message — safety boundary, stop walking backwards
+        if (prev.classList.contains('msg')) {
           break;
         }
-        // Consume associated UI elements (think blocks, diff panels, search panels, etc.)
-        else {
-          domElToRemove = prev;
-          prev = prev.previousElementSibling;
-        }
+        // Associated UI elements: think blocks, diff panels, search panels,
+        // sub-agent panels, verify indicators, compact banners, etc.
+        domElToRemove = prev;
+        prev = prev.previousElementSibling;
       }
 
-      // Remove the target element and everything after it in the chat view
+      // Remove everything from the target element to the end of the chat
       let curr = domElToRemove;
       while (curr && curr.parentNode === $msg()) {
         const next = curr.nextElementSibling;
@@ -7104,9 +7121,9 @@ Python command: {{PYTHON_CMD}}`;
         curr = next;
       }
 
-      // 5. Reset streaming state and restart the agent loop.
-      // The agent loop will immediately pick up the new user message, call the tool,
-      // and handle all SVGs, image previews, and diff rendering natively.
+      // 7. Reset streaming state and restart the agent loop.
+      //    The agent loop will immediately pick up the new user message, call the tool,
+      //    and handle all SVGs, image previews, and diff rendering natively.
       streamEl = null;
       agentLoop();
     }
@@ -9110,8 +9127,6 @@ Python command: {{PYTHON_CMD}}`;
 
       try {
         let result;
-        const _debugName = name;  // capture for error reporting
-        const _debugArgs = argsStr?.slice(0, 300);
         switch (name) {
           case 'read_file':
             if (args._parseError) return { output: 'Error: read_file received invalid arguments — ' + args._parseError + '\n\nFix: Provide "path" as valid JSON. Example:\nread_file({"path": "src/main.py"})' };
@@ -12075,12 +12090,26 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     }
 
     async function applyPendingEdit(pr) {
-      requireWorkspace();      
+      requireWorkspace();
       const segs = sanitizePath(pr._pendingPath);
       let dir = state.dirHandle;
       for (let i = 0; i < segs.length - 1; i++) dir = await dir.getDirectoryHandle(segs[i]);
       const fh = await dir.getFileHandle(segs[segs.length - 1], { create: false });
-      const w = await fh.createWritable(); await w.write(pr._pendingNewContent); await w.close();
+      
+      // Verify file hasn't changed since dry-run
+      const current = await (await fh.getFile()).text();
+      const expectedOld = pr._originalContent || ''; // Store this in dry-run result
+      if (expectedOld && current !== expectedOld) {
+        return { 
+          output: '⚠ Edit rejected — file was modified since preview. Tool call returned stale data.\n' +
+                  'The file may have been changed by a parallel tool or another process.',
+          diff: null 
+        };
+      }
+      
+      const w = await fh.createWritable();
+      await w.write(pr._pendingNewContent);
+      await w.close();
       state.fileCache.set(pr._pendingPath, pr._pendingNewContent); modifiedFiles.add(pr._pendingPath);
       let vm = '';
       if (state.verifyWrites) { try { const v = await (await fh.getFile()).text(); vm = v === pr._pendingNewContent ? '\n✓ Write verified' : '\n✗ WRITE VERIFICATION FAILED'; } catch { } }
@@ -12419,14 +12448,15 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     async function doNewConversation() {
       _wsWarningDismissed = false;
       updateWorkspaceBanner();
+      
       if (state.messages.length > 0 && state.activeConvId) {
-        // Flush pending save before switching
         clearTimeout(_convSaveTimer);
         const prev = state.conversations.find(c => c.id === state.activeConvId);
         if (prev) await saveConvToWorkspace(prev);
       }
 
-      const oldProgressFile = state.activeConvId ? `.sloplobster-progress-${state.activeConvId}.md` : null;
+      const oldProgressFile = state.activeConvId
+        ? `.sloplobster-progress-${state.activeConvId}.md` : null;
       if (state.dirHandle && oldProgressFile) {
         try { await deleteFileSafe(oldProgressFile, false); } catch { }
       }
@@ -12437,6 +12467,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         messages: [], created: Date.now(), updated: Date.now()
       });
       state.activeConvId = id;
+      localStorage.setItem('SlopLobster_activeConvId', state.activeConvId);
       state.messages = [];
       state.fileCache.clear();
       modifiedFiles.clear();
@@ -12462,65 +12493,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       renderConvList();
       updateContextMeter();
       refreshFileTree();
-
-      // Save to workspace immediately
       saveConvToWorkspace(state.conversations[0]);
       scheduleConvIndexSave();
-    }
-
-
-
-    async function doNewConversation() {
-      _wsWarningDismissed = false;
-      updateWorkspaceBanner();
-      saveCurrentConv();
-      const oldProgressFile = state.activeConvId
-        ? `.sloplobster-progress-${state.activeConvId}.md` : null;
-
-      const id = 'conv_' + Date.now();
-      state.conversations.unshift({
-        id,
-        title: 'New conversation',
-        messages: [],
-        created: Date.now(),
-        updated: Date.now()
-      });
-      state.activeConvId = id;
-      localStorage.setItem('SlopLobster_activeConvId', state.activeConvId); 
-      state.messages = [];
-      state.fileCache.clear();
-      modifiedFiles.clear();
-      state.pendingImages = [];
-      state.originalTask = null;
-      state.currentPlan = null;
-      state.planExecuting = false;
-      state.planStepIndex = -1;
-      toolCallHistory.length = 0;
-      state._autoVerifyRetries = 0;
-      textLoopBuffer.length = 0;
-      addImageAttachmentsToInputArea();
-      rpState.clearChanges();
-      rpState.activeFile = null;
-      document.getElementById('rp-files-empty').style.display = '';
-      document.getElementById('rp-file-preview').style.display = 'none';
-
-      /* Clean up old progress file from previous task */
-      if (state.dirHandle && oldProgressFile) {
-        try {
-          await deleteFileSafe(oldProgressFile, false);
-        } catch (_) {
-          // Ignore errors when cleaning up old progress file
-        }
-      }
-
-      $msg().innerHTML = '';
-      streamEl = null;
-      document.getElementById('welcome').style.display = 'flex';
-      $msg().style.display = 'none';
-      saveConversations();
-      renderConvList();
-      updateContextMeter();
-      refreshFileTree();
     }
 
     async function switchConv(id) {
@@ -13136,8 +13110,9 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       updateSendBtn(); updateContextMeter();
 
       /* ── Plan mode: generate plan instead of executing ── */
-      if (state.planMode && t) {
-        await handlePlanRequest(t);
+      if (state.planMode && (t || state.pendingImages.length)) {
+        const taskText = t || '[Image analysis request]';
+        await handlePlanRequest(taskText);
         return;
       }
 
@@ -13292,17 +13267,16 @@ STEP: Run pytest to verify changes`;
         state.currentPlan = { steps, originalText: text };
         renderPlanPanel(steps);
 
-      } catch (e) {
-        if (thinkingEl.parentNode) thinkingEl.remove();
-        if (e.name === 'AbortError') { appendMsg('system', 'Plan generation cancelled.'); return; }
-        appendMsg('system', 'Plan generation failed: ' + e.message + ' — falling back to normal execution.');
-        try {
-          await agentLoop();
-        } catch (loopErr) {
-          console.error('[plan] agentLoop fallback error:', loopErr);
-          appendMsg('system', 'Fallback execution also failed: ' + loopErr.message);
+        } catch (e) {
+          if (thinkingEl.parentNode) thinkingEl.remove();
+          if (e.name === 'AbortError') { appendMsg('system', 'Plan generation cancelled.'); return; }
+          appendMsg('system', 'Plan generation failed: ' + e.message);
+        } finally {
+          if (state.planExecuting) {
+            state.planExecuting = false;
+            updateSendBtn();
+          }
         }
-      }
     }
 
     function renderPlanPanel(steps) {
@@ -14275,10 +14249,10 @@ STEP: Run pytest to verify changes`;
     }
 
     function updateEmbeddingUI(status, progress, indexTotal, current, totalFiles) {
-      const dot = document.querySelector('#embed-status-wrap .embed-status-dot');
+      const wrap = document.getElementById('embed-status-wrap');
+      if (wrap) wrap.classList.remove('has-error');
+      const dot = wrap?.querySelector('.embed-status-dot');
       const text = document.getElementById('embed-status-text');
-      const retryBtn = document.querySelector('.embed-retry');
-      if (retryBtn && status !== 'error') retryBtn.style.display = 'none';
       if (!dot || !text) return;
 
       // Reset classes
