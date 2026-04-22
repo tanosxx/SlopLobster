@@ -6792,7 +6792,8 @@ Python command: {{PYTHON_CMD}}`;
 
         function pos(e) {
           const r = canvas.getBoundingClientRect();
-          const t = e.touches ? e.touches[0] : e;
+          const t = e.touches?.[0] || e;
+          if (!t) return { x: 0, y: 0 };
           return { x: Math.max(0, Math.min(drawW, t.clientX - r.left)), y: Math.max(0, Math.min(drawH, t.clientY - r.top)) };
         }
 
@@ -7082,10 +7083,7 @@ Python command: {{PYTHON_CMD}}`;
         });
       }
 
-      // 6. Clean up the DOM from the assistant message down to the bottom.
-      //    Walk backwards to find the full extent of the parallel batch (tool panels,
-      //    think blocks, diff panels, search panels, sub-agent panels, etc.) so
-      //    we remove everything related to this turn, not just the first tool panel.
+      // 6. Clean up the DOM from the assistant message down to the bottom of the chat
       let domElToRemove = panel.el;
       let prev = panel.el.previousElementSibling;
 
@@ -7097,12 +7095,10 @@ Python command: {{PYTHON_CMD}}`;
           continue;
         }
         // The assistant message that initiated the batch — include in deletion
-        if (prev.classList.contains('msg') && prev._role === 'assistant') {
-          if (prev._msgIndex === assistantIdx) {
-            domElToRemove = prev;
-          }
-          break;
+        if (prev.classList.contains('msg') && prev._msgIndex === assistantIdx) {
+          domElToRemove = prev;
         }
+        break;
         // Unrelated user/agent message — safety boundary, stop walking backwards
         if (prev.classList.contains('msg')) {
           break;
@@ -7119,6 +7115,18 @@ Python command: {{PYTHON_CMD}}`;
         const next = curr.nextElementSibling;
         curr.remove();
         curr = next;
+      }
+
+      // FIX: Re-index remaining .msg elements so pruneMsg() and retryMsg() use correct indices.
+      // Without this, a message originally at index 15 would still have _msgIndex=15 even after
+      // 6 messages before it were removed — causing pruneMsg() to splice the wrong position
+      // in state.messages, silently corrupting context on subsequent edits.
+      let newIndex = 0;
+      const remainingMsgs = $msg().querySelectorAll('.msg');
+      for (const el of remainingMsgs) {
+        if (el._msgIndex !== undefined) {
+          el._msgIndex = newIndex++;
+        }
       }
 
       // 7. Reset streaming state and restart the agent loop.
@@ -8106,7 +8114,7 @@ Python command: {{PYTHON_CMD}}`;
       const imports = [];
       for (let i = 0; i < Math.min(lines.length, 60); i++) {
         const t = lines[i].trim();
-        if (/^import\s/.test(t) || /^from\s+[\w.]+\s+import\s/.test(t)) imports.push(t.slice(0, 80));
+        if (/^(import\s|from\s)/.test(trimmed)) imports.push(t.slice(0, 80));
         if (t && !/^import|^from|^#|^"""/.test(t) && imports.length > 0) break;
       }
       if (imports.length) result.push(`Imports: ${imports.join(', ')}`);
@@ -8488,7 +8496,7 @@ Python command: {{PYTHON_CMD}}`;
 
     async function listDirSafe(rel, recursive) {
       requireWorkspace();
-
+      let files = [];
       /* ── Normalize path: "." and "./" mean root ── */
       let normPath = (rel || '').replace(/^\.\/?$/, '');
       if (normPath === '' || normPath === '/') normPath = '';
@@ -12263,10 +12271,11 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         return DOMPurify.sanitize(raw, {
           ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'b', 'i', 'a', 'code', 'pre', 'ul', 'ol', 'li',
             'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'table', 'thead', 'tbody',
-            'tr', 'th', 'td', 'hr', 'del', 'sup', 'sub', 'span', 'div'],
-          ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'id'],
+            'tr', 'th', 'td', 'hr', 'del', 'sup', 'sub', 'span', 'div', 'img'],
+          ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'id', 'src', 'alt'],
           FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'style'],
-          ADD_ATTR: ['target'], // for _blank links
+          ALLOWED_URI_REGEXP: /^(?:(?:(?:https?|data|mailto|tel|ftp):|[^a-z\]])[a-z0-9\-._~!$&'()*+,;=:@%/]+)?>?$|^#$/i,
+          ADD_ATTR: ['target'],
         });
       } catch (e) {
         console.error('[renderMd]', e);
@@ -13080,7 +13089,10 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       if (t.startsWith('/') && !state.pendingImages.length) { handleCmd(t); inp.value = ''; inp.style.height = 'auto'; updateSendBtn(); return; }
 
       if (state.pendingImages.length && !state.visionCapable) {
-        showToast('Current model does not support images — images will not be sent', 'warn');
+        showToast('Current model does not support images', 'warn');
+        state.pendingImages = [];
+        addImageAttachmentsToInputArea();
+        return;
       }
 
       const images = state.pendingImages.splice(0);
@@ -14108,6 +14120,7 @@ STEP: Run pytest to verify changes`;
         };
         await writable.write(JSON.stringify(clean, null, 2));
         await writable.close();
+        conv.updated = updated; 
         return true;
       } catch (e) {
         console.error('[conv] save file error:', e.message);
