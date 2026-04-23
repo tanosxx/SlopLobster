@@ -1897,6 +1897,42 @@
       display: inline
     }
 
+    .plan-step-regen {
+      background: none;
+      border: 1px solid transparent;
+      color: var(--tx-4);
+      cursor: pointer;
+      font-size: 9px;
+      padding: 3px 6px;
+      border-radius: 4px;
+      transition: .12s;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .plan-step-regen:hover:not(:disabled) {
+      color: var(--cyan);
+      background: rgba(34,211,238,.08);
+      border-color: rgba(34,211,238,.15);
+    }
+    .plan-step-regen:disabled {
+      opacity: .2;
+      cursor: not-allowed;
+    }
+    .plan-step-desc {
+      min-width: 0;
+      outline: none;
+      transition: color .15s, border-color .15s;
+      border-bottom: 1px solid transparent;
+      padding-bottom: 1px;
+      border-radius: 2px;
+    }
+    .plan-step-desc:focus {
+      border-bottom-color: var(--accent-d);
+      box-shadow: 0 1px 0 0 var(--accent-glow);
+    }
+
     /* ── Search panel ── */
     .search-panel {
       background: var(--bg-2);
@@ -13172,7 +13208,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       showToast('Prompt ready — edit the description and press Enter', 'info');
     }
 
-        /* ═══════════════ PLAN MODE ═══════════════ */
+    /* ═════════════════ PLAN MODE ═══════════════ */
 
     function togglePlanMode() {
       state.planMode = !state.planMode;
@@ -13192,24 +13228,24 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const toolNames = getToolDefs().map(t => t.function.name).join(', ');
       const planSysPrompt = `You are a planning assistant. Break the user's task into specific, actionable steps.
 
-Available tools: ${toolNames}
+    Available tools: ${toolNames}
 
-Rules:
-- Each step must be a single, focused action
-- Include specific file paths when relevant
-- Order logically: read before edit, edit before test
-- Typically 3-12 steps
-- Do NOT include a final "done" or "summary" step
+    Rules:
+    - Each step must be a single, focused action
+    - Include specific file paths when relevant
+    - Order logically: read before edit, edit before test
+    - Typically 3-12 steps
+    - Do NOT include a final "done" or "summary" step
 
-Output ONLY steps in this EXACT format (one per line):
-STEP: <description>
-STEP: <description>
+    Output ONLY steps in this EXACT format (one per line):
+    STEP: <description>
+    STEP: <description>
 
-Example:
-STEP: Read src/auth.py to understand current authentication
-STEP: Add validate_jwt() function to src/auth.py
-STEP: Update /login endpoint in src/routes.py to use validate_jwt
-STEP: Run pytest to verify changes`;
+    Example:
+    STEP: Read src/auth.py to understand current authentication
+    STEP: Add validate_jwt() function to src/auth.py
+    STEP: Update /login endpoint in src/routes.py to use validate_jwt
+    STEP: Run pytest to verify changes`;
 
       try {
         state.abortCtrl = new AbortController();
@@ -13305,8 +13341,9 @@ STEP: Run pytest to verify changes`;
         stepsHtml += `<div class="plan-step" id="plan-step-${i}">
           <div class="plan-step-indicator" id="plan-ind-${i}"></div>
           <span class="plan-step-num">${i + 1}</span>
-          <span class="plan-step-desc">${esc(s.description)}</span>
+          <span class="plan-step-desc" id="plan-desc-${i}" contenteditable="true" spellcheck="false" data-orig="${esc(s.description)}" oninput="markPlanStepModified(${i})" onkeydown="planDescKeydown(event, ${i})" title="Click to edit this step's description">${esc(s.description)}</span>
           <button class="plan-step-run" id="plan-run-${i}" onclick="executeSinglePlanStep(${i})" title="Run just this step"><i class="fas fa-play"></i></button>
+          <button class="plan-step-regen" id="plan-regen-${i}" onclick="regeneratePlanStep(${i})" title="Ask LLM to regenerate this step"><i class="fas fa-rotate"></i></button>
         </div>`;
       });
 
@@ -13325,6 +13362,124 @@ STEP: Run pytest to verify changes`;
       scrollBottom();
     }
 
+    /* ── Track user edits on plan steps ── */
+    function markPlanStepModified(idx) {
+      if (!state.currentPlan) return;
+      const step = state.currentPlan.steps[idx];
+      const descEl = document.getElementById('plan-desc-' + idx);
+      if (step && descEl) {
+        const isModified = descEl.textContent.trim() !== descEl.dataset.orig;
+        step._modified = isModified;
+        descEl.style.color = isModified ? 'var(--accent)' : '';
+        descEl.style.borderBottom = isModified ? '1px dashed var(--accent-d)' : '';
+        descEl.style.paddingBottom = isModified ? '2px' : '';
+      }
+    }
+
+    /* ── Enter key in editable step: blur to save, don't create newlines ── */
+    function planDescKeydown(e, idx) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.currentTarget.blur();
+      }
+    }
+
+    /* ── Regenerate a single plan step using the LLM ── */
+    async function regeneratePlanStep(idx) {
+      if (state.running || !state.currentPlan) return;
+
+      const step = state.currentPlan.steps[idx];
+      const plan = state.currentPlan;
+
+      /* Build context: the full plan with status markers */
+      const stepsCtx = plan.steps.map((s, i) => {
+        const icons = { pending: '○', running: '⟳', done: '✓', failed: '✗', stopped: '⏸' };
+        const mod = s._modified ? ' [edited]' : '';
+        const marker = i === idx ? '→' : ' ';
+        return `${marker}${icons[s.status] || '○'} Step ${i + 1}: ${s.description}${mod}`;
+      }).join('\n');
+
+      const prompt = `You are refining a plan step. The user wants to regenerate step ${idx + 1}.
+
+    FULL PLAN (→ marks the target step):
+    ${stepsCtx}
+
+    ORIGINAL:
+    ${step.description}
+
+    Rules:
+    - Output ONLY the new description for step ${idx + 1}, nothing else
+    - Keep it focused and actionable (one tool call, one file, one change)
+    - Consider dependencies with adjacent steps
+    - If the step was already completed, think about what needs to change or re-verify
+    - Do NOT add "STEP:" prefix or step number`;
+
+      /* Show loading state on the step */
+      const descEl = document.getElementById('plan-desc-' + idx);
+      const regenBtn = document.getElementById('plan-regen-' + idx);
+      if (descEl) {
+        descEl.contentEditable = 'false';
+        descEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size:10px"></i> Regenerating...';
+      }
+      if (regenBtn) regenBtn.disabled = true;
+
+      try {
+        state.abortCtrl = new AbortController();
+        const res = await fetch(`${state.apiUrl}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: state.model,
+            messages: [
+              { role: 'system', content: 'Regenerate a plan step. Output ONLY the new description text, no prefix, no numbering.' },
+              { role: 'user', content: prompt }
+            ],
+            temperature: 0.4,
+            max_tokens: 300,
+            stream: false
+          }),
+          signal: state.abortCtrl.signal
+        });
+
+        if (!res.ok) throw new Error('API ' + res.status);
+        const data = await res.json();
+        const text = data.choices?.[0]?.message?.content || step.description;
+
+        /* Update the step */
+        step.description = text.trim();
+        step.status = 'pending';
+        step._modified = true;
+
+        /* Re-render this step's description */
+        if (descEl) {
+          descEl.textContent = step.description;
+          descEl.contentEditable = 'true';
+          descEl.dataset.orig = step.description;
+          descEl.style.color = 'var(--accent)';
+          descEl.style.borderBottom = '1px dashed var(--accent-d)';
+          descEl.style.paddingBottom = '2px';
+        }
+        if (regenBtn) regenBtn.disabled = false;
+
+        showToast('Step ' + (idx + 1) + ' regenerated', 'ok');
+
+      } catch (e) {
+        /* Restore original on error */
+        if (descEl) {
+          descEl.textContent = step.description;
+          descEl.contentEditable = 'true';
+          descEl.dataset.orig = step.description;
+          descEl.style.color = '';
+          descEl.style.borderBottom = '';
+          descEl.style.paddingBottom = '';
+        }
+        if (regenBtn) regenBtn.disabled = false;
+        showToast('Failed: ' + e.message, 'err');
+      } finally {
+        state.abortCtrl = null;
+      }
+    }
+
     function updatePlanStep(idx, status) {
       if (!state.currentPlan) return;
       state.currentPlan.steps[idx].status = status;
@@ -13332,6 +13487,7 @@ STEP: Run pytest to verify changes`;
       const stepEl = document.getElementById('plan-step-' + idx);
       const indEl = document.getElementById('plan-ind-' + idx);
       const runBtn = document.getElementById('plan-run-' + idx);
+      const regenBtn = document.getElementById('plan-regen-' + idx);
       if (!stepEl || !indEl) return;
 
       stepEl.className = 'plan-step ' + status;
@@ -13344,16 +13500,9 @@ STEP: Run pytest to verify changes`;
       else indEl.innerHTML = '';
 
       if (runBtn) runBtn.disabled = (status !== 'pending');
+      if (regenBtn) regenBtn.disabled = (status === 'running');
 
-      /* Update progress bar */
-      const total = state.currentPlan.steps.length;
-      const done = state.currentPlan.steps.filter(s => s.status === 'done').length;
-      const fill = document.getElementById('plan-progress-fill');
-      if (fill) {
-        fill.style.width = (done / total * 100) + '%';
-        if (done === total) fill.classList.add('complete');
-      }
-
+      updatePlanProgress();
       scrollBottom();
     }
 
@@ -13365,6 +13514,7 @@ STEP: Run pytest to verify changes`;
       if (fill) {
         fill.style.width = (done / total * 100) + '%';
         if (done === total) fill.classList.add('complete');
+        else fill.classList.remove('complete');
       }
     }
 
