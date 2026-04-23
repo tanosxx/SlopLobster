@@ -6485,10 +6485,107 @@ Python command: {{PYTHON_CMD}}`;
       return text;
     }
 
+    /* ═════════════════ TOKEN TRACKING ═══════════════ */
+    let _tokenizeCache = new Map();
+    async function exactTokenCount(text) {
+      if (!text || !state.connected) return -1;
+      const key = text.slice(0, 200);
+      if (_tokenizeCache.has(key)) return _tokenizeCache.get(key);
+      try {
+        const res = await fetch(`${state.apiUrl}/v1/tokenize`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+          signal: AbortSignal.timeout(3000)
+        });
+        if (!res.ok) return -1;
+        const data = await res.json();
+        const count = data.count;
+        _tokenizeCache.set(key, count);
+        if (_tokenizeCache.size > 200) {
+          const first = _tokenizeCache.keys().next().value;
+          if (first !== undefined) _tokenCache.delete(first);
+        }
+        return count;
+      } catch {
+        return -1;
+      }
+    }
+
+    /* Fallback: extract token count from any chat completion response */
+    async function countTokensFromResponse(messages) {
+      if (!state.connected || !state.model) return -1;
+      try {
+        const res = await fetch(`${state.apiUrl}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: state.model,
+            messages: [{ role: 'user', content: 'hi' }],
+            max_tokens: 1,
+            stream: false
+          }),
+          signal: AbortSignal.timeout(5000)
+        });
+        if (!res.ok) return -1;
+        const data = await res.json();
+        return data.usage?.prompt_tokens ?? -1;
+      } catch {
+        return -1;
+      }
+    }
+
+    const tokenTracker = {
+      lastPromptTokens: -1,
+      totalOutputTokens: 0,
+      _callOut: 0,
+      _loggedMissing: false,
+      _loggedEmpty: false,
+
+      reset() { this._callOut = 0; this.lastPromptTokens = -1; this._loggedMissing = false; this._loggedEmpty = false; },
+
+      feed(chunk) {
+        if (!chunk?.usage) {
+          if (!this._loggedMissing) {
+            console.log('[tokenTracker] No usage field in chunk:', JSON.stringify(chunk).slice(0, 300));
+            console.log('[tokenTracker] chunk.choices keys:', chunk.choices?.[0]?.delta ? Object.keys(chunk.choices[0].delta) : 'none');
+            this._loggedMissing = true;
+          }
+          return;
+        }
+        if (!chunk.usage.prompt_tokens && !chunk.usage.completion_tokens) {
+          if (!this._loggedEmpty) {
+            console.log('[tokenTracker] Usage present but both zero:', JSON.stringify(chunk.usage));
+            this._loggedEmpty = true;
+          }
+        }
+        const u = chunk.usage;
+        if (u.prompt_tokens != null) this.lastPromptTokens = u.prompt_tokens;
+        if (u.completion_tokens != null) this._callOut += u.completion_tokens;
+      },
+
+      commit() {
+        this.totalOutputTokens += this._callOut;
+        this._callOut = 0;
+      },
+
+      estimate(text) {
+        if (!text) return 0;
+        const codeRatio = (text.match(/[{}[\]();]/g) || []).length / Math.max(text.length, 1);
+        const factor = 3.8 - codeRatio * 1.0;
+        return Math.ceil(text.length / Math.max(factor, 2.0));
+      }
+    };
+
     /* ═══════════════ TOKEN ESTIMATION ═══════════════ */
     function estimateTokens(t) { if (!t) return 0; return Math.ceil(t.length / 3.8); }
     function estimateConvTokens() { let total = 0; for (const m of state.messages) { if (m.content) total += estimateTokens(m.content); if (m.tool_calls) for (const tc of m.tool_calls) { total += estimateTokens(tc.function?.arguments || ''); total += 5; } total += 4; } return total; }
-    function getContextPct() { return Math.min(100, (estimateConvTokens() / state.ctxWindow) * 100); }
+    function getContextPct() {
+      // Prefer LM Studio's exact prompt_tokens (includes system prompt + full history)
+      const exact = tokenTracker.lastPromptTokens;
+      if (exact >= 0) return Math.min(100, (exact / state.ctxWindow) * 100);
+      return Math.min(100, (estimateConvTokens() / state.ctxWindow) * 100);
+    }    
     function updateContextMeter() {
       const pct = getContextPct();
       const fill = document.getElementById('ctx-fill'), label = document.getElementById('ctx-label');
@@ -7053,7 +7150,7 @@ Python command: {{PYTHON_CMD}}`;
       const el = document.getElementById('tools-list');
       el.innerHTML = defs.map(t => {
         const n = t.function.name;
-        const icons = { think: 'brain', read_file: 'file-code', read_file_lines: 'file-lines', view_image: 'image', edit_file: 'pen-to-square', write_file: 'file-circle-plus', list_directory: 'list', search_files: 'magnifying-glass', grep: 'magnifying-glass-plus', web_search: 'globe', fetch_url: 'magnifying-glass', execute_command: 'terminal', git_status: 'code-branch', git_diff: 'code-compare', git_log: 'clock-rotate-left', git_add: 'plus', git_commit: 'check', browser_launch: 'rocket', browser_navigate: 'compass', browser_screenshot: 'camera', browser_console: 'terminal', browser_click: 'hand-pointer', browser_type: 'keyboard', browser_evaluate: 'code', browser_get_content: 'file-lines', browser_wait_for: 'hourglass', browser_hover: 'arrow-pointer', browser_select_option: 'list-dropdown', browser_press_key: 'keyboard', browser_scroll: 'arrows-up-down', browser_go_back: 'arrow-left', browser_go_forward: 'arrow-right', browser_close: 'xmark', browser_selection: 'hand_pointer', semantic_search: 'brain' };
+        const icons = { think: 'brain', read_file: 'file-code', read_file_lines: 'file-lines', view_image: 'image', edit_file: 'pen-to-square', write_file: 'file-circle-plus', list_directory: 'list', search_files: 'magnifying-glass', grep: 'magnifying-glass-plus', web_search: 'globe', fetch_url: 'magnifying-glass', execute_command: 'terminal', git_status: 'code-branch', git_diff: 'code-compare', git_log: 'clock-rotate-left', git_add: 'plus', git_commit: 'check', browser_launch: 'rocket', browser_navigate: 'compass', browser_screenshot: 'camera', browser_console: 'terminal', browser_click: 'hand-pointer', browser_type: 'keyboard', browser_evaluate: 'code', browser_get_content: 'file-lines', browser_wait_for: 'hourglass', browser_hover: 'arrow-pointer', hand_pointer: 'list-dropdown', browser_press_key: 'keyboard', browser_scroll: 'arrows-up-down', browser_go_back: 'arrow-left', browser_go_forward: 'arrow-right', browser_close: 'xmark', browser_select_option: 'hand-pointer', semantic_search: 'brain' };
         const live = ((n === 'execute_command' || n === 'web_search') && state.compConnected) || (n.startsWith('browser_') && state.browserAvailable) ? ' live' : '';
         return `<div class="tool-tag${live}" title="${t.function.description}"><i class="fas fa-${icons[n] || 'bolt'}"></i> ${n}</div>`;
       }).join('');
@@ -7710,7 +7807,11 @@ Python command: {{PYTHON_CMD}}`;
       state.fileCache.set(key, value);
       let total = 0; for (const [, v] of state.fileCache) total += v.length;
       if (total > MAX_CACHE_BYTES) {
-        for (const [k] of state.fileCache) { if (total <= MAX_CACHE_BYTES * 0.7) break; total -= state.fileCache.get(k).length; state.fileCache.delete(k); }
+        for (const [k, v] of state.fileCache) {
+          if (total <= MAX_CACHE_BYTES * 0.7) break;
+          total -= v.length;
+          state.fileCache.delete(k);
+        }
       }
     }
 
@@ -8903,7 +9004,7 @@ Python command: {{PYTHON_CMD}}`;
             default: return { output: `Unknown: ${c}\nVirtual shell supports: ls cat head tail wc grep find echo mkdir touch pwd tree file diff (these are virtual FSA commands, not OS-specific).\nStart companion for real OS shell + git + web search.` };
           }
         })();
-        return { output: out };  // ← Ensure object return for all paths
+        return out;
       } catch (e) { return { output: e.message.includes('traversal') ? `Security: ${e.message}` : `Error: ${e.message}` }; }
     }
 
@@ -9786,11 +9887,9 @@ fetch_url uses urllib which CANNOT execute JavaScript. Many modern sites (news s
 **When to use which:**
 - Static docs (MDN, Python docs, GitHub README, Wikipedia) → fetch_url works perfectly
 - News sites, modern web apps, SPAs → web_search with site: filter is the ONLY way to get content
-- Unknown site → try fetch_url first. If it returns JS-rendered warning, switch to web_search
 - API endpoints returning JSON → fetch_url with mode="raw" works fine
 
 **fetch_url** also handles errors gracefully: HTTP errors return the error page content, timeouts return an error message.`;
-        return text;
       })();
 
       /* Browser section */
@@ -9826,7 +9925,7 @@ Workflow:
           ? `**Git tools available:** git_status, git_diff (staged=true for staged), git_log, git_add, git_commit.
 Workflow: make changes → git_status to see what changed → git_add to stage → git_commit with descriptive message.
 Use git_diff to review changes before committing. git_diff without arguments shows unstaged changes.`
-          : '**Git not available:** The current workspace is not a git repository. Git tools are hidden. If the user wants version control, they should run `git init` in their terminal first, then the tools will appear on the next message.';
+          : '**Git not available:** The current workspace is not a git repository. Git tools are hidden. If the user wants version control, they should run \`git init\` in their terminal first, then the tools will appear on the next message.';
 
       /* Context section */
       const ctxPct = Math.round(getContextPct());
@@ -9846,7 +9945,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       2. Skeleton (automatic) — For files > ${state.smartContextThreshold} lines, you get a structure map. Find the line ranges you need.
       3. read_file_lines — Read SPECIFIC sections using the line numbers from the skeleton or summary. This is your primary tool for large files.
       4. read_file — ONLY use for small files (< ${state.smartContextThreshold} lines) or when you genuinely need every line.
-      5. grep — Find WHERE something is defined before reading around it.
+      5. grep — Find WHERE something is defined before reading around it
 
       NEVER read an entire large file when you only need one function. Use read_file_lines with the exact line range.
 
@@ -9931,6 +10030,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const reader = res.body.getReader(), dec = new TextDecoder();
       let buf = '', content = '', toolCalls = [];
 
+      tokenTracker.reset();
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -9944,6 +10045,23 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           if (d === '[DONE]') continue;
           try {
             const chunk = JSON.parse(d);
+            if (chunk.usage) {
+              // Prefer direct prompt_tokens from the streaming response — exact, no extra API call
+              tokenTracker.lastPromptTokens = chunk.usage.prompt_tokens ?? -1;
+              if (chunk.usage.prompt_tokens == null && tokenTracker.lastPromptTokens < 0) {
+                // Fallback: extract from a minimal probe if the stream doesn't include usage data
+                if (!tokenTracker._probeDone) {
+                  tokenTracker._probeDone = true;
+                  countTokensFromResponse(state.messages.slice(-4)).then(n => {
+                    if (n > 0) tokenTracker.lastPromptTokens = n;
+                  });
+                }
+              }
+              const u = chunk.usage;
+              if (u.prompt_tokens != null) tokenTracker.lastPromptTokens = u.prompt_tokens;
+              if (u.completion_tokens != null) tokenTracker._callOut += u.completion_tokens;
+            }
+
             const delta = chunk.choices?.[0]?.delta;
             if (!delta) continue;
             if (delta.content) {
@@ -9967,7 +10085,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         }
       }
 
-      return { content, toolCalls: toolCalls.filter(Boolean) };
+      return { content, toolCalls: toolCalls.filter(Boolean), usage: { in: tokenTracker._callIn, out: tokenTracker._callOut } };
     }
 
     /* ═══════════════ SUB-AGENT CHAT (with system prompt caching) ═══════════════ */
@@ -11059,6 +11177,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     }
 
     /* ═══════════════ AGENT LOOP ═══════════════ */
+    let agentStopwatch = null;
 
     async function agentLoop() {
       state.running = true; updateSendBtn();
@@ -11069,6 +11188,9 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const sessionChanges = { modified: new Set(), created: new Set(), deleted: new Set(), moved: [] };
       toolCallHistory.length = 0;
       textLoopBuffer.length = 0;
+      tokenTracker.reset();
+      tokenTracker._probeDone = false; 
+      agentStopwatch = performance.now();
       // Save checkpoint before this iteration's tools run
       saveCheckpoint(iters);
 
@@ -11098,8 +11220,13 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
         const th = showThinking(); let cur = '', tcs = [];
         const liveThinkEls = new Map();
+        let _chatRes = null;
         try {
-          await streamChat(state.messages, t => { cur = t; if (th) th.remove(); updateStreamingMsg(t); }, c => { tcs = c; }, (thinkText) => {
+            _chatRes = await streamChat(state.messages, t => { cur = t; if (th) th.remove(); updateStreamingMsg(t); }, c => { tcs = c; }, (thinkText) => {
+            const cur = _chatRes.content || '';
+            const tcs = _chatRes?.toolCalls?.filter(Boolean) || [];
+            const usage = _chatRes.usage || { in: 0, out: 0 };
+            tokenTracker.commit();
             let idx = -1; for (let i = 0; i < tcs.length; i++) { if (tcs[i].function.name === 'think') idx = i; }
             if (idx === -1) return; if (th) th.remove();
             if (!liveThinkEls.has(idx)) {
@@ -11114,7 +11241,6 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           // ── Cleanup: safely finalize all mid-stream UI elements ──
           if (th && th.parentNode) th.remove();
 
-          // Finalize any live "Thinking..." blocks so they don't stay frozen
           for (const [, el] of liveThinkEls) {
             const content = el.querySelector('.think-content');
             const badge = el.querySelector('.think-badge');
@@ -11142,17 +11268,17 @@ Use git_diff to review changes before committing. git_diff without arguments sho
                 if (!b.dataset.hljs) { hljs.highlightElement(b); b.dataset.hljs = '1'; }
               });
               addCopyBtns(c);
-              const outTok = estimateTokens(cur);
+              const outTok = usage ? usage.out : estimateTokens(cur);
               const hdr = streamEl.querySelector('.msg-header');
               const tokEl = document.createElement('span');
               tokEl.className = 'msg-tok';
-              tokEl.textContent = formatTok(outTok) + ' out';
+              tokEl.title = usage ? 'Output tokens (exact from LM Studio)' : 'Output tokens (estimated)';
+              tokEl.textContent = (usage ? '' : '~') + formatTok(outTok) + ' out';
               hdr.insertBefore(tokEl, hdr.querySelector('.msg-actions'));
 
               const am = { role: 'assistant', content: cur || null };
               if (tcs.length) am.tool_calls = tcs;
-              state.messages.push(am);
-              updateContextMeter();
+              state.messages.push(am); updateContextMeter();
             } else {
               streamEl.remove();
             }
@@ -11160,7 +11286,6 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             streamEl = null;
           }
 
-          // Handle the error itself
           if (e.name === 'AbortError') {
             if (iters > 2) saveProgressToWorkspace('user stopped (' + iters + ' iterations)');
             appendMsg('system', 'Stopped.');
@@ -11236,11 +11361,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
               ? 'Tool returned nothing (internal error — this is a bug in executeTool for "' + tc.function.name + '")'
               : 'Tool returned non-object: ' + typeof result + ' — ' + JSON.stringify(result).slice(0, 120);
             console.error('[executeTool] INVALID RESULT', {
-              tool: tc.function.name,
-              args: tc.function.arguments?.slice(0, 300),
-              result: result,
-              typeof: typeof result,
-              stack: new Error().stack
+              tool: tc.function.name, args: tc.function.arguments?.slice(0, 300), result, typeof: typeof result, stack: new Error().stack
             });
             updateToolStatus(toolPanels[i], 'err');
             updateToolResult(toolPanels[i], badResult);
@@ -11302,7 +11423,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
               } else {
                 const fallback = document.createElement('div');
                 fallback.style.cssText = 'padding:12px;font-size:11px;color:var(--yellow);background:rgba(234,179,8,.04)';
-                fallback.innerHTML = '<i class="fas fa-exclamation-triangle" style="margin-right:4px"></i> Approval requested but no diff or content available. This is an internal error — the tool returned _pendingApproval but no _pendingNewContent or diff. Reporting as rejected.';
+                fallback.innerHTML = '<i class="fas fa-exclamation-triangle" style="margin-right:4px"></i> Approval requested but no diff or content available. This is an internal error — the tool returned _pendingApproval but no _pendingNewContent or diff.';
                 wrapper.appendChild(fallback);
               }
 
@@ -11529,7 +11650,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
               $msg().appendChild(wEl); scrollBottom();
               const hint = isTruncation
                 ? '[SYSTEM: Your tool call JSON is being TRUNCATED mid-stream. This happens when old_text or content is too long.\n\nIMMEDIATE FIX:\n• For files >30KB: NEVER use write_file — use edit_file with 5-15 line blocks\n• For edit_file: keep each old_text under 500 characters\n• Split large edits into MULTIPLE edit_file calls (each targeting a different section)\n• Do NOT put entire file contents in a single tool call\n\nDo NOT retry the same call. Split it into smaller pieces.]'
-                : '[SYSTEM: You have sent ' + malformedErrors.length + ' tool calls with missing or malformed arguments.\n\nRULES:\n1. Every tool call MUST have ALL required parameters as valid JSON\n2. If a file is very large (>30KB), do NOT use write_file with the full content — use edit_file instead with small search/replace blocks\n3. Double-check your JSON: every { has a matching }, every " has a matching "\n\nDo NOT retry the same broken call. Fix the argument format first.]';
+                : '[SYSTEM: You have sent ' + malformedErrors.length + ' tool calls with missing or malformed arguments.\n\nRULES:\n1. Every tool call MUST have ALL required parameters as valid JSON\n2. If a file is very large (>30KB), do NOT use write_file with the full content — use edit_file instead with small search/replace blocks\n3. Double-check your JSON: every { has a matching }, every " has a matching "\n4. Do NOT retry the same broken call. Fix the argument format first.]';
               state.messages.push({ role: 'user', content: hint });
               toolCallHistory.length = 0;
             }
@@ -11550,7 +11671,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
                 state.messages.push({
                   role: 'tool', tool_call_id: tc.id,
                   content: r && r.rejected
-                    ? '[Error: ' + tc.function.name + ' edit was rejected by the user. Do NOT retry this exact edit. Try a fundamentally different approach.]'
+                    ? '[Error: ' + tc.function.name + ' edit was rejected by the user. Do NOT retry this exact edit.]'
                     : '[Error: ' + tc.function.name + ' is no longer available — the companion server disconnected. The tool list has been updated. Use only the tools that are currently available.]'
                 });
                 continue;
@@ -11560,7 +11681,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
                 if (panel.el._svgPreviewUrl) { toolMsg._svgPreviewUrl = panel.el._svgPreviewUrl; toolMsg._svgText = panel.el._svgText; toolMsg._svgPath = panel.el._svgPath; }
                 if (panel.el._previewDataUrl) { toolMsg._previewDataUrl = panel.el._previewDataUrl; toolMsg._previewPath = panel.el._previewPath; }
                 if (panel.el._imageDataUrl) { toolMsg._imageDataUrl = panel.el._imageDataUrl; toolMsg._imagePath = panel.el._imagePath; toolMsg._imageReason = panel.el._imageReason; toolMsg._imageType = panel.el._imageType; }
-                if (panel.el._screenshotDataUrl) { toolMsg._screenshotDataUrl = panel.el._screenshotDataUrl; toolMsg._imagePath = panel.el._imagePath; toolMsg._imageReason = panel.el._imageReason; toolMsg._imageType = panel.el._imageType; }
+                if (panel.el._screenshotDataUrl) { toolMsg._screenshotDataUrl = panel.el._screenshotDataUrl; toolMsg._imagePath = panel.el._imagePath; toolMsg._imageReason = panel.el._screenshotReason; toolMsg._imageType = panel.el._imageType; }
               }
               state.messages.push(toolMsg);
               const tName = tc.function.name; const tArgs = safeParseArgs(tc.function.arguments);
@@ -11569,7 +11690,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
                 if (tArgs.path) previewFile(tArgs.path);
               }
               if (tName === 'delete_file' && tArgs.path) rpState.addChange(tArgs.path, 'deleted', null);
-              if (tName === 'move_file' && tArgs.destination) rpState.addChange(tArgs.destination || '?', 'moved', null);
+              if (tName === 'move_file' && tArgs.destination) rpState.addChange(tArgs.destination, 'moved', null);
             }
           }
 
@@ -11583,14 +11704,19 @@ Use git_diff to review changes before committing. git_diff without arguments sho
               panel.el.classList.add('screenshot-tool');
               const prev = document.createElement('div'); prev.className = 'svg-preview';
               const path = esc(panel.el._svgPath || 'file.svg');
-              prev.innerHTML = '<div class="svg-toggle-row"><span><i class="fas fa-bezier-curve" style="color:var(--accent);margin-right:4px"></i>' + path + '</span><button class="svg-toggle-btn" onclick="toggleSvgView(this)">View Code</button></div><img class="svg-preview-img" src="' + panel.el._svgPreviewUrl + '" onclick="openImgViewer(this.src)" alt="' + path + '"><div class="svg-code-view"><pre><code class="language-xml">' + esc(panel.el._svgText || '') + '</code></pre></div>';
+              prev.innerHTML =
+                '<div class="svg-toggle-row"><span><i class="fas fa-bezier-curve" style="color:var(--accent);margin-right:4px"></i>' + path + '</span><button class="svg-toggle-btn" onclick="toggleSvgView(this)">View Code</button></div>' +
+                '<img class="svg-preview-img" src="' + panel.el._svgPreviewUrl + '" onclick="openImgViewer(this.src)" alt="' + path + '">' +
+                '<div class="svg-code-view"><pre><code class="language-xml">' + esc(panel.el._svgText || '') + '</code></pre></div>';
               panel.el.appendChild(prev);
             }
             if (panel.el._previewDataUrl && !panel.el._imageDataUrl && !panel.el.querySelector('.image-preview-only')) {
               panel.el.classList.add('screenshot-tool');
               const prev = document.createElement('div'); prev.className = 'image-preview-only';
               const path = esc(panel.el._previewPath || 'image');
-              prev.innerHTML = '<div class="img-label"><i class="fas fa-image" style="color:var(--accent)"></i>' + path + '</div><img src="' + panel.el._previewDataUrl + '" onclick="openImgViewer(this.src)" alt="' + path + '">';
+              prev.innerHTML =
+                '<div class="img-label"><i class="fas fa-image" style="color:var(--accent)"></i>' + path + '</div>' +
+                '<img src="' + panel.el._previewDataUrl + '" onclick="openImgViewer(this.src)" alt="' + path + '">';
               panel.el.appendChild(prev);
             }
 
@@ -11642,10 +11768,49 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       }
 
       state.running = false; state.abortCtrl = null; updateSendBtn(); saveCurrentConv();
+      console.log('[tokens]', {
+        context: tokenTracker.lastPromptTokens >= 0 ? tokenTracker.lastPromptTokens : '(no usage data)',
+        output: tokenTracker.totalOutputTokens,
+        total: (tokenTracker.lastPromptTokens >= 0 ? tokenTracker.lastPromptTokens : 0) + tokenTracker.totalOutputTokens,
+        elapsed: agentStopwatch ? (performance.now() - agentStopwatch) / 1000 + 's' : '-',
+        contextPct: Math.round(getContextPct()) + '%',
+        _callOut: tokenTracker._callOut,
+        _lastPrompt: tokenTracker.lastPromptTokens,
+        _totalOut: tokenTracker.totalOutputTokens,
+      });
+      
+      showCompletionSummary(); agentStopwatch = null;
+
       if (sessionChanges.modified.size || sessionChanges.created.size || sessionChanges.deleted.size || sessionChanges.moved.length) {
         showChangeSummary(sessionChanges); refreshFileTree();
       }
     }
+
+    /* ── Show completion summary when agent finishes ── */
+    function showCompletionSummary() {
+      const out = tokenTracker.totalOutputTokens;
+      const lastPrompt = tokenTracker.lastPromptTokens >= 0 ? tokenTracker.lastPromptTokens : estimateConvTokens();
+      const total = out + Math.max(0, lastPrompt);
+      if (total < 100) return;  // skip if clearly wrong
+
+      const elapsed = agentStopwatch ? ((performance.now() - agentStopwatch) / 1000) : null;
+      const timeStr = elapsed ? (elapsed < 60 ? elapsed.toFixed(1) + 's' : (elapsed / 60).toFixed(1) + 'min') : '';
+
+      const parts = ['~' + formatTok(total) + ' tokens total'];
+      if (lastPrompt > 0) parts.push(formatTok(lastPrompt) + ' context');
+      if (out > 0) parts.push(formatTok(out) + ' out');
+      if (timeStr) parts.push(timeStr);
+
+      const el = document.createElement('div');
+      el.className = 'compact-banner';
+      el.style.background = 'rgba(34,211,238,.06)';
+      el.style.borderColor = 'rgba(34,211,238,.15)';
+      el.style.color = 'var(--cyan)';
+      el.innerHTML = '<i class="fas fa-chart-bar" style="font-size:11px"></i><span>' + parts.join(' · ') + '</span>';
+      $msg().appendChild(el);
+      scrollBottom();
+    }
+
 
 
 
@@ -11858,26 +12023,47 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       scrollBottom();
     }
 
-    function finalizeStreamingMsg(t) {
+    function finalizeStreamingMsg(t, usage) {
       if (!streamEl) { if (t) appendMsg('assistant', t); return; }
       if (streamEl._rAF) cancelAnimationFrame(streamEl._rAF);
       const c = streamEl.querySelector('.msg-content');
       c.classList.remove('streaming-cursor');
-      // Always do a final full render to ensure correctness
       c.innerHTML = renderMd(t);
       c.querySelectorAll('pre code').forEach(b => {
         if (!b.dataset.hljs) { hljs.highlightElement(b); b.dataset.hljs = '1'; }
       });
       addCopyBtns(c);
-      const inTok = estimateConvTokens() - estimateTokens(t);
-      const outTok = estimateTokens(t);
+
       const hdr = streamEl.querySelector('.msg-header');
-      const tokEl = document.createElement('span');
-      tokEl.className = 'msg-tok';
-      tokEl.title = `in: ${formatTok(inTok)} · out: ${formatTok(outTok)}`;
-      tokEl.textContent = formatTok(outTok) + ' out';
-      hdr.insertBefore(tokEl, hdr.querySelector('.msg-actions'));
-      streamEl._streaming = false; streamEl._text = t; streamEl = null; scrollBottom();
+      // Remove any stale token elements
+      hdr.querySelectorAll('.msg-tok').forEach(el => el.remove());
+
+      if (usage) {
+        // Show "12.8k tok out" on the message itself
+        const outTok = tokenTracker._callOut
+        if (outTok > 0) {
+          const tokEl = document.createElement('span');
+          tokEl.className = 'msg-tok';
+          tokEl.textContent = formatTok(outTok) + ' out';
+          tokEl.title = 'Output tokens (from LM Studio)';
+          hdr.insertBefore(tokEl, hdr.querySelector('.msg-actions'));
+        }
+      }
+
+      // Fallback estimate only if LM Studio didn't report
+      const outTok = tokenTracker._callOut
+      if (outTok > 0) {
+        const tokEl = document.createElement('span');
+        tokEl.className = 'msg-tok';
+        tokEl.textContent = formatTok(outTok) + ' out';
+        tokEl.title = 'Output tokens (from LM Studio)';
+        hdr.insertBefore(tokEl, hdr.querySelector('.msg-actions'));
+      }
+
+      streamEl._streaming = false;
+      streamEl._text = t;
+      streamEl = null;
+      scrollBottom();
     }
 
     function createMsgEl(role, text, streaming) {
@@ -12516,6 +12702,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       state.messages = [];
       state.fileCache.clear();
       modifiedFiles.clear();
+      state.fileBackups.clear();
       state.pendingImages = [];
       state.originalTask = null;
       state.currentPlan = null;
@@ -14270,7 +14457,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         };
         await writable.write(JSON.stringify(clean, null, 2));
         await writable.close();
-        conv.updated = updated; 
+        conv.updated = Date.now(); 
         return true;
       } catch (e) {
         console.error('[conv] save file error:', e.message);
