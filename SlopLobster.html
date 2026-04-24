@@ -9874,6 +9874,24 @@ fetch_url uses urllib which CANNOT execute JavaScript. Many modern sites (news s
 - If fetch_url returns a message about "JavaScript-rendered" → DO NOT retry fetch_url on that domain
 - Instead use: web_search with query "site:domain.com <topic>" fetch_top=1-2
 - DuckDuckGo's crawler runs JavaScript when indexing, so search results contain the real content
+- This is NOT a cookie wall or blocking issue — it's a fundamental limitation of non-browser HTTP clients
+
+**When to use semantic_search instead of grep:**
+- The term is conceptual ("authentication", "middleware", "error handling") rather than a literal string
+- You don't know the exact variable/function name
+- You're exploring an unfamiliar codebase
+- grep returned no results but you know the concept must exist
+
+**When to prefer grep over semantic_search:**
+- You know the exact string to match
+- You need ALL occurrences (not just relevant files)
+- Performance matters more than accuracy
+- Searching for specific error messages or log patterns
+
+**When to use which:**
+- Static docs (MDN, Python docs, GitHub README, Wikipedia) → fetch_url works perfectly
+- News sites, modern web apps, SPAs → web_search with site: filter is the ONLY way to get content
+- API endpoints returning JSON → fetch_url with mode="raw" works fine
 
 **fetch_url** also handles errors gracefully: HTTP errors return the error page content, timeouts return an error message.`;
       })();
