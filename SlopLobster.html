@@ -11233,55 +11233,51 @@ Use git_diff to review changes before committing. git_diff without arguments sho
               updateLiveThinkBlock(liveThinkEls.get(idx), thinkText); scrollBottom();
             });
             _streamingToolNames.length = 0;
-        } catch (e) {
-            // ── Cleanup: safely finalize all mid-stream UI elements ──
-            if (th && th.parentNode) th.remove();
+            } catch (e) {
+                if (th && th.parentNode) th.remove();
+                for (const [, el] of liveThinkEls) {
+                  const content = el.querySelector('.think-content');
+                  const badge = el.querySelector('.think-badge');
+                  if (content) {
+                    content.classList.remove('streaming-cursor');
+                    if (!content.textContent.trim()) content.textContent = '(interrupted)';
+                  }
+                  if (badge) {
+                    badge.className = 'think-badge done'; badge.textContent = 'interrupted';
+                  }
+                  el._collapsed = true;
+                  el.querySelector('.think-content').classList.add('collapsed');
+                  el.querySelector('.think-chevron').classList.add('collapsed');
+                }
+                liveThinkEls.clear();
 
-            for (const [, el] of liveThinkEls) {
-              const content = el.querySelector('.think-content');
-              const badge = el.querySelector('.think-badge');
-              if (content) {
-                content.classList.remove('streaming-cursor');
-                if (!content.textContent.trim()) content.textContent = '(interrupted)';
-              }
-              if (badge) {
-                badge.className = 'think-badge done'; badge.textContent = 'interrupted';
-              }
-              el._collapsed = true;
-              el.querySelector('.think-content').classList.add('collapsed');
-              el.querySelector('.think-chevron').classList.add('collapsed');
-            }
-            liveThinkEls.clear();
+                const usage = _chatRes?.usage || null;  // ← ADD THIS LINE
 
-            if (streamEl) {
-              if (streamEl._rAF) cancelAnimationFrame(streamEl._rAF);
-              const c = streamEl.querySelector('.msg-content');
-              if (c) c.classList.remove('streaming-cursor');
+                if (streamEl) {
+                  if (streamEl._rAF) cancelAnimationFrame(streamEl._rAF);
+                  const c = streamEl.querySelector('.msg-content');
+                  if (c) c.classList.remove('streaming-cursor');
 
-              if (cur) {
-                c.innerHTML = renderMd(cur);
-                c.querySelectorAll('pre code').forEach(b => {
-                  if (!b.dataset.hljs) { hljs.highlightElement(b); b.dataset.hljs = '1'; }
-                });
-                addCopyBtns(c);
-                const outTok = usage ? usage.out : estimateTokens(cur);
-                const hdr = streamEl.querySelector('.msg-header');
-                const tokEl = document.createElement('span');
-                tokEl.className = 'msg-tok';
-                tokEl.title = usage ? 'Output tokens (exact from LM Studio)' : 'Output tokens (estimated)';
-                tokEl.textContent = (usage ? '' : '~') + formatTok(outTok) + ' out';
-                hdr.insertBefore(tokEl, hdr.querySelector('.msg-actions'));
-
-                const am = { role: 'assistant', content: cur || null };
-                if (tcs.length) am.tool_calls = tcs;
-                state.messages.push(am); updateContextMeter();
-              } else {
-                streamEl.remove();
-              }
-              streamEl._streaming = false;
-              streamEl = null;
-            }
-
+                  if (cur) {
+                    c.innerHTML = renderMd(cur);
+                    c.querySelectorAll('pre code').forEach(b => {
+                      if (!b.dataset.hljs) { hljs.highlightElement(b); b.dataset.hljs = '1'; }
+                    });
+                    addCopyBtns(c);
+                    const outTok = usage ? usage.out : estimateTokens(cur);
+                    const hdr = streamEl.querySelector('.msg-header');
+                    const tokEl = document.createElement('span');
+                    tokEl.className = 'msg-tok';
+                    tokEl.title = usage ? 'Output tokens (from LM Studio)' : 'Output tokens (estimated)';
+                    tokEl.textContent = (usage ? '' : '~') + formatTok(outTok) + ' out';
+                    hdr.insertBefore(tokEl, hdr.querySelector('.msg-actions'));
+                  } else {
+                    streamEl.remove();
+                  }
+                  streamEl._streaming = false;
+                  streamEl = null;
+                }
+                
             if (e.name === 'AbortError') {
               if (iters > 2) saveProgressToWorkspace('user stopped (' + iters + ' iterations)');
               appendMsg('system', 'Stopped.');
