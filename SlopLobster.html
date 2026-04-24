@@ -4825,6 +4825,20 @@
               in LM Studio</span>
           </div>
           <div class="field">
+            <label>Qwen Thinking Mode</label>
+            <div style="display:flex;align-items:center;gap:8px">
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:var(--tx-2)">
+                <input type="checkbox" id="s-qwen-enable-thinking" checked style="accent-color:var(--cyan)">
+                <span class="val" style="min-width:auto">enable_thinking</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:var(--tx-2)">
+                <input type="checkbox" id="s-qwen-preserve-thinking" style="accent-color:var(--cyan)">
+                <span class="val" style="min-width:auto">preserve_thinking</span>
+              </label>
+            </div>
+            <div class="hint">enable_thinking: false = direct answers without thinking. preserve_thinking: true = keep historical thinking traces in context (Qwen recommendation)</div>
+          </div>
+          <div class="field">
             <label>Context Length Override</label>
             <div style="display:flex;align-items:center;gap:8px">
               <input type="number" id="s-model-ctx" value="0" min="0" max="200000" style="width:120px">
@@ -6487,10 +6501,11 @@ Python command: {{PYTHON_CMD}}`;
     }
 
     /* ═════════════════ TOKEN TRACKING ═══════════════ */
-    let _tokenizeCache = new Map();
+    
     async function exactTokenCount(text) {
       if (!text || !state.connected) return -1;
       const key = text.slice(0, 200);
+      const _tokenizeCache = new Map();
       if (_tokenizeCache.has(key)) return _tokenizeCache.get(key);
       try {
         const res = await fetch(`${state.apiUrl}/v1/tokenize`, {
@@ -6519,8 +6534,7 @@ Python command: {{PYTHON_CMD}}`;
       lastPromptTokens: -1,
       totalOutputTokens: 0,
       _callOut: 0,
-      _loggedMissing: false,
-      _loggedEmpty: false,
+
 
       reset() { this._callOut = 0; this.lastPromptTokens = -1; this._loggedMissing = false; this._loggedEmpty = false; },
 
@@ -6528,14 +6542,13 @@ Python command: {{PYTHON_CMD}}`;
         if (!chunk?.usage) {
           if (!this._loggedMissing) {
             console.log('[tokenTracker] No usage field in chunk:', JSON.stringify(chunk).slice(0, 300));
-            console.log('[tokenTracker] chunk.choices keys:', chunk.choices?.[0]?.delta ? Object.keys(chunk.choices[0].delta) : 'none');
             this._loggedMissing = true;
           }
           return;
         }
         if (!chunk.usage.prompt_tokens && !chunk.usage.completion_tokens) {
           if (!this._loggedEmpty) {
-            console.log('[tokenTracker] Usage present but both zero:', JSON.stringify(chunk.usage));
+            console.log('[tokenTracker] Usage present but both zero');
             this._loggedEmpty = true;
           }
         }
@@ -6568,14 +6581,16 @@ Python command: {{PYTHON_CMD}}`;
     }
     function updateContextMeter() {
       const fill = document.getElementById('ctx-fill'), label = document.getElementById('ctx-label');
-      const exact = tokenTracker.lastPromptTokens;
-      const tok = exact > 0 ? exact : estimateConvTokens();
-      const pct = exact > 0 ? Math.round(getContextPct()) : -1;
-      fill.style.width = pct + '%'; fill.className = 'ctx-fill ' + (pct < 60 ? 'low' : pct < 85 ? 'mid' : 'high');
-
-      label.textContent = exact > 0
-        ? formatTok(tok) + ' (' + Math.max(0, pct) + '% of ' + (state.ctxWindow / 1000).toFixed(0) + 'k)'
-        : '~' + formatTok(tok);
+      if (!fill || !label) return;
+      if (!state._sysPromptLength) state._sysPromptLength = estimateTokens(DEFAULT_SYS);
+      const pct = Math.min(100, ((estimateConvTokens() + state._sysPromptLength) / state.ctxWindow) * 100);
+      const fillCls = pct > 80 ? 'high' : pct > 50 ? 'mid' : 'low';
+      fill.style.width = pct + '%';
+      fill.className = 'ctx-fill ' + fillCls;
+      const tok = tokenTracker.lastPromptTokens > 0
+        ? tokenTracker.lastPromptTokens
+        : estimateConvTokens() + state._sysPromptLength;
+      label.textContent = formatTok(tok) + ' tok';
     }
 
     /* ═══════════════ TEXT LOOP DETECTION ═══════════════ */
@@ -7810,6 +7825,24 @@ Python command: {{PYTHON_CMD}}`;
       return false;
     }
 
+    function isGemma() {
+      if (!state.model) return false;
+      const id = (state.model || '').toLowerCase();
+      return id.includes('gemma');
+    }
+
+    function isQwen() {
+      if (!state.model) return false;
+      const id = (state.model || '').toLowerCase();
+      return id.includes('qwen');
+    }
+
+    function usesThinkChannels() {
+      if (!state.model) return false;
+      const id = (state.model || '').toLowerCase();
+      return id.includes('gemma') || id.includes('qwen');
+    }
+
     /* ═══════════════ SMART CONTEXT INJECTION ═══════════════ */
 
     function extractSignaturesJs(source, language) {
@@ -8212,8 +8245,11 @@ Python command: {{PYTHON_CMD}}`;
               { role: 'system', content: 'Summarize this source file in exactly this format:\nPurpose: <one line>\nImports: <comma-separated list, or "none">\nExports: <comma-separated list, or "none">\nClasses: <name> (L<start>-L<end>) — one line each\nFunctions: <name> (L<start>-L<end>) — one line each\nConstants: <name> = <value preview>\nKey logic: <2-3 sentences about the most important behavior>\nBe precise with line numbers.' },
               { role: 'user', content: text.slice(0, 100000) + (text.length > 100000 ? '\n... [truncated]' : '') }
             ],
-            temperature: 0.1,
-            max_tokens: 500
+            temperature: _usesThinkChannels() ? 1.0 : state.temp,
+            top_p: _usesThinkChannels() ? 0.95 : undefined,
+            top_k: _usesThinkChannels() ? ((state.model || '').toLowerCase().includes('gemma') ? 64 : 20) : undefined,
+            ...((state.model || '').toLowerCase().includes('qwen') ? { chat_template_kwargs: { "preserve_thinking": true } } : {}),
+            max_tokens: state.maxTokens
           }),
           signal: state.abortCtrl.signal
         });
@@ -9250,7 +9286,10 @@ Python command: {{PYTHON_CMD}}`;
       if (args._parseError) {
         /* Skip sanitization — we'll report the parse error in the tool-specific handler */
       } else {
-        if (args.path != null && args.path !== '') { try { sanitizePath(args.path); } catch (e) { return { output: 'Security: ' + e.message }; } }
+        const _isRootPath = args.path === '.' || args.path === './' || args.path === '/';
+        if (args.path != null && args.path !== '' && !_isRootPath) { 
+          try { sanitizePath(args.path); } catch (e) { return { output: 'Security: ' + e.message }; }
+        }
         if (args.source != null && args.source !== '') { try { sanitizePath(args.source); } catch (e) { return { output: 'Security: ' + e.message }; } }
         if (args.destination != null && args.destination !== '') { try { sanitizePath(args.destination); } catch (e) { return { output: 'Security: ' + e.message }; } }
       }
@@ -9750,43 +9789,75 @@ Python command: {{PYTHON_CMD}}`;
     }
 
     async function testConnection(retry = 3) {
-      try {
-        await refreshModels(true); // was false — now double-checks after getting the list
-        const sel = document.getElementById('model-sel');
-        const count = sel.options.length;
-        if (activeInstance?.identifier === state.model) {
-          showToast(`Connected — ${state.model.split('/').pop()}`, 'ok');
-        } else if (!activeInstance) {
-          showToast(`Connected (${count} models) — couldn't verify loaded model`, 'warn');
-        } else {
-          showToast(`Loaded: ${activeInstance.identifier.split('/').pop()} — selector shows different model`, 'warn');
-        }
-      } catch (e) {
-        if (retry > 0) { setTimeout(() => testConnection(retry - 1), 3000); return; }
-        showToast(`LM Studio: ${e.message}`, 'err');
-      }
-      checkCompanion();
-    }
+          try {
+            // ── Pre-flight: can LM Studio serve at all? ──
+            const testRes = await fetch(`${state.apiUrl}/v1/models`, {
+              signal: AbortSignal.timeout(3000)
+            });
 
-    async function postStreamTokenCount() {
-      try {
-        const res = await fetch(`${state.apiUrl}/v1/tokenize`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: state.model, text: 'SlopLobster calibration' }),
-          signal: AbortSignal.timeout(3000)
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.count && data.count > 0) {
-            const ratio = 5 / data.count;
-            const est = Math.round(estimateConvTokens() * ratio);
-            if (est > 0) { tokenTracker.lastPromptTokens = est; return; }
+            if (!testRes.ok) {
+              const status = testRes.status;
+              let hint = '';
+
+              if (status === 500) {
+                // Don't parse — model likely crashed, parsing can also crash LM Studio
+                hint = '\n\n→ Open LM Studio, check the console for errors, restart the model, then try again.';
+                if (isQwen()) hint += '\n\nThis is a known Qwen issue in LM Studio — Qwen\'s thinking tokens cause SSE parsing failures that crash the server.';
+              } else if (status === 503) {
+                hint = '\n→ LM Studio is busy or restarting. Wait a moment and try again.';
+              } else {
+                const errRaw = await testRes.text().catch(() => testRes.statusText);
+                let err = errRaw;
+                if (err.includes('<!DOCTYPE') || err.includes('<html')) {
+                  const tmp = document.createElement('DIV'); tmp.innerHTML = err;
+                  err = tmp.textContent || tmp.innerText || 'Unknown error';
+                  err = err.trim().replace(/\s+/g, ' ');
+                }
+                if (err.length > 300) err = err.slice(0, 300) + '...';
+                hint = '\n' + err;
+              }
+
+              showToast(`LM Studio: HTTP ${status}${hint}`, 'err');
+              checkCompanion();
+              return;
+            }
+
+            // ── Pre-flight passed — do the full model list refresh ──
+            await refreshModels(true);
+            const sel = document.getElementById('model-sel');
+            const count = sel.options.length;
+            if (!count) {
+              state.connected = false;
+              document.getElementById('llm-dot').className = 'status-dot off';
+              document.getElementById('llm-text').textContent = 'LLM';
+              showToast('LM Studio: no models found', 'warn');
+              return;
+            }
+
+            state.connected = true;
+            document.getElementById('llm-dot').className = 'status-dot on';
+            document.getElementById('llm-text').textContent = 'LLM';
+
+            if (activeInstance?.identifier === state.model) {
+              showToast(`Connected — ${state.model.split('/').pop()}`, 'ok');
+            } else if (!activeInstance) {
+              showToast(`Connected (${count} models) — couldn't verify loaded model`, 'warn');
+            } else {
+              showToast(`Loaded: ${activeInstance.identifier.split('/').pop()} — selector shows different model`, 'warn');
+            }
+          } catch (e) {
+            if (e.name === 'AbortError') return; // user cancelled
+            if (retry > 0) {
+              const wait = Math.min(1000 * Math.pow(2, 3 - retry), 8000);
+              showToast(`LM Studio unreachable (attempt ${4 - retry}). Retrying in ${(wait / 1000).toFixed(1)}s...`, 'warn');
+              setTimeout(() => testConnection(retry - 1), wait);
+              return;
+            }
+            showToast(`LM Studio: ${e.message.slice(0, 120)}`, 'err');
           }
+          checkCompanion();
         }
-      } catch { }
-      tokenTracker.lastPromptTokens = estimateConvTokens();
-    }    
+
 
     function extractThinkText(argsStr) {
       // Don't try to show partial JSON — it'll be garbage
@@ -9984,7 +10055,10 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           .replace('{{SMART_CONTEXT_SECTION}}', smartContextSection);
       }
 
-      const apiMsgs = [{ role: 'system', content: state._sysPromptCacheText }, ...messages.map(m => {
+        const _usesTC = usesThinkChannels();
+        const _isQwen = isQwen();
+        const sysContent = _usesTC ? '<|think|>\n' : state._sysPromptCacheText;
+        const apiMsgs = [{ role: 'system', content: sysContent }, ...messages.map(m => {
         if (m._images && m._images.length) {
           const parts = [];
           if (m.content) parts.push({ type: 'text', text: m.content });
@@ -10003,8 +10077,20 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           messages: apiMsgs,
           tools: getToolDefs(),
           stream: true,
-          temperature: state.temp,
+          ...(_isQwen ? {
+            chat_template_kwargs: {
+              enable_thinking: document.getElementById('s-qwen-enable-thinking')?.checked ?? true,
+              preserve_thinking: document.getElementById('s-qwen-preserve-thinking')?.checked ?? true,
+            }
+          } : {}),
+          temperature: _usesTC ? 1.0 : state.temp,
+          top_p: _usesTC ? 0.95 : undefined,
+          top_k: _usesTC ? (_isQwen ? 20 : 64) : undefined,
+          presence_penalty: _isQwen ? 1.5 : undefined,
           max_tokens: state.maxTokens
+
+
+
         }),
         signal: state.abortCtrl.signal
       });
@@ -10754,6 +10840,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const txt = document.getElementById('llm-text');
       const meta = document.getElementById('model-meta');
       const loadBtn = document.getElementById('model-load-btn');
+      
 
       // Step 1: Unload old model if a different one is loaded
       if (activeInstance?.identifier && activeInstance.identifier !== modelId && activeInstance.instance_id) {
@@ -11180,6 +11267,11 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const HARD_STOP = state.maxIters;
       const sessionChanges = { modified: new Set(), created: new Set(), deleted: new Set(), moved: [] };
       let _pendingThinkText = null;
+      const th = showThinking(); 
+      let cur = '', tcs = [];
+      const liveThinkEls = new Map();
+      let _streamingToolNames = [];
+      let _chatRes = null;
       toolCallHistory.length = 0;
       textLoopBuffer.length = 0;
       tokenTracker.reset();
@@ -11212,14 +11304,11 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           break;
         }
 
-        const th = showThinking(); 
-        let cur = '', tcs = [];
-        const liveThinkEls = new Map();
-        const _streamingToolNames = [];
-        let _chatRes = null;
+
       
         try {
-            _chatRes = await streamChat(state.messages, t => { cur = t; if (th) th.remove(); updateStreamingMsg(t); }, c => { tcs = c; }, (thinkText) => {
+              _chatRes = await streamChat(state.messages, t => { cur = t; if (th) th.remove(); updateStreamingMsg(t); }, c => { tcs = c; }, (thinkText) => {
+              tokenTracker.commit();
               _streamingToolNames.push('think');
               const idx = _streamingToolNames.indexOf('think');
               if (idx === -1) return;
@@ -11761,20 +11850,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       }
 
       state.running = false; state.abortCtrl = null; updateSendBtn(); saveCurrentConv();
-      await postStreamTokenCount();
-      console.log('[tokens]', {
-        context: tokenTracker.lastPromptTokens >= 0
-          ? tokenTracker.lastPromptTokens
-          : '(estimate)',
-        output: tokenTracker.totalOutputTokens,
-        _callOut: tokenTracker._callOut,
-        total: (tokenTracker.lastPromptTokens >= 0 ? tokenTracker.lastPromptTokens : estimateConvTokens()) + tokenTracker.totalOutputTokens,
-        elapsed: agentStopwatch ? (performance.now() - agentStopwatch) / 1000 + 's' : '-',
-        contextPct: Math.round(getContextPct()) + '%',
-        _probeDone: tokenTracker._probeDone,
-        _probeRan: !!tokenTracker._probeRan,
-      });
-            
+
       showCompletionSummary(); agentStopwatch = null;
 
       if (sessionChanges.modified.size || sessionChanges.created.size || sessionChanges.deleted.size || sessionChanges.moved.length) {
@@ -11784,29 +11860,22 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
     /* ── Show completion summary when agent finishes ── */
     function showCompletionSummary() {
-      const out = tokenTracker.totalOutputTokens;
-      const lastPrompt = tokenTracker.lastPromptTokens >= 0 ? tokenTracker.lastPromptTokens : estimateConvTokens();
-      const total = out + Math.max(0, lastPrompt);
-      if (total < 10) return;
-      const isEstimate = tokenTracker.lastPromptTokens < 0;
+      const out = tokenTracker._callOut; // ← per-message output, not cumulative
+      if (out < 10) return;
       const elapsed = agentStopwatch ? ((performance.now() - agentStopwatch) / 1000) : null;
       const timeStr = elapsed ? (elapsed < 60 ? elapsed.toFixed(1) + 's' : (elapsed / 60).toFixed(1) + 'min') : '';
-      const parts = ['~' + formatTok(total) + ' tokens total'];
-      if (lastPrompt > 0) parts.push(formatTok(lastPrompt) + ' context');
-      if (out > 0) parts.push(formatTok(out) + ' out');
+      const parts = [formatTok(out) + ' out' + ' (est)'];
       if (timeStr) parts.push(timeStr);
       const el = document.createElement('div');
       el.className = 'compact-banner';
       el.style.background = 'rgba(34,211,238,.06)';
       el.style.borderColor = 'rgba(34,211,238,.15)';
       el.style.color = 'var(--cyan)';
-      const estimateLabel = isEstimate ? ' (est)' : '';
+      const estimateLabel = '';
       el.innerHTML = '<i class="fas fa-chart-bar" style="font-size:11px"></i><span>' + parts.join(' · ') + estimateLabel + '</span>';
       $msg().appendChild(el);
       scrollBottom();
     }
-
-
 
 
     /* ═══════════════ LIVE THINK BLOCK ═══════════════ */
@@ -12474,6 +12543,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
     function renderMd(t) {
       if (!t) return '';
+      // Strip Gemma <|channel>thought...<channel|> blocks before markdown parsing
+      t = t.replace(/<\|channel>thought\s*\n?([\s\S]*?)<\|channel>/gs, '');
       try {
         const raw = marked.parse(t, { breaks: true, gfm: true });
         // Allow images, links, code blocks, tables — block everything else
@@ -13020,7 +13091,9 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         if (s.requireEditApproval !== undefined) state.requireEditApproval = s.requireEditApproval;
         if (s.autoVerifyCommand !== undefined) state.autoVerifyCommand = s.autoVerifyCommand;
         if (s.autoVerifyMaxRetries !== undefined) state.autoVerifyMaxRetries = s.autoVerifyMaxRetries;
-        if (s.smartContextThreshold !== undefined) state.smartContextThreshold = s.smartContextThreshold; else state.smartContextThreshold = 150;  
+        if (s.smartContextThreshold !== undefined) state.smartContextThreshold = s.smartContextThreshold;else state.smartContextThreshold = 150;  
+        if (s.qwenEnableThinking !== undefined) document.getElementById('s-qwen-enable-thinking').checked = s.qwenEnableThinking;
+        if (s.qwenPreserveThinking !== undefined) document.getElementById('s-qwen-preserve-thinking').checked = s.qwenPreserveThinking;
         if (s.wsWarningDismissed !== undefined) _wsWarningDismissed = s.wsWarningDismissed;
              
       } catch { }
@@ -13053,7 +13126,9 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           autoVerifyCommand: state.autoVerifyCommand,
           autoVerifyMaxRetries: state.autoVerifyMaxRetries,
           wsWarningDismissed: _wsWarningDismissed,
-          smartContextThreshold: state.smartContextThreshold
+          smartContextThreshold: state.smartContextThreshold,
+          qwenEnableThinking: document.getElementById('s-qwen-enable-thinking')?.checked ?? true,
+          qwenPreserveThinking: document.getElementById('s-qwen-preserve-thinking')?.checked ?? true
           // NO conversation data here anymore
         }));
       } catch { }
@@ -14861,6 +14936,9 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         document.getElementById('s-sys-prompt').value = DEFAULT_SYS;
       }
 
+      if (document.getElementById('s-qwen-enable-thinking')?.checked === undefined) document.getElementById('s-qwen-enable-thinking').checked = true;
+      if (document.getElementById('s-qwen-preserve-thinking')?.checked === undefined) document.getElementById('s-qwen-preserve-thinking').checked = true;
+
       /* ── Auto-scroll indicator ── */
       updateScrollLockBtn();
 
@@ -14884,14 +14962,14 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const _intervals = [];
       _intervals.push(setInterval(checkCompanion, 20000));
 
-      /* ── Poll LM Studio for model changes every 30s ── */
+      /* ── Poll LM Studio for model changes every 300s ── */
       setInterval(async () => {
         if (state.connected && !state.running) {
           try {
             await refreshModels(false);
           } catch { /* silent */ }
         }
-      }, 30000);
+      }, 300000);
 
       /* ── Load persisted embeddings from IndexedDB on startup ── */
       loadEmbeddingsFromIDB().then(() => {
