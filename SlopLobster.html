@@ -10055,17 +10055,17 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           .replace('{{SMART_CONTEXT_SECTION}}', smartContextSection);
       }
 
-        const _usesTC = usesThinkChannels();
-        const _isQwen = isQwen();
-        const sysContent = _usesTC ? '<|think|>\n' : state._sysPromptCacheText;
-        const apiMsgs = [{ role: 'system', content: sysContent }, ...messages.map(m => {
-        if (m._images && m._images.length) {
-          const parts = [];
-          if (m.content) parts.push({ type: 'text', text: m.content });
-          parts.push(...m._images);
-          return { role: m.role, content: parts };
-        }
-        return m;
+      const _usesTC = usesThinkChannels();
+      const _isQwen = isQwen();
+      const sysContent = _usesTC ? '<|think|>\n' : state._sysPromptCacheText;
+      const apiMsgs = [{ role: 'system', content: sysContent }, ...messages.map(m => {
+      if (m._images && m._images.length) {
+        const parts = [];
+        if (m.content) parts.push({ type: 'text', text: m.content });
+        parts.push(...m._images);
+        return { role: m.role, content: parts };
+      }
+      return m;
       })];
 
       state.abortCtrl = new AbortController();
