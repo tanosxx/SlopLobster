@@ -9802,7 +9802,6 @@ Python command: {{PYTHON_CMD}}`;
               if (status === 500) {
                 // Don't parse — model likely crashed, parsing can also crash LM Studio
                 hint = '\n\n→ Open LM Studio, check the console for errors, restart the model, then try again.';
-                if (isQwen()) hint += '\n\nThis is a known Qwen issue in LM Studio — Qwen\'s thinking tokens cause SSE parsing failures that crash the server.';
               } else if (status === 503) {
                 hint = '\n→ LM Studio is busy or restarting. Wait a moment and try again.';
               } else {
