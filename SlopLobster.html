@@ -6505,7 +6505,7 @@ Python command: {{PYTHON_CMD}}`;
         _tokenizeCache.set(key, count);
         if (_tokenizeCache.size > 200) {
           const first = _tokenizeCache.keys().next().value;
-          if (first !== undefined) _tokenizeCache.delete(first);
+          if (first !== undefined) _tokenCache.delete(first);
         }
         return count;
       } catch {
@@ -6513,7 +6513,28 @@ Python command: {{PYTHON_CMD}}`;
       }
     }
 
-
+    /* Fallback: extract token count from any chat completion response */
+    async function countTokensFromResponse(messages) {
+      if (!state.connected || !state.model) return -1;
+      try {
+        const res = await fetch(`${state.apiUrl}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: state.model,
+            messages: [{ role: 'user', content: 'hi' }],
+            max_tokens: 1,
+            stream: false
+          }),
+          signal: AbortSignal.timeout(5000)
+        });
+        if (!res.ok) return -1;
+        const data = await res.json();
+        return data.usage?.prompt_tokens ?? -1;
+      } catch {
+        return -1;
+      }
+    }
 
     const tokenTracker = {
       lastPromptTokens: -1,
@@ -6561,21 +6582,17 @@ Python command: {{PYTHON_CMD}}`;
     function estimateTokens(t) { if (!t) return 0; return Math.ceil(t.length / 3.8); }
     function estimateConvTokens() { let total = 0; for (const m of state.messages) { if (m.content) total += estimateTokens(m.content); if (m.tool_calls) for (const tc of m.tool_calls) { total += estimateTokens(tc.function?.arguments || ''); total += 5; } total += 4; } return total; }
     function getContextPct() {
+      // Prefer LM Studio's exact prompt_tokens (includes system prompt + full history)
       const exact = tokenTracker.lastPromptTokens;
-      if (exact > 0) return Math.min(100, (exact / state.ctxWindow) * 100);
-      if (!state._sysPromptLength) state._sysPromptLength = estimateTokens(DEFAULT_SYS);
-      return Math.min(100, ((estimateConvTokens() + state._sysPromptLength) / state.ctxWindow) * 100);
-    }
+      if (exact >= 0) return Math.min(100, (exact / state.ctxWindow) * 100);
+      return Math.min(100, (estimateConvTokens() / state.ctxWindow) * 100);
+    }    
     function updateContextMeter() {
+      const pct = getContextPct();
       const fill = document.getElementById('ctx-fill'), label = document.getElementById('ctx-label');
-      const exact = tokenTracker.lastPromptTokens;
-      const tok = exact > 0 ? exact : estimateConvTokens();
-      const pct = exact > 0 ? Math.round(getContextPct()) : -1;
       fill.style.width = pct + '%'; fill.className = 'ctx-fill ' + (pct < 60 ? 'low' : pct < 85 ? 'mid' : 'high');
-
-      label.textContent = exact > 0
-        ? formatTok(tok) + ' (' + Math.max(0, pct) + '% of ' + (state.ctxWindow / 1000).toFixed(0) + 'k)'
-        : '~' + formatTok(tok);
+      const tok = estimateConvTokens();
+      label.textContent = tok < 1000 ? Math.round(tok) + ' tok' : (tok / 1000).toFixed(1) + 'k tok';
     }
 
     /* ═══════════════ TEXT LOOP DETECTION ═══════════════ */
@@ -8235,9 +8252,9 @@ Python command: {{PYTHON_CMD}}`;
       // Extract imports
       const imports = [];
       for (let i = 0; i < Math.min(lines.length, 60); i++) {
-        const trimmed = lines[i].trim();
-        if (/^(import\s|from\s)/.test(trimmed)) imports.push(trimmed.slice(0, 80));
-        if (trimmed && !/^import|^from|^#|^"""/.test(trimmed) && imports.length > 0) break;
+        const t = lines[i].trim();
+        if (/^(import\s|from\s)/.test(trimmed)) imports.push(t.slice(0, 80));
+        if (t && !/^import|^from|^#|^"""/.test(t) && imports.length > 0) break;
       }
       if (imports.length) result.push(`Imports: ${imports.join(', ')}`);
       else result.push('Imports: none');
@@ -8481,7 +8498,7 @@ Python command: {{PYTHON_CMD}}`;
         if (!hasChanges) return { output: results.join('\n'), diff: null, _pendingApproval: false };
         const diffOutput = allDiffs.filter(d => d.lines.length);
         const diff = diffOutput.length ? { path: rel, lines: diffOutput.flatMap(d => d.lines), stats: { additions: diffOutput.flatMap(d => d.lines).filter(l => l.type === 'add').length, deletions: diffOutput.flatMap(d => d.lines).filter(l => l.type === 'del').length }, truncated: false } : null;
-        return { output: '[PENDING APPROVAL] ' + results.join('\n'), diff, _pendingApproval: true, _pendingPath: rel, _pendingNewContent: content, _pendingIsNewFile: false, _pendingOriginalContent: content  };
+        return { output: '[PENDING APPROVAL] ' + results.join('\n'), diff, _pendingApproval: true, _pendingPath: rel, _pendingNewContent: content, _pendingIsNewFile: false };
       }
       const w = await fh.createWritable(); await w.write(content); await w.close();
       state.fileCache.set(rel, content); modifiedFiles.add(rel);
@@ -9250,11 +9267,7 @@ Python command: {{PYTHON_CMD}}`;
       if (args._parseError) {
         /* Skip sanitization — we'll report the parse error in the tool-specific handler */
       } else {
-        const _isRootPath = args.path === '.' || args.path === './' || args.path === '/';
-        if (args.path != null && args.path !== '' && !_isRootPath) { 
-          try { sanitizePath(args.path); } catch (e) { return { output: 'Security: ' + e.message }; }
-        }
-
+        if (args.path != null && args.path !== '') { try { sanitizePath(args.path); } catch (e) { return { output: 'Security: ' + e.message }; } }
         if (args.source != null && args.source !== '') { try { sanitizePath(args.source); } catch (e) { return { output: 'Security: ' + e.message }; } }
         if (args.destination != null && args.destination !== '') { try { sanitizePath(args.destination); } catch (e) { return { output: 'Security: ' + e.message }; } }
       }
@@ -9293,16 +9306,16 @@ Python command: {{PYTHON_CMD}}`;
               const isTruncated = args._parseError.includes('empty') || args._parseError.includes('truncated');
               const msg = isTruncated
                 ? 'TRUNCATED — edit_file JSON was cut off mid-stream. The file content in old_text/new_text was too large for a single tool call.\n\nFix: Use edit_file with SMALLER search/replace blocks (10-20 lines max per block). Split large edits into multiple sequential edit_file calls, each targeting a specific section.'
-                : 'Error: edit_file received invalid arguments — ' + args._parseError + '\n\nFix: Provide "path" and "edits" as valid JSON. The old_text content was likely too long and got truncated. Use smaller search/replace blocks.\n\nExample:\nedit_file({\n  "path": "src/example.py",\n  "edits": [{"old_text": "old line", "new_text": "new line"}]\n})';
+                : 'Error: edit_file received invalid arguments — ' + args._parseError + '\n\nFix: Provide "path" and "edits" as valid JSON. The old_text content was likely too long and got truncated. Use smaller search/replace blocks.\n\nExample:\nedit_file({\n "path":"src/example.py",\n "edits":[{"old_text":"old line","new_text":"new line"}]\n})';
               result = { output: msg, _truncatedWrite: isTruncated };
               break;
             }
             if (!args.path) {
-              result = { output: 'Error: "path" is required for edit_file. Example:\nedit_file({"path": "src/example.py", "edits": [{"old_text": "...", "new_text": "..."}]})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
+              result = { output: 'Error: "path" is required for edit_file. Example:\nedit_file({"path":"src/example.py","edits":[{"old_text":"...","new_text":"..."}]})\n\nDebug:received args:' + esc(JSON.stringify(args).slice(0, 300)) };
               break;
             }
             if (!Array.isArray(args.edits) || !args.edits.length) {
-              result = { output: 'Error: "edits" must be a non-empty array of {old_text, new_text} objects.\n\nExample:\nedit_file({"path": "src/example.py", "edits": [\n  {"old_text": "line to find", "new_text": "replacement line"},\n  {"old_text": "another line", "new_text": "another replacement"}\n]})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
+              result = { output: 'Error: "edits" must be a non-empty array of {old_text, new_text} objects.\n\nExample:\nedit_file({"path":"src/example.py","edits": [\n{"old_text":"line to find","new_text":"replacement line"},\n{"old_text":"another line","new_text":"another replacement"}\n]})\n\nDebug:received args:' + esc(JSON.stringify(args).slice(0, 300)) };
               break;
             }
             let editsValid = true;
@@ -9772,26 +9785,6 @@ Python command: {{PYTHON_CMD}}`;
       checkCompanion();
     }
 
-    async function postStreamTokenCount() {
-      try {
-        const res = await fetch(`${state.apiUrl}/v1/tokenize`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: state.model, text: 'SlopLobster calibration' }),
-          signal: AbortSignal.timeout(3000)
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.count && data.count > 0) {
-            const ratio = 5 / data.count;
-            const est = Math.round(estimateConvTokens() * ratio);
-            if (est > 0) { tokenTracker.lastPromptTokens = est; return; }
-          }
-        }
-      } catch { }
-      tokenTracker.lastPromptTokens = estimateConvTokens();
-    }    
-
     function extractThinkText(argsStr) {
       // Don't try to show partial JSON — it'll be garbage
       try { const a = JSON.parse(argsStr); return a.thought || ''; } catch { }
@@ -9802,6 +9795,7 @@ Python command: {{PYTHON_CMD}}`;
     }
 
     async function streamChat(messages, onChunk, onToolCall, onThinkStream) {
+
       /* ── Build dynamic prompt sections ── */
       const projInfo = state.projectType
         ? `Type: ${state.projectType}${state.projectMeta?.name ? ' | Name: ' + state.projectMeta.name : ''}${state.projectMeta?.deps ? ' | Key deps: ' + Object.entries(state.projectMeta.deps).slice(0, 8).map(([k]) => k).join(', ') : ''}`
@@ -9984,6 +9978,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           .replace('{{CONTEXT_SECTION}}', ctxSection)
           .replace('{{WORKING_DIR}}', state.dirName || '(none)')
           .replace('{{PROJECT_INFO}}', projInfo)
+          .replace('{{WORKSPACE_AWARENESS}}', state.dirName ? `═══ WORKSPACE AWARENESS ═══\nYou are operating INSIDE the project directory \`${state.dirName}\` on a ${state.compInfo?.platform || (navigator.userAgent.includes('Win') ? 'Windows' : 'Linux/Mac')} system.\n- DO NOT create a nested folder named \`${state.dirName}\` inside the current workspace.\n- Write files directly to the current directory (e.g., "src/main.js" NOT "${state.dirName}/src/main.js").\n` : '')
           .replace('{{PYTHON_CMD}}', pythonCmd)
           .replace('{{SMART_CONTEXT_SECTION}}', smartContextSection);
       }
@@ -10035,8 +10030,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       }
 
       const reader = res.body.getReader(), dec = new TextDecoder();
-      let buf = '';
-      const streamState = { content: '', toolCalls: [] };
+      let buf = '', content = '', toolCalls = [];
 
       tokenTracker.reset();
 
@@ -10054,35 +10048,46 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           try {
             const chunk = JSON.parse(d);
             if (chunk.usage) {
+              // Prefer direct prompt_tokens from the streaming response — exact, no extra API call
+              tokenTracker.lastPromptTokens = chunk.usage.prompt_tokens ?? -1;
+              if (chunk.usage.prompt_tokens == null && tokenTracker.lastPromptTokens < 0) {
+                // Fallback: extract from a minimal probe if the stream doesn't include usage data
+                if (!tokenTracker._probeDone) {
+                  tokenTracker._probeDone = true;
+                  countTokensFromResponse(state.messages.slice(-4)).then(n => {
+                    if (n > 0) tokenTracker.lastPromptTokens = n;
+                  });
+                }
+              }
               const u = chunk.usage;
               if (u.prompt_tokens != null) tokenTracker.lastPromptTokens = u.prompt_tokens;
-              if (u.completion_tokens != null && u.completion_tokens > 0) tokenTracker._callOut += u.completion_tokens;              
+              if (u.completion_tokens != null) tokenTracker._callOut += u.completion_tokens;
             }
+
             const delta = chunk.choices?.[0]?.delta;
             if (!delta) continue;
             if (delta.content) {
-              streamState.content += delta.content;
-              onChunk(streamState.content);
+              content += delta.content;
+              onChunk(content);
             }
             if (delta.tool_calls) {
               for (const tc of delta.tool_calls) {
                 const idx = tc.index ?? 0;
-                if (!streamState.toolCalls[idx]) streamState.toolCalls[idx] = { id: tc.id || '', type: 'function', function: { name: '', arguments: '' } };
-                if (tc.id) streamState.toolCalls[idx].id = tc.id;
-                if (tc.function?.name) streamState.toolCalls[idx].function.name += tc.function.name;
-                if (tc.function?.arguments) streamState.toolCalls[idx].function.arguments += tc.function.arguments;
-                if (streamState.toolCalls[idx].function.name === 'think' && onThinkStream) {
-                  onThinkStream(extractThinkText(streamState.toolCalls[idx].function.arguments));
+                if (!toolCalls[idx]) toolCalls[idx] = { id: tc.id || '', type: 'function', function: { name: '', arguments: '' } };
+                if (tc.id) toolCalls[idx].id = tc.id;
+                if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
+                if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
+                if (toolCalls[idx].function.name === 'think' && onThinkStream) {
+                  onThinkStream(extractThinkText(toolCalls[idx].function.arguments));
                 }
-                onToolCall(streamState.toolCalls);
+                onToolCall(toolCalls);
               }
             }
           } catch { /* skip malformed chunks */ }
         }
       }
 
-      const outAccum = tokenTracker.totalOutputTokens + tokenTracker._callOut;
-      return { content: streamState.content, toolCalls: streamState.toolCalls.filter(Boolean), usage: { in: tokenTracker.lastPromptTokens, out: outAccum } };
+      return { content, toolCalls: toolCalls.filter(Boolean), usage: { in: tokenTracker._callIn, out: tokenTracker._callOut } };
     }
 
     /* ═══════════════ SUB-AGENT CHAT (with system prompt caching) ═══════════════ */
@@ -10642,7 +10647,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           if (!res.ok) throw new Error(res.statusText);
           const data = await res.json();
           await fetchModelInfo();
-        
+
           if (forceReload) {
             try { active = await fetchActiveModel(); } catch { activeInstance = null; }
           }
@@ -11183,7 +11188,6 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const COMPACT_AT = Math.floor(state.maxIters * 0.6);
       const HARD_STOP = state.maxIters;
       const sessionChanges = { modified: new Set(), created: new Set(), deleted: new Set(), moved: [] };
-      let _pendingThinkText = null;
       toolCallHistory.length = 0;
       textLoopBuffer.length = 0;
       tokenTracker.reset();
@@ -11216,85 +11220,86 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           break;
         }
 
-        const th = showThinking(); 
-        let cur = '', tcs = [];
+        const th = showThinking(); let cur = '', tcs = [];
         const liveThinkEls = new Map();
-        const _streamingToolNames = [];
         let _chatRes = null;
-      
         try {
             _chatRes = await streamChat(state.messages, t => { cur = t; if (th) th.remove(); updateStreamingMsg(t); }, c => { tcs = c; }, (thinkText) => {
-              _streamingToolNames.push('think');
-              const idx = _streamingToolNames.indexOf('think');
-              if (idx === -1) return;
-              if (th) th.remove();
-              if (!liveThinkEls.has(idx)) {
-                const el = createLiveThinkBlock();
-                if (streamEl && streamEl.parentNode) streamEl.parentNode.insertBefore(el, streamEl);
-                else $msg().appendChild(el);
-                liveThinkEls.set(idx, el);
-              }
-              updateLiveThinkBlock(liveThinkEls.get(idx), thinkText); scrollBottom();
-            });
-            _streamingToolNames.length = 0;
-            } catch (e) {
-                if (th && th.parentNode) th.remove();
-                for (const [, el] of liveThinkEls) {
-                  const content = el.querySelector('.think-content');
-                  const badge = el.querySelector('.think-badge');
-                  if (content) {
-                    content.classList.remove('streaming-cursor');
-                    if (!content.textContent.trim()) content.textContent = '(interrupted)';
-                  }
-                  if (badge) {
-                    badge.className = 'think-badge done'; badge.textContent = 'interrupted';
-                  }
-                  el._collapsed = true;
-                  el.querySelector('.think-content').classList.add('collapsed');
-                  el.querySelector('.think-chevron').classList.add('collapsed');
-                }
-                liveThinkEls.clear();
-
-                const usage = _chatRes?.usage || null;  // ← ADD THIS LINE
-
-                if (streamEl) {
-                  if (streamEl._rAF) cancelAnimationFrame(streamEl._rAF);
-                  const c = streamEl.querySelector('.msg-content');
-                  if (c) c.classList.remove('streaming-cursor');
-
-                  if (cur) {
-                    c.innerHTML = renderMd(cur);
-                    c.querySelectorAll('pre code').forEach(b => {
-                      if (!b.dataset.hljs) { hljs.highlightElement(b); b.dataset.hljs = '1'; }
-                    });
-                    addCopyBtns(c);
-                    const outTok = usage ? usage.out : estimateTokens(cur);
-                    const hdr = streamEl.querySelector('.msg-header');
-                    const tokEl = document.createElement('span');
-                    tokEl.className = 'msg-tok';
-                    tokEl.title = usage ? 'Output tokens (from LM Studio)' : 'Output tokens (estimated)';
-                    tokEl.textContent = (usage ? '' : '~') + formatTok(outTok) + ' out';
-                    hdr.insertBefore(tokEl, hdr.querySelector('.msg-actions'));
-                  } else {
-                    streamEl.remove();
-                  }
-                  streamEl._streaming = false;
-                  streamEl = null;
-                }
-                
-            if (e.name === 'AbortError') {
-              if (iters > 2) saveProgressToWorkspace('user stopped (' + iters + ' iterations)');
-              appendMsg('system', 'Stopped.');
-              break;
+            const cur = _chatRes.content || '';
+            const tcs = _chatRes?.toolCalls?.filter(Boolean) || [];
+            const usage = _chatRes.usage || { in: 0, out: 0 };
+            tokenTracker.commit();
+            let idx = -1; for (let i = 0; i < tcs.length; i++) { if (tcs[i].function.name === 'think') idx = i; }
+            if (idx === -1) return; if (th) th.remove();
+            if (!liveThinkEls.has(idx)) {
+              const el = createLiveThinkBlock();
+              if (streamEl && streamEl.parentNode) streamEl.parentNode.insertBefore(el, streamEl);
+              else $msg().appendChild(el);
+              liveThinkEls.set(idx, el);
             }
-            appendMsg('system', 'Error: ' + e.message);
+            updateLiveThinkBlock(liveThinkEls.get(idx), thinkText); scrollBottom();
+          });
+        } catch (e) {
+          // ── Cleanup: safely finalize all mid-stream UI elements ──
+          if (th && th.parentNode) th.remove();
+
+          for (const [, el] of liveThinkEls) {
+            const content = el.querySelector('.think-content');
+            const badge = el.querySelector('.think-badge');
+            if (content) {
+              content.classList.remove('streaming-cursor');
+              if (!content.textContent.trim()) content.textContent = '(interrupted)';
+            }
+            if (badge) {
+              badge.className = 'think-badge done'; badge.textContent = 'interrupted';
+            }
+            el._collapsed = true;
+            el.querySelector('.think-content').classList.add('collapsed');
+            el.querySelector('.think-chevron').classList.add('collapsed');
+          }
+          liveThinkEls.clear();
+
+          if (streamEl) {
+            if (streamEl._rAF) cancelAnimationFrame(streamEl._rAF);
+            const c = streamEl.querySelector('.msg-content');
+            if (c) c.classList.remove('streaming-cursor');
+
+            if (cur) {
+              c.innerHTML = renderMd(cur);
+              c.querySelectorAll('pre code').forEach(b => {
+                if (!b.dataset.hljs) { hljs.highlightElement(b); b.dataset.hljs = '1'; }
+              });
+              addCopyBtns(c);
+              const outTok = usage ? usage.out : estimateTokens(cur);
+              const hdr = streamEl.querySelector('.msg-header');
+              const tokEl = document.createElement('span');
+              tokEl.className = 'msg-tok';
+              tokEl.title = usage ? 'Output tokens (exact from LM Studio)' : 'Output tokens (estimated)';
+              tokEl.textContent = (usage ? '' : '~') + formatTok(outTok) + ' out';
+              hdr.insertBefore(tokEl, hdr.querySelector('.msg-actions'));
+
+              const am = { role: 'assistant', content: cur || null };
+              if (tcs.length) am.tool_calls = tcs;
+              state.messages.push(am); updateContextMeter();
+            } else {
+              streamEl.remove();
+            }
+            streamEl._streaming = false;
+            streamEl = null;
+          }
+
+          if (e.name === 'AbortError') {
+            if (iters > 2) saveProgressToWorkspace('user stopped (' + iters + ' iterations)');
+            appendMsg('system', 'Stopped.');
             break;
+          }
+          appendMsg('system', 'Error: ' + e.message);
+          break;
         }
         if (th && th.parentNode) th.remove();
         const am = { role: 'assistant', content: cur || null }; if (tcs.length) am.tool_calls = tcs;
         state.messages.push(am); updateContextMeter();
         for (const [, el] of liveThinkEls) finalizeLiveThinkBlock(el); liveThinkEls.clear();
-
 
         if (!tcs.length) {
           if (checkTextLoop(cur)) {
@@ -11765,20 +11770,17 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       }
 
       state.running = false; state.abortCtrl = null; updateSendBtn(); saveCurrentConv();
-      await postStreamTokenCount();
       console.log('[tokens]', {
-        context: tokenTracker.lastPromptTokens >= 0
-          ? tokenTracker.lastPromptTokens
-          : '(estimate)',
+        context: tokenTracker.lastPromptTokens >= 0 ? tokenTracker.lastPromptTokens : '(no usage data)',
         output: tokenTracker.totalOutputTokens,
-        _callOut: tokenTracker._callOut,
-        total: (tokenTracker.lastPromptTokens >= 0 ? tokenTracker.lastPromptTokens : estimateConvTokens()) + tokenTracker.totalOutputTokens,
+        total: (tokenTracker.lastPromptTokens >= 0 ? tokenTracker.lastPromptTokens : 0) + tokenTracker.totalOutputTokens,
         elapsed: agentStopwatch ? (performance.now() - agentStopwatch) / 1000 + 's' : '-',
         contextPct: Math.round(getContextPct()) + '%',
-        _probeDone: tokenTracker._probeDone,
-        _probeRan: !!tokenTracker._probeRan,
+        _callOut: tokenTracker._callOut,
+        _lastPrompt: tokenTracker.lastPromptTokens,
+        _totalOut: tokenTracker.totalOutputTokens,
       });
-            
+      
       showCompletionSummary(); agentStopwatch = null;
 
       if (sessionChanges.modified.size || sessionChanges.created.size || sessionChanges.deleted.size || sessionChanges.moved.length) {
@@ -11791,21 +11793,22 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const out = tokenTracker.totalOutputTokens;
       const lastPrompt = tokenTracker.lastPromptTokens >= 0 ? tokenTracker.lastPromptTokens : estimateConvTokens();
       const total = out + Math.max(0, lastPrompt);
-      if (total < 10) return;
-      const isEstimate = tokenTracker.lastPromptTokens < 0;
+      if (total < 100) return;  // skip if clearly wrong
+
       const elapsed = agentStopwatch ? ((performance.now() - agentStopwatch) / 1000) : null;
       const timeStr = elapsed ? (elapsed < 60 ? elapsed.toFixed(1) + 's' : (elapsed / 60).toFixed(1) + 'min') : '';
+
       const parts = ['~' + formatTok(total) + ' tokens total'];
       if (lastPrompt > 0) parts.push(formatTok(lastPrompt) + ' context');
       if (out > 0) parts.push(formatTok(out) + ' out');
       if (timeStr) parts.push(timeStr);
+
       const el = document.createElement('div');
       el.className = 'compact-banner';
       el.style.background = 'rgba(34,211,238,.06)';
       el.style.borderColor = 'rgba(34,211,238,.15)';
       el.style.color = 'var(--cyan)';
-      const estimateLabel = isEstimate ? ' (est)' : '';
-      el.innerHTML = '<i class="fas fa-chart-bar" style="font-size:11px"></i><span>' + parts.join(' · ') + estimateLabel + '</span>';
+      el.innerHTML = '<i class="fas fa-chart-bar" style="font-size:11px"></i><span>' + parts.join(' · ') + '</span>';
       $msg().appendChild(el);
       scrollBottom();
     }
@@ -11868,10 +11871,30 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       }
     }
 
-        function renderHtmlFilePreview(f) {
+    function renderHtmlFilePreview(f) {
       const emptyEl = document.getElementById('rp-files-empty');
       const previewEl = document.getElementById('rp-file-preview');
 
+      /* ── Dev server mode: full preview with asset resolution ── */
+      if (f.isDevUrl && f.devUrl) {
+        const sizeKB = Math.round((f.content || '').length / 1024);
+        previewEl.innerHTML =
+          '<div class="rp-file-header">' +
+            '<span class="rp-file-name"><i class="fas fa-globe" style="color:var(--green);margin-right:4px"></i>' + esc(f.path) + '</span>' +
+            '<span class="rp-file-meta">' + (f.lines ? f.lines.length + ' lines · ' : '') + sizeKB + ' KB · <span style="color:var(--green)">via dev server</span></span>' +
+            '<div class="rp-file-actions">' +
+              '<button class="rp-file-act" onclick="window.open(\'' + f.devUrl + '\', \'_blank\')" title="Open in browser"><i class="fas fa-external-link"></i></button>' +
+            '</div>' +
+          '</div>' +
+          '<div style="height:clamp(300px,60vh,calc(100vh - 200px);background:white;border-radius:0 0 6px 6px;overflow:hidden">' +
+            '<iframe src="' + esc(f.devUrl) + '" sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin allow-downloads" style="width:100%;height:100%;border:none;display:block"></iframe>' +
+          '</div>';
+        emptyEl.style.display = 'none';
+        previewEl.style.display = 'block';
+        return;
+      }
+
+      /* ── Standalone srcdoc mode: limited preview ── */
       const lines = f.lines;
       const lineHtml = lines.map((line, i) => {
         let highlighted;
@@ -11882,25 +11905,19 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           '<span class="rp-file-line-text">' + highlighted + '</span></div>';
       }).join('');
 
-      const sizeKB = Math.round(f.content.length / 1024);
+      const sizeKB = Math.round((f.content || '').length / 1024);
       const sizeWarn = sizeKB > 500
         ? '<div class="html-preview-size-warn"><i class="fas fa-triangle-exclamation"></i> Large file (' + sizeKB + ' KB) — preview may be slow</div>'
         : '';
 
       previewEl.innerHTML =
         '<div class="rp-file-header">' +
-          '<span class="rp-file-name"><i class="fas fa-globe" style="color:var(--accent);margin-right:4px"></i>' + esc(f.path) + '</span>' +
+          '<span class="rp-file-name"><i class="fas fa-code" style="color:var(--accent);margin-right:4px"></i>' + esc(f.path) + '</span>' +
           '<span class="rp-file-meta">' + f.lines.length + ' lines · ' + sizeKB + ' KB</span>' +
           '<div class="rp-file-actions">' +
-            '<button class="rp-file-act html-toggle-btn active" id="html-toggle-btn" onclick="toggleHtmlPreview()" title="Switch between code and rendered preview">' +
-              '<i class="fas fa-code"></i> Code' +
-            '</button>' +
-            '<button class="rp-file-act" id="html-refresh-btn" onclick="refreshHtmlPreview()" title="Refresh preview" style="display:none">' +
-              '<i class="fas fa-rotate"></i>' +
-            '</button>' +
-            '<button class="rp-file-act" onclick="rpCopyFile()" title="Copy source">' +
-              '<i class="fas fa-copy"></i>' +
-            '</button>' +
+            '<button class="rp-file-act html-toggle-btn active" id="html-toggle-btn" onclick="toggleHtmlPreview()"><i class="fas fa-code"></i> Code</button>' +
+            '<button class="rp-file-act" id="html-refresh-btn" style="display:none"><i class="fas fa-rotate"></i></button>' +
+            '<button class="rp-file-act" onclick="rpCopyFile()"><i class="fas fa-copy"></i></button>' +
           '</div>' +
         '</div>' +
         '<div class="html-preview-bar" id="html-preview-bar" style="display:flex">' +
@@ -11920,15 +11937,24 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         (f.truncated ? '<div class="rp-file-truncated">File was truncated — preview may be incomplete</div>' : '') +
         sizeWarn;
 
+      /* ── Warning banner for srcdoc mode ── */
+      const bannerId = 'html-srcdoc-banner-' + Date.now();
+      const banner = document.createElement('div');
+      banner.id = bannerId;
+      banner.style.cssText = 'padding:6px 10px;font-size:10px;color:var(--yellow);font-family:JetBrains Mono,monospace;background:rgba(234,179,8,.04);border:1px solid rgba(234,179,8,.12);border-radius:5px;margin:0;border-top:none;display:flex;align-items:center;gap:6px';
+      banner.innerHTML = '<i class="fas fa-info-circle" style="flex-shrink:0"></i><span>Standalone preview — CSS/JS not loaded. <button style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:10px;font-family:inherit;padding:0 4px;text-decoration:underline" onclick="this.closest(\'div\').remove()">Start a dev server for full preview →</button></span>';
+      previewEl.appendChild(banner);
+
       /* Set iframe content after DOM is ready */
       requestAnimationFrame(() => {
         const iframe = document.getElementById('html-preview-iframe');
         if (iframe) iframe.srcdoc = f.content;
       });
 
-      emptyEl.style.display = 'none';
-      previewEl.style.display = 'block';
+      /* Replace the old "setHtmlPreviewWidth" that was hardcoded for dev preview — reuse for file preview too */
+      window.setHtmlPreviewWidth = window.setHtmlPreviewWidth || function() {};
     }
+
 
     let _htmlPreviewWidth = null;
     function setHtmlPreviewWidth(btn, width) {
@@ -12037,18 +12063,26 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       // Remove any stale token elements
       hdr.querySelectorAll('.msg-tok').forEach(el => el.remove());
 
-      if (usage && usage.out && usage.out > 0) {
+      if (usage) {
+        // Show "12.8k tok out" on the message itself
+        const outTok = tokenTracker._callOut
+        if (outTok > 0) {
           const tokEl = document.createElement('span');
           tokEl.className = 'msg-tok';
-          tokEl.textContent = formatTok(usage.out) + ' out';
+          tokEl.textContent = formatTok(outTok) + ' out';
           tokEl.title = 'Output tokens (from LM Studio)';
           hdr.insertBefore(tokEl, hdr.querySelector('.msg-actions'));
-      } else if (tokenTracker._callOut > 0) {
-          const tokEl = document.createElement('span');
-          tokEl.className = 'msg-tok';
-          tokEl.textContent = '~' + formatTok(tokenTracker._callOut) + ' out (est)';
-          tokEl.title = 'Output tokens (estimated)';
-          hdr.insertBefore(tokEl, hdr.querySelector('.msg-actions'));
+        }
+      }
+
+      // Fallback estimate only if LM Studio didn't report
+      const outTok = tokenTracker._callOut
+      if (outTok > 0) {
+        const tokEl = document.createElement('span');
+        tokEl.className = 'msg-tok';
+        tokEl.textContent = formatTok(outTok) + ' out';
+        tokEl.title = 'Output tokens (from LM Studio)';
+        hdr.insertBefore(tokEl, hdr.querySelector('.msg-actions'));
       }
 
       streamEl._streaming = false;
@@ -14168,8 +14202,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           previewEl.style.display = 'block';
           return;
         }
-        /* ── HTML files: code + rendered preview ── */
-        /* ── HTML files: code + rendered preview ── */
+
         /* ── HTML files: code + rendered preview ── */
         const isHtml = /\.(html?|xhtml?)$/i.test(path);
         if (isHtml) {
@@ -14433,7 +14466,6 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             if (m.tool_calls) c.tool_calls = m.tool_calls;
             if (m.tool_call_id) c.tool_call_id = m.tool_call_id;
             if (m._hadImages) c._hadImages = m._hadImages;
-            if (m._subAgentData) c._subAgentData = m._subAgentData;
             if (c.role === 'tool' && typeof c.content === 'string' && c.content.length > 8000) {
               c.content = c.content.slice(0, 8000) + '\n... [truncated in file storage]';
             }
@@ -14549,6 +14581,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     /** One-time import from localStorage into workspace */
     async function importFromLocalStorage() {
       if (_localStorageImported || !state.dirHandle) return;
+      _localStorageImported = true;
       try {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (!raw) return;
@@ -14562,7 +14595,6 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           if (!(await ensureConvDir())) break;
           await saveConvToWorkspace(conv);
           imported++;
-          _localStorageImported = true
         }
 
         if (imported > 0) {
@@ -14579,7 +14611,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     /** Get storage status for UI display */
     function getConvStorageStatus() {
       if (!state.dirHandle) return { source: 'memory', label: 'In memory', icon: 'fa-memory' };
-      if (state.conversations.length === 0) return { source: 'workspace', label: 'Workspace', icon: 'fa-folder-open', count: 0 };
+      if (state.conversations.length === 0) return { source: 'workspace', label: 'Workspace', icon: 'fa-folder-open' };
       return { source: 'workspace', label: 'Workspace', icon: 'fa-folder-open', count: state.conversations.length };
     }
 
