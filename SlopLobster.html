@@ -4808,14 +4808,6 @@
         </div>
         <div class="field"><label>Max Tokens</label><input type="number" id="s-max-tokens" value="60000" min="256"
             max="131072"></div>
-        <div class="field"><label>Top P</label>
-          <div class="slider-row"><input type="range" id="s-top-p" min="0" max="1" step="0.05" value="1"><span
-              class="val" id="s-top-p-val">1.0</span></div>
-          <div class="hint">Nucleus sampling threshold. Lower = more focused, higher = more diverse. Gemma preset: 0.95</div>
-        </div>
-        <div class="field"><label>Top K</label><input type="number" id="s-top-k" value="0" min="0" max="200">
-          <div class="hint">0 = model default. Higher = more candidates. Gemma preset: 64</div>
-        </div>
         <div class="field">
           <label>Max Iterations Before Stop</label>
           <input type="number" id="s-max-iters" value="50" min="5" max="500">
@@ -4831,6 +4823,20 @@
             Model Load Settings
             <span style="font-size:9px;color:var(--tx-4);font-weight:400;margin-left:auto">Applied when loading a model
               in LM Studio</span>
+          </div>
+          <div class="field">
+            <label>Qwen Thinking Mode</label>
+            <div style="display:flex;align-items:center;gap:8px">
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:var(--tx-2)">
+                <input type="checkbox" id="s-qwen-enable-thinking" checked style="accent-color:var(--cyan)">
+                <span class="val" style="min-width:auto">enable_thinking</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:var(--tx-2)">
+                <input type="checkbox" id="s-qwen-preserve-thinking" style="accent-color:var(--cyan)">
+                <span class="val" style="min-width:auto">preserve_thinking</span>
+              </label>
+            </div>
+            <div class="hint">enable_thinking: false = direct answers without thinking. preserve_thinking: true = keep historical thinking traces in context (Qwen recommendation)</div>
           </div>
           <div class="field">
             <label>Context Length Override</label>
@@ -6166,6 +6172,13 @@ if __name__ == "__main__":
     main()
 `;
 
+    /** Strip <think>...</think> and <|channel>thought...<channel|> from model output */
+    function stripThinkingBlocks(text) {
+      text = text.replace(/<think>[\s\S]*?<\/think>/gs, '');
+      text = text.replace(/<\|channel>thought[\s\S]*?<\|channel>/gs, '');
+      return text.trim();
+    }
+
     /* ═══════════════ TEMPLATES ═══════════════ */
     function esc(s) { if (!s) return ''; return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 
@@ -6188,15 +6201,13 @@ if __name__ == "__main__":
       sysPromptProfiles: {},
       messages: [], running: false, abortCtrl: null,
       dirHandle: null, dirName: '', fileTree: [],
-      temp: 0.3, maxTokens: 30000, maxReadKB: 500, cmdTimeout: 60, ctxWindow: 62768,
+      temp: 0.3, maxTokens: 60000, maxReadKB: 500, cmdTimeout: 60, ctxWindow: 62768,
       autoCompactPct: 85, maxIters: 50,
       verifyWrites: true,
       /* ── Model load settings ── */
       requireEditApproval: false,
       autoVerifyCommand: '',
       autoVerifyMaxRetries: 3,
-      topP: 1.0,
-      topK: 0,
       _autoVerifyRetries: 0,
       planMode: false,
       currentPlan: null,
@@ -6497,10 +6508,11 @@ Python command: {{PYTHON_CMD}}`;
     }
 
     /* ═════════════════ TOKEN TRACKING ═══════════════ */
-    let _tokenizeCache = new Map();
+    
     async function exactTokenCount(text) {
       if (!text || !state.connected) return -1;
       const key = text.slice(0, 200);
+      const _tokenizeCache = new Map();
       if (_tokenizeCache.has(key)) return _tokenizeCache.get(key);
       try {
         const res = await fetch(`${state.apiUrl}/v1/tokenize`, {
@@ -6515,7 +6527,7 @@ Python command: {{PYTHON_CMD}}`;
         _tokenizeCache.set(key, count);
         if (_tokenizeCache.size > 200) {
           const first = _tokenizeCache.keys().next().value;
-          if (first !== undefined) _tokenCache.delete(first);
+          if (first !== undefined) _tokenizeCache.delete(first);
         }
         return count;
       } catch {
@@ -6523,35 +6535,13 @@ Python command: {{PYTHON_CMD}}`;
       }
     }
 
-    /* Fallback: extract token count from any chat completion response */
-    async function countTokensFromResponse(messages) {
-      if (!state.connected || !state.model) return -1;
-      try {
-        const res = await fetch(`${state.apiUrl}/v1/chat/completions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: state.model,
-            messages: [{ role: 'user', content: 'hi' }],
-            max_tokens: 1,
-            stream: false
-          }),
-          signal: AbortSignal.timeout(5000)
-        });
-        if (!res.ok) return -1;
-        const data = await res.json();
-        return data.usage?.prompt_tokens ?? -1;
-      } catch {
-        return -1;
-      }
-    }
+
 
     const tokenTracker = {
       lastPromptTokens: -1,
       totalOutputTokens: 0,
       _callOut: 0,
-      _loggedMissing: false,
-      _loggedEmpty: false,
+
 
       reset() { this._callOut = 0; this.lastPromptTokens = -1; this._loggedMissing = false; this._loggedEmpty = false; },
 
@@ -6559,14 +6549,13 @@ Python command: {{PYTHON_CMD}}`;
         if (!chunk?.usage) {
           if (!this._loggedMissing) {
             console.log('[tokenTracker] No usage field in chunk:', JSON.stringify(chunk).slice(0, 300));
-            console.log('[tokenTracker] chunk.choices keys:', chunk.choices?.[0]?.delta ? Object.keys(chunk.choices[0].delta) : 'none');
             this._loggedMissing = true;
           }
           return;
         }
         if (!chunk.usage.prompt_tokens && !chunk.usage.completion_tokens) {
           if (!this._loggedEmpty) {
-            console.log('[tokenTracker] Usage present but both zero:', JSON.stringify(chunk.usage));
+            console.log('[tokenTracker] Usage present but both zero');
             this._loggedEmpty = true;
           }
         }
@@ -6592,17 +6581,23 @@ Python command: {{PYTHON_CMD}}`;
     function estimateTokens(t) { if (!t) return 0; return Math.ceil(t.length / 3.8); }
     function estimateConvTokens() { let total = 0; for (const m of state.messages) { if (m.content) total += estimateTokens(m.content); if (m.tool_calls) for (const tc of m.tool_calls) { total += estimateTokens(tc.function?.arguments || ''); total += 5; } total += 4; } return total; }
     function getContextPct() {
-      // Prefer LM Studio's exact prompt_tokens (includes system prompt + full history)
       const exact = tokenTracker.lastPromptTokens;
-      if (exact >= 0) return Math.min(100, (exact / state.ctxWindow) * 100);
-      return Math.min(100, (estimateConvTokens() / state.ctxWindow) * 100);
-    }    
+      if (exact > 0) return Math.min(100, (exact / state.ctxWindow) * 100);
+      if (!state._sysPromptLength) state._sysPromptLength = estimateTokens(DEFAULT_SYS);
+      return Math.min(100, ((estimateConvTokens() + state._sysPromptLength) / state.ctxWindow) * 100);
+    }
     function updateContextMeter() {
-      const pct = getContextPct();
       const fill = document.getElementById('ctx-fill'), label = document.getElementById('ctx-label');
-      fill.style.width = pct + '%'; fill.className = 'ctx-fill ' + (pct < 60 ? 'low' : pct < 85 ? 'mid' : 'high');
-      const tok = estimateConvTokens();
-      label.textContent = tok < 1000 ? Math.round(tok) + ' tok' : (tok / 1000).toFixed(1) + 'k tok';
+      if (!fill || !label) return;
+      if (!state._sysPromptLength) state._sysPromptLength = estimateTokens(DEFAULT_SYS);
+      const pct = Math.min(100, ((estimateConvTokens() + state._sysPromptLength) / state.ctxWindow) * 100);
+      const fillCls = pct > 80 ? 'high' : pct > 50 ? 'mid' : 'low';
+      fill.style.width = pct + '%';
+      fill.className = 'ctx-fill ' + fillCls;
+      const tok = tokenTracker.lastPromptTokens > 0
+        ? tokenTracker.lastPromptTokens
+        : estimateConvTokens() + state._sysPromptLength;
+      label.textContent = formatTok(tok) + ' tok';
     }
 
     /* ═══════════════ TEXT LOOP DETECTION ═══════════════ */
@@ -7221,9 +7216,12 @@ Python command: {{PYTHON_CMD}}`;
       //    lost, potentially breaking the agent's understanding of what it was doing.
       if (preservedText) {
         state.messages.push({
-          role: 'tool',
-          tool_call_id: toolCallId,
-          content: '[Previous assistant context preserved for retry — ' + preservedText.slice(0, 400) + (preservedText.length > 400 ? '...' : '') + ']'
+          role: 'assistant',
+          content: null
+        });
+        state.messages.push({
+          role: 'user',
+          content: '[SYSTEM: Retry — the previous tool call failed. Do NOT output any text. Call the exact same tool with the exact same arguments.]'
         });
       }
 
@@ -7837,6 +7835,24 @@ Python command: {{PYTHON_CMD}}`;
       return false;
     }
 
+    function isGemma() {
+      if (!state.model) return false;
+      const id = (state.model || '').toLowerCase();
+      return id.includes('gemma');
+    }
+
+    function isQwen() {
+      if (!state.model) return false;
+      const id = (state.model || '').toLowerCase();
+      return id.includes('qwen');
+    }
+
+    function usesThinkChannels() {
+      if (!state.model) return false;
+      const id = (state.model || '').toLowerCase();
+      return id.includes('gemma') || id.includes('qwen');
+    }
+
     /* ═══════════════ SMART CONTEXT INJECTION ═══════════════ */
 
     function extractSignaturesJs(source, language) {
@@ -8140,8 +8156,47 @@ Python command: {{PYTHON_CMD}}`;
       return Math.max(100, Math.floor(state.ctxWindow * 0.02));
     }    
 
+     /**
+     * Strip body previews and docstrings from a skeleton string.
+     * Returns only "fixed parts": imports, function/class signatures with line numbers.
+     * This survives compaction, so the agent sees the same structure after compact.
+     */
+    function stripBodyPreviews(skeletonText) {
+      const lines = skeletonText.split('\n');
+      const result = [];
+      let inImports = false;
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) { result.push(line); continue; }
+
+        // Keep structural markers and instructions unconditionally
+        if (/^File:/.test(trimmed) ||
+            /^Use read_file_lines/.test(trimmed) ||
+            /^═+/.test(trimmed)) {
+          result.push(line); inImports = false; continue;
+        }
+        if (/^(?:import |from )/.test(trimmed)) { inImports = true; result.push(line); continue; }
+        if (inImports) continue;
+
+        // Keep only signatures (fixed parts)
+        if (/^L\d+: (?:async\s+)?(?:def|class)\s/.test(trimmed)) {
+          result.push(line); continue;
+        }
+
+        // Skip body previews, class attributes, variable assignments, comments, everything else
+      }
+
+      return result.join('\n');
+    }
+
+
     async function readFileSafe(rel) {
-      const h = await resolvePath(rel); if (h.kind !== 'file') throw new Error(`"${rel}" is a directory`);
+      requireWorkspace();
+      if (isSkippedPath(rel)) return { output: `File "${rel}" is filtered by workspace rules and cannot be read.` };
+
+      const h = await resolvePath(rel);
+      if (h.kind !== 'file') throw new Error(`"${rel}" is a directory`);
       const f = await h.getFile();
 
       /* ── PDF files: extract text via pdf.js ── */
@@ -8154,12 +8209,12 @@ Python command: {{PYTHON_CMD}}`;
           const thumb = await renderPdfFirstPageThumbnail(f);
           return { output: text, _pdfThumbnail: thumb, _pdfPath: rel, _pdfFile: f };
         } catch (e) { return { output: `PDF: ${rel}\nError: ${e.message}` }; }
-      }      
+      }
 
-      /* ── Image files: return base64 for vision ── */
+      /* ── SVG files: return raw XML markup with rendered preview URL ── */
       if (f.type && f.type.includes('svg')) {
         const maxB = 5 * 1024 * 1024;
-        if (f.size > maxB) return { output: `SVG: ${rel}\nSize: ${(f.size / 1024).toFixed(1)} KB\n⚠ Too large to preview (max 5 MB). Use read_file_lines to read sections.` };
+        if (f.size > maxB) return { output: `SVG: ${rel}\nSize: ${(f.size / 1024).toFixed(1)} KB\n⚠ Too large to preview (max 5 MB). Use read_file_lines to read sections of the raw data.` };
         const text = await f.text();
         cacheSet(rel, text);
         let previewUrl = null;
@@ -8171,7 +8226,8 @@ Python command: {{PYTHON_CMD}}`;
         };
       }
 
-      if (f.type && f.type.startsWith('image/')) {
+      /* ── Raster image files: compress and return base64 for vision ── */
+      if (f.type && f.type.startsWith('image/') && !f.type.includes('svg')) {
         const maxB = 10 * 1024 * 1024;
         if (f.size > maxB) return { output: `Image: ${rel}\nType: ${f.type}\nSize: ${(f.size / 1024 / 1024).toFixed(1)} MB\n⚠ Too large to view (max 10 MB)...` };
         try {
@@ -8185,74 +8241,70 @@ Python command: {{PYTHON_CMD}}`;
       const text = await f.text();
       cacheSet(rel, text);
       const lines = text.split('\n');
-
       const ext = rel.split('.').pop().toLowerCase();
 
       /* ── Smart Context: skeleton for large files ── */
       const threshold = getEffectiveSmartThreshold();
       if (threshold > 0) {
-        const lineCount = text.split('\n').length;
+        const lineCount = lines.length;
         if (lineCount > threshold) {
-          const skeleton = await getFileSkeleton(text, ext, rel, lineCount);
-          if (skeleton) return { output: skeleton };
+          let skeleton = null;
+
+          // Try companion for accurate AST-based extraction (includes body previews)
+          if (state.compConnected) {
+            try {
+              skeleton = await getFileSkeleton(text, ext, rel, lineCount);
+            } catch { /* fallback to client-side */ }
+
+          // Fallback: client-side extraction
+          if (!skeleton) {
+            skeleton = extractEnhancedSkeleton(text, ext);
+          }
+
+          if (skeleton) {
+            const skelLen = skeleton.length;
+
+            // ── KEY FIX: strip body previews from large skeletons ──
+            //
+            // Body previews (first 3 lines of function bodies, class attributes, variable
+            // assignments) are "variable content" that gets lost on compact. After compact the
+            // agent sees only signatures and re-reads the file — causing a read-compact loop.
+            //
+            // By stripping them upfront, the skeleton contains only "fixed parts" (imports,
+            // signatures with line numbers) that survive compaction. The agent can then grep
+            // for what it needs and use read_file_lines to read specific sections — no loop.
+            if (skelLen > 4000) {
+              const stripped = stripBodyPreviews(skeleton);
+              return {
+                output: `File: ${rel} (${lineCount} lines, ${(text.length / 1024).toFixed(1)} KB)\n` +
+                  `Large file — showing structure only (signatures)\n` +
+                  `Use grep to find what you need, then read_file_lines for specific sections.\n` +
+                  `═══════════════════════════════════════════════════════════════════════════\n\n` +
+                  stripped
+              };
+            }
+           }
+            // Skeleton is reasonable size, return as-is (body preview preserved for context)
+            return { output: skeleton };
+          }
+
+          // No skeleton available — use structure-aware truncation (head + tail)
+          if (f.size > maxB) {
+            const truncated = structureAwareTruncate(text, lines, maxB, rel);
+            cacheSet(rel, truncated.fullText);
+            return { output: truncated.output, _truncated: true, _shownLines: truncated.shownLines };
+          }
         }
       }
 
-      /* ── Structure-Aware Truncation: cut at logical boundaries ── */
+      /* ── Structure-Aware Truncation for oversized files ── */
       if (f.size > maxB) {
         const truncated = structureAwareTruncate(text, lines, maxB, rel);
         cacheSet(rel, truncated.fullText);
-        return { output: truncated.output, _truncated: true, _truncatedLines: truncated.totalLines, _shownLines: truncated.shownLines };
+        return { output: truncated.output, _truncated: true, _shownLines: truncated.shownLines };
       }
 
       return { output: `File: ${rel}\nSize: ${text.length} chars, ${lines.length} lines\n---\n${text}` };
-    }
-
-    async function readFileSummarySafe(rel) {
-      requireWorkspace();
-      const h = await resolvePath(rel);
-      if (h.kind !== 'file') return { output: `"${rel}" is not a file` };
-      const f = await h.getFile();
-      if (f.size > 5 * 1024 * 1024) return { output: `File too large for summary (${(f.size/1024/1024).toFixed(1)} MB)` };
-      
-      // For small files, just do it client-side
-      if (f.size < 50000) {
-        const text = await f.text();
-        const lines = text.split('\n');
-        if (lines.length < 150) return { output: `File: ${rel} (${lines.length} lines) — small enough to read directly with read_file` };
-        return { output: buildLocalSummary(rel, text, lines) };
-      }
-      
-      // For larger files, use the API
-      try {
-        const text = await f.text();
-        const lines = text.split('\n');
-        const ext = rel.split('.').pop().toLowerCase();
-        
-        state.abortCtrl = new AbortController();
-        const res = await fetch(`${state.apiUrl}/v1/chat/completions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: state.model,
-            messages: [
-              { role: 'system', content: 'Summarize this source file in exactly this format:\nPurpose: <one line>\nImports: <comma-separated list, or "none">\nExports: <comma-separated list, or "none">\nClasses: <name> (L<start>-L<end>) — one line each\nFunctions: <name> (L<start>-L<end>) — one line each\nConstants: <name> = <value preview>\nKey logic: <2-3 sentences about the most important behavior>\nBe precise with line numbers.' },
-              { role: 'user', content: text.slice(0, 100000) + (text.length > 100000 ? '\n... [truncated]' : '') }
-            ],
-            temperature: 0.1,
-            max_tokens: 500
-          }),
-          signal: state.abortCtrl.signal
-        });
-        
-        if (!res.ok) return { output: buildLocalSummary(rel, text.slice(0, 50000), lines) };
-        const data = await res.json();
-        const summary = data.choices?.[0]?.message?.content || '';
-        return { output: `File: ${rel} (${lines.length} lines, ${(f.size/1024).toFixed(1)} KB)\n---\n${summary}` };
-      } catch {
-        const text = await f.text();
-        return { output: buildLocalSummary(rel, text.slice(0, 50000), text.split('\n')) };
-      }
     }
 
     function buildLocalSummary(path, text, lines) {
@@ -8262,9 +8314,9 @@ Python command: {{PYTHON_CMD}}`;
       // Extract imports
       const imports = [];
       for (let i = 0; i < Math.min(lines.length, 60); i++) {
-        const t = lines[i].trim();
-        if (/^(import\s|from\s)/.test(trimmed)) imports.push(t.slice(0, 80));
-        if (t && !/^import|^from|^#|^"""/.test(t) && imports.length > 0) break;
+        const trimmed = lines[i].trim();
+        if (/^(import\s|from\s)/.test(trimmed)) imports.push(trimmed.slice(0, 80));
+        if (trimmed && !/^import|^from|^#|^"""/.test(trimmed) && imports.length > 0) break;
       }
       if (imports.length) result.push(`Imports: ${imports.join(', ')}`);
       else result.push('Imports: none');
@@ -8508,7 +8560,7 @@ Python command: {{PYTHON_CMD}}`;
         if (!hasChanges) return { output: results.join('\n'), diff: null, _pendingApproval: false };
         const diffOutput = allDiffs.filter(d => d.lines.length);
         const diff = diffOutput.length ? { path: rel, lines: diffOutput.flatMap(d => d.lines), stats: { additions: diffOutput.flatMap(d => d.lines).filter(l => l.type === 'add').length, deletions: diffOutput.flatMap(d => d.lines).filter(l => l.type === 'del').length }, truncated: false } : null;
-        return { output: '[PENDING APPROVAL] ' + results.join('\n'), diff, _pendingApproval: true, _pendingPath: rel, _pendingNewContent: content, _pendingIsNewFile: false };
+        return { output: '[PENDING APPROVAL] ' + results.join('\n'), diff, _pendingApproval: true, _pendingPath: rel, _pendingNewContent: content, _pendingIsNewFile: false, _pendingOriginalContent: content  };
       }
       const w = await fh.createWritable(); await w.write(content); await w.close();
       state.fileCache.set(rel, content); modifiedFiles.add(rel);
@@ -8604,7 +8656,7 @@ Python command: {{PYTHON_CMD}}`;
       if (dryRun) {
         const isNew = prevContent === null;
         const diff = !isNew ? { path: rel, lines: generateDiffFromStrings(prevContent, content).lines, stats: generateDiffFromStrings(prevContent, content).stats, truncated: false } : null;
-        return { output: isNew ? '[PENDING APPROVAL] Create ' + rel : '[PENDING APPROVAL] Overwrite ' + rel, diff, _pendingApproval: true, _pendingPath: rel, _pendingNewContent: content, _pendingIsNewFile: isNew };
+        return { output: isNew ? '[PENDING APPROVAL] Create ' + rel : '[PENDING APPROVAL] Overwrite ' + rel, diff, _pendingApproval: true, _pendingPath: rel, _pendingNewContent: content, _pendingIsNewFile: isNew, _originalContent: prevContent };   
       }
       const fh = await dir.getFileHandle(lastName, { create: true });
       const w = await fh.createWritable(); await w.write(content); await w.close();
@@ -9277,9 +9329,12 @@ Python command: {{PYTHON_CMD}}`;
       if (args._parseError) {
         /* Skip sanitization — we'll report the parse error in the tool-specific handler */
       } else {
-        if (args.path != null && args.path !== '' && args.path !== '.') { try { sanitizePath(args.path); } catch (e) { return { output: 'Security: ' + e.message }; } }
-        if (args.source != null && args.source !== '' && args.source !== '.') { try { sanitizePath(args.source); } catch (e) { return { output: 'Security: ' + e.message }; } }
-        if (args.destination != null && args.destination !== '' && args.destination !== '.') { try { sanitizePath(args.destination); } catch (e) { return { output: 'Security: ' + e.message }; } }
+        const _isRootPath = args.path === '.' || args.path === './' || args.path === '/';
+        if (args.path != null && args.path !== '' && !_isRootPath) { 
+          try { sanitizePath(args.path); } catch (e) { return { output: 'Security: ' + e.message }; }
+        }
+        if (args.source != null && args.source !== '') { try { sanitizePath(args.source); } catch (e) { return { output: 'Security: ' + e.message }; } }
+        if (args.destination != null && args.destination !== '') { try { sanitizePath(args.destination); } catch (e) { return { output: 'Security: ' + e.message }; } }
       }
 
       try {
@@ -9316,16 +9371,16 @@ Python command: {{PYTHON_CMD}}`;
               const isTruncated = args._parseError.includes('empty') || args._parseError.includes('truncated');
               const msg = isTruncated
                 ? 'TRUNCATED — edit_file JSON was cut off mid-stream. The file content in old_text/new_text was too large for a single tool call.\n\nFix: Use edit_file with SMALLER search/replace blocks (10-20 lines max per block). Split large edits into multiple sequential edit_file calls, each targeting a specific section.'
-                : 'Error: edit_file received invalid arguments — ' + args._parseError + '\n\nFix: Provide "path" and "edits" as valid JSON. The old_text content was likely too long and got truncated. Use smaller search/replace blocks.\n\nExample:\nedit_file({\n "path":"src/example.py",\n "edits":[{"old_text":"old line","new_text":"new line"}]\n})';
+                : 'Error: edit_file received invalid arguments — ' + args._parseError + '\n\nFix: Provide "path" and "edits" as valid JSON. The old_text content was likely too long and got truncated. Use smaller search/replace blocks.\n\nExample:\nedit_file({\n  "path": "src/example.py",\n  "edits": [{"old_text": "old line", "new_text": "new line"}]\n})';
               result = { output: msg, _truncatedWrite: isTruncated };
               break;
             }
             if (!args.path) {
-              result = { output: 'Error: "path" is required for edit_file. Example:\nedit_file({"path":"src/example.py","edits":[{"old_text":"...","new_text":"..."}]})\n\nDebug:received args:' + esc(JSON.stringify(args).slice(0, 300)) };
+              result = { output: 'Error: "path" is required for edit_file. Example:\nedit_file({"path": "src/example.py", "edits": [{"old_text": "...", "new_text": "..."}]})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
               break;
             }
             if (!Array.isArray(args.edits) || !args.edits.length) {
-              result = { output: 'Error: "edits" must be a non-empty array of {old_text, new_text} objects.\n\nExample:\nedit_file({"path":"src/example.py","edits": [\n{"old_text":"line to find","new_text":"replacement line"},\n{"old_text":"another line","new_text":"another replacement"}\n]})\n\nDebug:received args:' + esc(JSON.stringify(args).slice(0, 300)) };
+              result = { output: 'Error: "edits" must be a non-empty array of {old_text, new_text} objects.\n\nExample:\nedit_file({"path": "src/example.py", "edits": [\n  {"old_text": "line to find", "new_text": "replacement line"},\n  {"old_text": "another line", "new_text": "another replacement"}\n]})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
               break;
             }
             let editsValid = true;
@@ -9777,23 +9832,74 @@ Python command: {{PYTHON_CMD}}`;
     }
 
     async function testConnection(retry = 3) {
-      try {
-        await refreshModels(true); // was false — now double-checks after getting the list
-        const sel = document.getElementById('model-sel');
-        const count = sel.options.length;
-        if (activeInstance?.identifier === state.model) {
-          showToast(`Connected — ${state.model.split('/').pop()}`, 'ok');
-        } else if (!activeInstance) {
-          showToast(`Connected (${count} models) — couldn't verify loaded model`, 'warn');
-        } else {
-          showToast(`Loaded: ${activeInstance.identifier.split('/').pop()} — selector shows different model`, 'warn');
+          try {
+            // ── Pre-flight: can LM Studio serve at all? ──
+            const testRes = await fetch(`${state.apiUrl}/v1/models`, {
+              signal: AbortSignal.timeout(3000)
+            });
+
+            if (!testRes.ok) {
+              const status = testRes.status;
+              let hint = '';
+
+              if (status === 500) {
+                // Don't parse — model likely crashed, parsing can also crash LM Studio
+                hint = '\n\n→ Open LM Studio, check the console for errors, restart the model, then try again.';
+              } else if (status === 503) {
+                hint = '\n→ LM Studio is busy or restarting. Wait a moment and try again.';
+              } else {
+                const errRaw = await testRes.text().catch(() => testRes.statusText);
+                let err = errRaw;
+                if (err.includes('<!DOCTYPE') || err.includes('<html')) {
+                  const tmp = document.createElement('DIV'); tmp.innerHTML = err;
+                  err = tmp.textContent || tmp.innerText || 'Unknown error';
+                  err = err.trim().replace(/\s+/g, ' ');
+                }
+                if (err.length > 300) err = err.slice(0, 300) + '...';
+                hint = '\n' + err;
+              }
+
+              showToast(`LM Studio: HTTP ${status}${hint}`, 'err');
+              checkCompanion();
+              return;
+            }
+
+            // ── Pre-flight passed — do the full model list refresh ──
+            await refreshModels(true);
+            const sel = document.getElementById('model-sel');
+            const count = sel.options.length;
+            if (!count) {
+              state.connected = false;
+              document.getElementById('llm-dot').className = 'status-dot off';
+              document.getElementById('llm-text').textContent = 'LLM';
+              showToast('LM Studio: no models found', 'warn');
+              return;
+            }
+
+            state.connected = true;
+            document.getElementById('llm-dot').className = 'status-dot on';
+            document.getElementById('llm-text').textContent = 'LLM';
+
+            if (activeInstance?.identifier === state.model) {
+              showToast(`Connected — ${state.model.split('/').pop()}`, 'ok');
+            } else if (!activeInstance) {
+              showToast(`Connected (${count} models) — couldn't verify loaded model`, 'warn');
+            } else {
+              showToast(`Loaded: ${activeInstance.identifier.split('/').pop()} — selector shows different model`, 'warn');
+            }
+          } catch (e) {
+            if (e.name === 'AbortError') return; // user cancelled
+            if (retry > 0) {
+              const wait = Math.min(1000 * Math.pow(2, 3 - retry), 8000);
+              showToast(`LM Studio unreachable (attempt ${4 - retry}). Retrying in ${(wait / 1000).toFixed(1)}s...`, 'warn');
+              setTimeout(() => testConnection(retry - 1), wait);
+              return;
+            }
+            showToast(`LM Studio: ${e.message.slice(0, 120)}`, 'err');
+          }
+          checkCompanion();
         }
-      } catch (e) {
-        if (retry > 0) { setTimeout(() => testConnection(retry - 1), 3000); return; }
-        showToast(`LM Studio: ${e.message}`, 'err');
-      }
-      checkCompanion();
-    }
+
 
     function extractThinkText(argsStr) {
       // Don't try to show partial JSON — it'll be garbage
@@ -9805,7 +9911,6 @@ Python command: {{PYTHON_CMD}}`;
     }
 
     async function streamChat(messages, onChunk, onToolCall, onThinkStream) {
-
       /* ── Build dynamic prompt sections ── */
       const projInfo = state.projectType
         ? `Type: ${state.projectType}${state.projectMeta?.name ? ' | Name: ' + state.projectMeta.name : ''}${state.projectMeta?.deps ? ' | Key deps: ' + Object.entries(state.projectMeta.deps).slice(0, 8).map(([k]) => k).join(', ') : ''}`
@@ -9988,43 +10093,52 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           .replace('{{CONTEXT_SECTION}}', ctxSection)
           .replace('{{WORKING_DIR}}', state.dirName || '(none)')
           .replace('{{PROJECT_INFO}}', projInfo)
-          .replace('{{WORKSPACE_AWARENESS}}', state.dirName ? `═══ WORKSPACE AWARENESS ═══\nYou are operating INSIDE the project directory \`${state.dirName}\` on a ${state.compInfo?.platform || (navigator.userAgent.includes('Win') ? 'Windows' : 'Linux/Mac')} system.\n- DO NOT create a nested folder named \`${state.dirName}\` inside the current workspace.\n- Write files directly to the current directory (e.g., "src/main.js" NOT "${state.dirName}/src/main.js"). Do NOT prefix paths with the directory name.\n` : '')
           .replace('{{PYTHON_CMD}}', pythonCmd)
           .replace('{{SMART_CONTEXT_SECTION}}', smartContextSection);
       }
 
-      const apiMsgs = [{ role: 'system', content: state._sysPromptCacheText }, ...messages.map(m => {
-        if (m._images && m._images.length) {
-          const parts = [];
-          if (m.content) parts.push({ type: 'text', text: m.content });
-          parts.push(...m._images);
-          return { role: m.role, content: parts };
-        }
-        return m;
+      const _usesTC = usesThinkChannels();
+      const _isQwen = isQwen();
+      const sysContent = _usesTC ? '<|think|>\n' : state._sysPromptCacheText;
+      const apiMsgs = [{ role: 'system', content: sysContent }, ...messages.map(m => {
+      if (m._images && m._images.length) {
+        const parts = [];
+        if (m.content) parts.push({ type: 'text', text: m.content });
+        parts.push(...m._images);
+        return { role: m.role, content: parts };
+      }
+      return m;
       })];
-
-      state.abortCtrl = new AbortController();
-      const reqBody = {
-        model: state.model,
-        messages: apiMsgs,
-        tools: getToolDefs(),
-        stream: true,
-        temperature: state.temp,
-        max_tokens: state.maxTokens
-      };
-      if (state.topP !== 1.0) reqBody.top_p = state.topP;
-      if (state.topK > 0) reqBody.top_k = state.topK;
 
       state.abortCtrl = new AbortController();
       const res = await fetch(`${state.apiUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(reqBody),
+        body: JSON.stringify({
+          model: state.model,
+          messages: apiMsgs,
+          tools: getToolDefs(),
+          stream: true,
+          ...(_isQwen ? {
+            chat_template_kwargs: {
+              enable_thinking: document.getElementById('s-qwen-enable-thinking')?.checked ?? true,
+              preserve_thinking: document.getElementById('s-qwen-preserve-thinking')?.checked ?? true,
+            }
+          } : {}),
+          temperature: _usesTC ? 1.0 : state.temp,
+          top_p: _usesTC ? 0.95 : undefined,
+          top_k: _usesTC ? (_isQwen ? 20 : 64) : undefined,
+          presence_penalty: _isQwen ? 1.5 : undefined,
+          max_tokens: state.maxTokens
+
+
+
+        }),
         signal: state.abortCtrl.signal
-      });
+         });
 
         if (!res.ok) {
-          const errRaw = await res.text().catch(() => res.statusText);
+          const errRaw = await res.text().catch(() => '');
           let err = errRaw || res.statusText || 'Unknown error';
 
         if (err.includes('<!DOCTYPE') || err.includes('<html')) {
@@ -10045,7 +10159,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       }
 
       const reader = res.body.getReader(), dec = new TextDecoder();
-      let buf = '', content = '', toolCalls = [];
+      let buf = '';
+      const streamState = { content: '', toolCalls: [] };
 
       tokenTracker.reset();
 
@@ -10063,46 +10178,35 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           try {
             const chunk = JSON.parse(d);
             if (chunk.usage) {
-              // Prefer direct prompt_tokens from the streaming response — exact, no extra API call
-              tokenTracker.lastPromptTokens = chunk.usage.prompt_tokens ?? -1;
-              if (chunk.usage.prompt_tokens == null && tokenTracker.lastPromptTokens < 0) {
-                // Fallback: extract from a minimal probe if the stream doesn't include usage data
-                if (!tokenTracker._probeDone) {
-                  tokenTracker._probeDone = true;
-                  countTokensFromResponse(state.messages.slice(-4)).then(n => {
-                    if (n > 0) tokenTracker.lastPromptTokens = n;
-                  });
-                }
-              }
               const u = chunk.usage;
               if (u.prompt_tokens != null) tokenTracker.lastPromptTokens = u.prompt_tokens;
-              if (u.completion_tokens != null) tokenTracker._callOut += u.completion_tokens;
+              if (u.completion_tokens != null && u.completion_tokens > 0) tokenTracker._callOut += u.completion_tokens;              
             }
-
             const delta = chunk.choices?.[0]?.delta;
             if (!delta) continue;
             if (delta.content) {
-              content += delta.content;
-              onChunk(content);
+              streamState.content += delta.content;
+              onChunk(streamState.content);
             }
             if (delta.tool_calls) {
               for (const tc of delta.tool_calls) {
                 const idx = tc.index ?? 0;
-                if (!toolCalls[idx]) toolCalls[idx] = { id: tc.id || '', type: 'function', function: { name: '', arguments: '' } };
-                if (tc.id) toolCalls[idx].id = tc.id;
-                if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
-                if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
-                if (toolCalls[idx].function.name === 'think' && onThinkStream) {
-                  onThinkStream(extractThinkText(toolCalls[idx].function.arguments));
+                if (!streamState.toolCalls[idx]) streamState.toolCalls[idx] = { id: tc.id || '', type: 'function', function: { name: '', arguments: '' } };
+                if (tc.id) streamState.toolCalls[idx].id = tc.id;
+                if (tc.function?.name) streamState.toolCalls[idx].function.name += tc.function.name;
+                if (tc.function?.arguments) streamState.toolCalls[idx].function.arguments += tc.function.arguments;
+                if (streamState.toolCalls[idx].function.name === 'think' && onThinkStream) {
+                  onThinkStream(extractThinkText(streamState.toolCalls[idx].function.arguments));
                 }
-                onToolCall(toolCalls);
+                onToolCall(streamState.toolCalls);
               }
             }
           } catch { /* skip malformed chunks */ }
         }
       }
 
-      return { content, toolCalls: toolCalls.filter(Boolean), usage: { in: tokenTracker._callIn, out: tokenTracker._callOut } };
+      const outAccum = tokenTracker.totalOutputTokens + tokenTracker._callOut;
+      return { content: streamState.content, toolCalls: streamState.toolCalls.filter(Boolean), usage: { in: tokenTracker.lastPromptTokens, out: outAccum } };
     }
 
     /* ═══════════════ SUB-AGENT CHAT (with system prompt caching) ═══════════════ */
@@ -10219,7 +10323,6 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       return prompt;
     }
 
-
     /**
      * Stream a sub-agent chat completion.
      * System prompt is built and cached internally based on the provided tools.
@@ -10249,23 +10352,18 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         })
       ];
 
-      // ── Build request body with sampling params ──
-      const reqBody = {
-        model: state.model,
-        messages: apiMsgs,
-        tools: tools,
-        stream: true,
-        temperature: 0.2,
-        max_tokens: Math.min(state.maxTokens, 8000)
-      };
-      if (state.topP !== 1.0) reqBody.top_p = state.topP;
-      if (state.topK > 0) reqBody.top_k = state.topK;
-
       // ── Make API request ──
       const res = await fetch(`${state.apiUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(reqBody),
+        body: JSON.stringify({
+          model: state.model,
+          messages: apiMsgs,
+          tools: tools,
+          stream: true,
+          temperature: 0.2,
+          max_tokens: Math.min(state.maxTokens, 8000)
+        }),
         signal: abortSignal
       });
 
@@ -10333,7 +10431,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
               }
             }
           } catch {
-            // Ignore parse error on trailing buffer
+            // Skip malformed chunks — common during truncation
           }
         }
       }
@@ -10668,7 +10766,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           if (!res.ok) throw new Error(res.statusText);
           const data = await res.json();
           await fetchModelInfo();
-
+        
           if (forceReload) {
             try { active = await fetchActiveModel(); } catch { activeInstance = null; }
           }
@@ -10759,14 +10857,10 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         // Confirmed match — show model info
         const parts = [];
         if (info?.paramsString) parts.push(info.paramsString);
-        if (info?.contextLength) parts.push((info.contextLength / 1000).toFixed(0) + 'k ctx');
+        if (info?.contextLength) parts.push((info.contextLength / 1000).toFixed(0) + 'k');
         if (info?.trainedForToolUse) parts.push('🔧');
         if (info?.vision) parts.push('👁');
-        const isGemma = /gemma/i.test(state.model || '');
-        if (state.topK > 0) parts.push('top_k=' + state.topK);
-        if (state.topP !== 1.0) parts.push('p=' + state.topP.toFixed(2));
-        if (isGemma && state.temp >= 0.9) parts.push('🔥 hot');
-        meta.textContent = parts.length ? '(' + parts.join(' · ') + ')' : '';
+        meta.textContent = parts.length ? parts.join(' · ') : '';
       } else {
         // Couldn't verify — show nothing or a subtle hint
         const parts = [];
@@ -10788,6 +10882,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const txt = document.getElementById('llm-text');
       const meta = document.getElementById('model-meta');
       const loadBtn = document.getElementById('model-load-btn');
+      
 
       // Step 1: Unload old model if a different one is loaded
       if (activeInstance?.identifier && activeInstance.identifier !== modelId && activeInstance.instance_id) {
@@ -11140,7 +11235,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             model: state.model, messages: [
               { role: 'system', content: sysPrompt },
               { role: 'user', content: convText }
-            ], temperature: 0.1, max_tokens: 1000
+            ], temperature: 0.1, max_tokens: 2000
           }),
           signal: state.abortCtrl.signal
         });
@@ -11815,30 +11910,22 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
     /* ── Show completion summary when agent finishes ── */
     function showCompletionSummary() {
-      const out = tokenTracker.totalOutputTokens;
-      const lastPrompt = tokenTracker.lastPromptTokens >= 0 ? tokenTracker.lastPromptTokens : estimateConvTokens();
-      const total = out + Math.max(0, lastPrompt);
-      if (total < 100) return;  // skip if clearly wrong
-
+      const out = tokenTracker._callOut; // ← per-message output, not cumulative
+      if (out < 10) return;
       const elapsed = agentStopwatch ? ((performance.now() - agentStopwatch) / 1000) : null;
       const timeStr = elapsed ? (elapsed < 60 ? elapsed.toFixed(1) + 's' : (elapsed / 60).toFixed(1) + 'min') : '';
-
-      const parts = ['~' + formatTok(total) + ' tokens total'];
-      if (lastPrompt > 0) parts.push(formatTok(lastPrompt) + ' context');
-      if (out > 0) parts.push(formatTok(out) + ' out');
+      const parts = [formatTok(out) + ' out' + ' (est)'];
       if (timeStr) parts.push(timeStr);
-
       const el = document.createElement('div');
       el.className = 'compact-banner';
       el.style.background = 'rgba(34,211,238,.06)';
       el.style.borderColor = 'rgba(34,211,238,.15)';
       el.style.color = 'var(--cyan)';
-      el.innerHTML = '<i class="fas fa-chart-bar" style="font-size:11px"></i><span>' + parts.join(' · ') + '</span>';
+      const estimateLabel = '';
+      el.innerHTML = '<i class="fas fa-chart-bar" style="font-size:11px"></i><span>' + parts.join(' · ') + estimateLabel + '</span>';
       $msg().appendChild(el);
       scrollBottom();
     }
-
-
 
 
     /* ═══════════════ LIVE THINK BLOCK ═══════════════ */
@@ -11896,30 +11983,10 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       }
     }
 
-    function renderHtmlFilePreview(f) {
+        function renderHtmlFilePreview(f) {
       const emptyEl = document.getElementById('rp-files-empty');
       const previewEl = document.getElementById('rp-file-preview');
 
-      /* ── Dev server mode: full preview with asset resolution ── */
-      if (f.isDevUrl && f.devUrl) {
-        const sizeKB = Math.round((f.content || '').length / 1024);
-        previewEl.innerHTML =
-          '<div class="rp-file-header">' +
-            '<span class="rp-file-name"><i class="fas fa-globe" style="color:var(--green);margin-right:4px"></i>' + esc(f.path) + '</span>' +
-            '<span class="rp-file-meta">' + (f.lines ? f.lines.length + ' lines · ' : '') + sizeKB + ' KB · <span style="color:var(--green)">via dev server</span></span>' +
-            '<div class="rp-file-actions">' +
-              '<button class="rp-file-act" onclick="window.open(\'' + f.devUrl + '\', \'_blank\')" title="Open in browser"><i class="fas fa-external-link"></i></button>' +
-            '</div>' +
-          '</div>' +
-          '<div style="height:clamp(300px,60vh,calc(100vh - 200px);background:white;border-radius:0 0 6px 6px;overflow:hidden">' +
-            '<iframe src="' + esc(f.devUrl) + '" sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin allow-downloads" style="width:100%;height:100%;border:none;display:block"></iframe>' +
-          '</div>';
-        emptyEl.style.display = 'none';
-        previewEl.style.display = 'block';
-        return;
-      }
-
-      /* ── Standalone srcdoc mode: limited preview ── */
       const lines = f.lines;
       const lineHtml = lines.map((line, i) => {
         let highlighted;
@@ -11930,19 +11997,25 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           '<span class="rp-file-line-text">' + highlighted + '</span></div>';
       }).join('');
 
-      const sizeKB = Math.round((f.content || '').length / 1024);
+      const sizeKB = Math.round(f.content.length / 1024);
       const sizeWarn = sizeKB > 500
         ? '<div class="html-preview-size-warn"><i class="fas fa-triangle-exclamation"></i> Large file (' + sizeKB + ' KB) — preview may be slow</div>'
         : '';
 
       previewEl.innerHTML =
         '<div class="rp-file-header">' +
-          '<span class="rp-file-name"><i class="fas fa-code" style="color:var(--accent);margin-right:4px"></i>' + esc(f.path) + '</span>' +
+          '<span class="rp-file-name"><i class="fas fa-globe" style="color:var(--accent);margin-right:4px"></i>' + esc(f.path) + '</span>' +
           '<span class="rp-file-meta">' + f.lines.length + ' lines · ' + sizeKB + ' KB</span>' +
           '<div class="rp-file-actions">' +
-            '<button class="rp-file-act html-toggle-btn active" id="html-toggle-btn" onclick="toggleHtmlPreview()"><i class="fas fa-code"></i> Code</button>' +
-            '<button class="rp-file-act" id="html-refresh-btn" style="display:none"><i class="fas fa-rotate"></i></button>' +
-            '<button class="rp-file-act" onclick="rpCopyFile()"><i class="fas fa-copy"></i></button>' +
+            '<button class="rp-file-act html-toggle-btn active" id="html-toggle-btn" onclick="toggleHtmlPreview()" title="Switch between code and rendered preview">' +
+              '<i class="fas fa-code"></i> Code' +
+            '</button>' +
+            '<button class="rp-file-act" id="html-refresh-btn" onclick="refreshHtmlPreview()" title="Refresh preview" style="display:none">' +
+              '<i class="fas fa-rotate"></i>' +
+            '</button>' +
+            '<button class="rp-file-act" onclick="rpCopyFile()" title="Copy source">' +
+              '<i class="fas fa-copy"></i>' +
+            '</button>' +
           '</div>' +
         '</div>' +
         '<div class="html-preview-bar" id="html-preview-bar" style="display:flex">' +
@@ -11962,24 +12035,15 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         (f.truncated ? '<div class="rp-file-truncated">File was truncated — preview may be incomplete</div>' : '') +
         sizeWarn;
 
-      /* ── Warning banner for srcdoc mode ── */
-      const bannerId = 'html-srcdoc-banner-' + Date.now();
-      const banner = document.createElement('div');
-      banner.id = bannerId;
-      banner.style.cssText = 'padding:6px 10px;font-size:10px;color:var(--yellow);font-family:JetBrains Mono,monospace;background:rgba(234,179,8,.04);border:1px solid rgba(234,179,8,.12);border-radius:5px;margin:0;border-top:none;display:flex;align-items:center;gap:6px';
-      banner.innerHTML = '<i class="fas fa-info-circle" style="flex-shrink:0"></i><span>Standalone preview — separate CSS/JS files may not be loaded. <button style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:10px;font-family:inherit;padding:0 4px;text-decoration:underline" onclick="this.closest(\'div\').remove()">Start a dev server for full preview →</button></span>';
-      previewEl.appendChild(banner);
-
       /* Set iframe content after DOM is ready */
       requestAnimationFrame(() => {
         const iframe = document.getElementById('html-preview-iframe');
         if (iframe) iframe.srcdoc = f.content;
       });
 
-      /* Replace the old "setHtmlPreviewWidth" that was hardcoded for dev preview — reuse for file preview too */
-      window.setHtmlPreviewWidth = window.setHtmlPreviewWidth || function() {};
+      emptyEl.style.display = 'none';
+      previewEl.style.display = 'block';
     }
-
 
     let _htmlPreviewWidth = null;
     function setHtmlPreviewWidth(btn, width) {
@@ -12088,26 +12152,18 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       // Remove any stale token elements
       hdr.querySelectorAll('.msg-tok').forEach(el => el.remove());
 
-      if (usage) {
-        // Show "12.8k tok out" on the message itself
-        const outTok = tokenTracker._callOut
-        if (outTok > 0) {
+      if (usage && usage.out && usage.out > 0) {
           const tokEl = document.createElement('span');
           tokEl.className = 'msg-tok';
-          tokEl.textContent = formatTok(outTok) + ' out';
+          tokEl.textContent = formatTok(usage.out) + ' out';
           tokEl.title = 'Output tokens (from LM Studio)';
           hdr.insertBefore(tokEl, hdr.querySelector('.msg-actions'));
-        }
-      }
-
-      // Fallback estimate only if LM Studio didn't report
-      const outTok = tokenTracker._callOut
-      if (outTok > 0) {
-        const tokEl = document.createElement('span');
-        tokEl.className = 'msg-tok';
-        tokEl.textContent = formatTok(outTok) + ' out';
-        tokEl.title = 'Output tokens (from LM Studio)';
-        hdr.insertBefore(tokEl, hdr.querySelector('.msg-actions'));
+      } else if (tokenTracker._callOut > 0) {
+          const tokEl = document.createElement('span');
+          tokEl.className = 'msg-tok';
+          tokEl.textContent = '~' + formatTok(tokenTracker._callOut) + ' out (est)';
+          tokEl.title = 'Output tokens (estimated)';
+          hdr.insertBefore(tokEl, hdr.querySelector('.msg-actions'));
       }
 
       streamEl._streaming = false;
@@ -12537,6 +12593,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
     function renderMd(t) {
       if (!t) return '';
+      // Strip Gemma <|channel>thought...<channel|> blocks before markdown parsing
+      t = t.replace(/<\|channel>thought\s*\n?([\s\S]*?)<\|channel>/gs, '');
       try {
         const raw = marked.parse(t, { breaks: true, gfm: true });
         // Allow images, links, code blocks, tables — block everything else
@@ -13083,9 +13141,9 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         if (s.requireEditApproval !== undefined) state.requireEditApproval = s.requireEditApproval;
         if (s.autoVerifyCommand !== undefined) state.autoVerifyCommand = s.autoVerifyCommand;
         if (s.autoVerifyMaxRetries !== undefined) state.autoVerifyMaxRetries = s.autoVerifyMaxRetries;
-        if (s.topP !== undefined) state.topP = s.topP;
-        if (s.topK !== undefined) state.topK = s.topK;
-        if (s.smartContextThreshold !== undefined) state.smartContextThreshold = s.smartContextThreshold; else state.smartContextThreshold = 150;  
+        if (s.smartContextThreshold !== undefined) state.smartContextThreshold = s.smartContextThreshold;else state.smartContextThreshold = 150;  
+        if (s.qwenEnableThinking !== undefined) document.getElementById('s-qwen-enable-thinking').checked = s.qwenEnableThinking;
+        if (s.qwenPreserveThinking !== undefined) document.getElementById('s-qwen-preserve-thinking').checked = s.qwenPreserveThinking;
         if (s.wsWarningDismissed !== undefined) _wsWarningDismissed = s.wsWarningDismissed;
              
       } catch { }
@@ -13119,8 +13177,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           autoVerifyMaxRetries: state.autoVerifyMaxRetries,
           wsWarningDismissed: _wsWarningDismissed,
           smartContextThreshold: state.smartContextThreshold,
-          topP: state.topP,
-          topK: state.topK
+          qwenEnableThinking: document.getElementById('s-qwen-enable-thinking')?.checked ?? true,
+          qwenPreserveThinking: document.getElementById('s-qwen-preserve-thinking')?.checked ?? true
           // NO conversation data here anymore
         }));
       } catch { }
@@ -13141,9 +13199,6 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       document.getElementById('s-require-approval').checked = state.requireEditApproval;
       document.getElementById('s-auto-verify').value = state.autoVerifyCommand || '';
       document.getElementById('s-auto-verify-retries').value = state.autoVerifyMaxRetries;
-      document.getElementById('s-top-p').value = state.topP;
-      document.getElementById('s-top-p-val').textContent = state.topP.toFixed(2);
-      document.getElementById('s-top-k').value = state.topK;
       document.getElementById('s-smart-context').value = state.smartContextThreshold;
       if (!document.getElementById('s-sys-prompt').value) document.getElementById('s-sys-prompt').value = DEFAULT_SYS;
 
@@ -13187,8 +13242,6 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       state.requireEditApproval = document.getElementById('s-require-approval').checked;
       state.autoVerifyCommand = document.getElementById('s-auto-verify').value.trim();
       state.autoVerifyMaxRetries = Math.max(1, parseInt(document.getElementById('s-auto-verify-retries').value) || 3);
-      state.topP = parseFloat(document.getElementById('s-top-p').value) || 1.0;
-      state.topK = parseInt(document.getElementById('s-top-k').value) || 0;
       state.smartContextThreshold = Math.max(0, parseInt(document.getElementById('s-smart-context').value) || 0);
       persistSettings(); closeSettings(); showToast('Settings saved', 'ok');
       testConnection(); updateContextMeter();
@@ -13462,9 +13515,12 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
     async function handlePlanRequest(userText) {
       const thinkingEl = showThinking();
-      thinkingEl.querySelector('.thinking-dots').previousSibling && (thinkingEl.innerHTML = '<div class="thinking-dots"><span></span><span></span><span></span></div> Generating plan...');
+      thinkingEl.innerHTML = '<div class="thinking-dots"><span></span><span></span><span></span></div> Generating plan...';
 
+      const _usesTC = usesThinkChannels();
+      const _isQwen = isQwen();
       const toolNames = getToolDefs().map(t => t.function.name).join(', ');
+
       const planSysPrompt = `You are a planning assistant. Break the user's task into specific, actionable steps.
 
     Available tools: ${toolNames}
@@ -13485,58 +13541,63 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     STEP: Add validate_jwt() function to src/auth.py
     STEP: Update /login endpoint in src/routes.py to use validate_jwt
     STEP: Run pytest to verify changes`;
-    
+
       try {
         state.abortCtrl = new AbortController();
 
-        const apiMsgs = [
-          { role: 'system', content: planSysPrompt },
-          ...state.messages.map(m => {
-            if (m._images && m._images.length) {
-              const parts = [];
-              if (m.content) parts.push({ type: 'text', text: m.content });
-              parts.push(...m._images);
-              return { role: m.role, content: parts };
-            }
-            return m;
-          })
-        ];
-
-        const reqBody = {
+        const body = {
           model: state.model,
-          messages: apiMsgs,
-          tools: getToolDefs(),
-          temperature: state.temp,
-          maxTokens: 800
+          messages: [
+            { role: 'system', content: planSysPrompt },
+            { role: 'user', content: userText + (state.dirName ? '\n\nWorking directory: ' + state.dirName : '') }
+          ],
+          stream: false,
+          temperature: _usesTC ? 1.0 : 0.3,
+          max_tokens: Math.min(state.maxTokens, 3000),
+          tools: [],
         };
-        if (state.top_p !== 1.0) reqBody.top_p = state.top_p;
-        if (state.top_k > 0) reqBody.top_k = state.top_k;
+
+        if (_isQwen) {
+          body.chat_template_kwargs = {
+            enable_thinking: document.getElementById('s-qwen-enable-thinking')?.checked ?? true,
+            preserve_thinking: false,
+          };
+        }
+
         const res = await fetch(`${state.apiUrl}/v1/chat/completions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(reqBody),
+          body: JSON.stringify(body),
           signal: state.abortCtrl.signal
         });
 
-
         if (!res.ok) {
-          const err = await res.text().catch(() => res.statusText);
-          throw new Error('API ' + res.status + ': ' + err.slice(0, 200));
+          let err = await res.text().catch(() => res.statusText);
+          if (err.includes('<!DOCTYPE') || err.includes('<html')) {
+            const tmp = document.createElement('DIV'); tmp.innerHTML = err;
+            err = tmp.textContent || tmp.innerText || 'Unknown error';
+            err = err.trim().replace(/\s+/g, ' ');
+          }
+          if (err.length > 300) err = err.slice(0, 300) + '...';
+          throw new Error('API ' + res.status + ': ' + err);
         }
 
         const data = await res.json();
-        const text = data.choices?.[0]?.message?.content || '';
+        let text = data.choices?.[0]?.message?.content || '';
+
         if (thinkingEl.parentNode) thinkingEl.remove();
 
-        /* Parse steps */
+        // Strip thinking blocks for Qwen/Gemma models
+        text = stripThinkingBlocks(text);
+
+        // Parse steps
         const steps = [];
-        const regex1 = /^STEP:\s*(.+)$/gm;
+        const regex = /^STEP:\s*(.+)$/gm;
         let match;
-        while ((match = regex1.exec(text)) !== null) {
+        while ((match = regex.exec(text)) !== null) {
           steps.push({ description: match[1].trim(), status: 'pending' });
         }
 
-        /* Fallback: ## Step N: format */
         if (steps.length === 0) {
           const regex2 = /^##\s*Step\s+\d+:\s*(.+)$/gm;
           while ((match = regex2.exec(text)) !== null) {
@@ -13544,7 +13605,6 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           }
         }
 
-        /* Fallback: numbered list 1. 2. 3. */
         if (steps.length === 0) {
           const regex3 = /^\d+[.)]\s+(.+)$/gm;
           while ((match = regex3.exec(text)) !== null) {
@@ -13556,29 +13616,32 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         }
 
         if (steps.length < 2) {
-          appendMsg('system', 'Could not generate a structured plan (got ' + steps.length + ' step' + (steps.length !== 1 ? 's' : '') + '). Falling back to normal execution.');
-          try {
-            await agentLoop();
-          } catch (loopErr) {
-            console.error('[plan] agentLoop fallback error:', loopErr);
-            appendMsg('system', 'Fallback execution also failed: ' + loopErr.message);
-          }
+          const isEmpty = !text.trim();
+          const isJustThinking = text.trim().length < 50;
+
+          let hint = '';
+          if (isEmpty) hint = 'The model returned empty output — it may have crashed or be overloaded.';
+          else if (isJustThinking) hint = 'The model only produced thinking output (Qwen/Gemma). Try Settings → Model Load → disable "enable_thinking".';
+          else hint = 'Could not parse steps from output. Try a clearer task description.';
+
+          appendMsg('system', 'Could not generate a structured plan (' + steps.length + ' step' + (steps.length !== 1 ? 's' : '') + '). ' + hint);
+
+          if (text.trim().length > 0) appendMsg('assistant', text);
           return;
         }
 
         state.currentPlan = { steps, originalText: text };
         renderPlanPanel(steps);
+        showToast('Plan generated — ' + steps.length + ' steps', 'ok');
 
-        } catch (e) {
-          if (thinkingEl.parentNode) thinkingEl.remove();
-          if (e.name === 'AbortError') { appendMsg('system', 'Plan generation cancelled.'); return; }
-          appendMsg('system', 'Plan generation failed: ' + e.message);
-        } finally {
-          if (state.planExecuting) {
-            state.planExecuting = false;
-            updateSendBtn();
-          }
-        }
+      } catch (e) {
+        if (thinkingEl.parentNode) thinkingEl.remove();
+        if (e.name === 'AbortError') { appendMsg('system', 'Plan generation cancelled.'); return; }
+        appendMsg('system', 'Plan generation failed: ' + e.message);
+      } finally {
+        state.planExecuting = false;
+        updateSendBtn();
+      }
     }
 
     function renderPlanPanel(steps) {
@@ -14251,7 +14314,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           previewEl.style.display = 'block';
           return;
         }
-
+        /* ── HTML files: code + rendered preview ── */
+        /* ── HTML files: code + rendered preview ── */
         /* ── HTML files: code + rendered preview ── */
         const isHtml = /\.(html?|xhtml?)$/i.test(path);
         if (isHtml) {
@@ -14515,6 +14579,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             if (m.tool_calls) c.tool_calls = m.tool_calls;
             if (m.tool_call_id) c.tool_call_id = m.tool_call_id;
             if (m._hadImages) c._hadImages = m._hadImages;
+            if (m._subAgentData) c._subAgentData = m._subAgentData;
             if (c.role === 'tool' && typeof c.content === 'string' && c.content.length > 8000) {
               c.content = c.content.slice(0, 8000) + '\n... [truncated in file storage]';
             }
@@ -14630,7 +14695,6 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     /** One-time import from localStorage into workspace */
     async function importFromLocalStorage() {
       if (_localStorageImported || !state.dirHandle) return;
-      _localStorageImported = true;
       try {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (!raw) return;
@@ -14644,6 +14708,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           if (!(await ensureConvDir())) break;
           await saveConvToWorkspace(conv);
           imported++;
+          _localStorageImported = true
         }
 
         if (imported > 0) {
@@ -14660,7 +14725,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     /** Get storage status for UI display */
     function getConvStorageStatus() {
       if (!state.dirHandle) return { source: 'memory', label: 'In memory', icon: 'fa-memory' };
-      if (state.conversations.length === 0) return { source: 'workspace', label: 'Workspace', icon: 'fa-folder-open' };
+      if (state.conversations.length === 0) return { source: 'workspace', label: 'Workspace', icon: 'fa-folder-open', count: 0 };
       return { source: 'workspace', label: 'Workspace', icon: 'fa-folder-open', count: state.conversations.length };
     }
 
@@ -14830,33 +14895,10 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       document.getElementById('model-sel').addEventListener('change', async e => {
         const newModel = e.target.value;
         if (!newModel) return;
-        const isGemma = /gemma/i.test(newModel);
-        if (isGemma) {
-          state.topP = 0.95;
-          state.topK = 64;
-          const tpEl = document.getElementById('s-top-p');
-          const tpVal = document.getElementById('s-top-p-val');
-          const tkEl = document.getElementById('s-top-k');
-          if (tpEl) tpEl.value = '0.95';
-          if (tpVal) tpVal.textContent = '0.95';
-          if (tkEl) tkEl.value = '64';
-          persistSettings();
-          updateModelMeta();
-        } else {
-          state.topP = 1.0;
-          state.topK = 0;
-          const tpEl = document.getElementById('s-top-p');
-          const tpVal = document.getElementById('s-top-p-val');
-          const tkEl = document.getElementById('s-top-k');
-          if (tpEl) tpEl.value = '1';
-          if (tpVal) tpVal.textContent = '1.0';
-          if (tkEl) tkEl.value = '0';
-          persistSettings();
-          updateModelMeta();
-        }
         if (activeInstance?.identifier === newModel) {
           state.model = newModel;
           updateVisionUI();
+          updateModelMeta();
           updateModelLoadBtn();
           updateSendBtn();
           updateWelcomeStatus();
@@ -14869,6 +14911,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         }
         state.model = newModel;
         updateVisionUI();
+        updateModelMeta();
         updateSendBtn();
         updateWelcomeStatus();
         await requestModelLoad(newModel);
@@ -14968,6 +15011,9 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         document.getElementById('s-sys-prompt').value = DEFAULT_SYS;
       }
 
+      if (document.getElementById('s-qwen-enable-thinking')?.checked === undefined) document.getElementById('s-qwen-enable-thinking').checked = true;
+      if (document.getElementById('s-qwen-preserve-thinking')?.checked === undefined) document.getElementById('s-qwen-preserve-thinking').checked = true;
+
       /* ── Auto-scroll indicator ── */
       updateScrollLockBtn();
 
@@ -14991,14 +15037,14 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const _intervals = [];
       _intervals.push(setInterval(checkCompanion, 20000));
 
-      /* ── Poll LM Studio for model changes every 30s ── */
+      /* ── Poll LM Studio for model changes every 300s ── */
       setInterval(async () => {
         if (state.connected && !state.running) {
           try {
             await refreshModels(false);
           } catch { /* silent */ }
         }
-      }, 30000);
+      }, 300000);
 
       /* ── Load persisted embeddings from IndexedDB on startup ── */
       loadEmbeddingsFromIDB().then(() => {
