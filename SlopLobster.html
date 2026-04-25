@@ -4808,6 +4808,14 @@
         </div>
         <div class="field"><label>Max Tokens</label><input type="number" id="s-max-tokens" value="60000" min="256"
             max="131072"></div>
+        <div class="field"><label>Top P</label>
+          <div class="slider-row"><input type="range" id="s-top-p" min="0" max="1" step="0.05" value="1"><span
+              class="val" id="s-top-p-val">1.0</span></div>
+          <div class="hint">Nucleus sampling threshold. Lower = more focused, higher = more diverse. Gemma preset: 0.95</div>
+        </div>
+        <div class="field"><label>Top K</label><input type="number" id="s-top-k" value="0" min="0" max="200">
+          <div class="hint">0 = model default. Higher = more candidates. Gemma preset: 64</div>
+        </div>
         <div class="field">
           <label>Max Iterations Before Stop</label>
           <input type="number" id="s-max-iters" value="50" min="5" max="500">
@@ -6180,13 +6188,15 @@ if __name__ == "__main__":
       sysPromptProfiles: {},
       messages: [], running: false, abortCtrl: null,
       dirHandle: null, dirName: '', fileTree: [],
-      temp: 0.3, maxTokens: 60000, maxReadKB: 500, cmdTimeout: 60, ctxWindow: 62768,
+      temp: 0.3, maxTokens: 30000, maxReadKB: 500, cmdTimeout: 60, ctxWindow: 62768,
       autoCompactPct: 85, maxIters: 50,
       verifyWrites: true,
       /* ── Model load settings ── */
       requireEditApproval: false,
       autoVerifyCommand: '',
       autoVerifyMaxRetries: 3,
+      topP: 1.0,
+      topK: 0,
       _autoVerifyRetries: 0,
       planMode: false,
       currentPlan: null,
@@ -9267,9 +9277,9 @@ Python command: {{PYTHON_CMD}}`;
       if (args._parseError) {
         /* Skip sanitization — we'll report the parse error in the tool-specific handler */
       } else {
-        if (args.path != null && args.path !== '') { try { sanitizePath(args.path); } catch (e) { return { output: 'Security: ' + e.message }; } }
-        if (args.source != null && args.source !== '') { try { sanitizePath(args.source); } catch (e) { return { output: 'Security: ' + e.message }; } }
-        if (args.destination != null && args.destination !== '') { try { sanitizePath(args.destination); } catch (e) { return { output: 'Security: ' + e.message }; } }
+        if (args.path != null && args.path !== '' && args.path !== '.') { try { sanitizePath(args.path); } catch (e) { return { output: 'Security: ' + e.message }; } }
+        if (args.source != null && args.source !== '' && args.source !== '.') { try { sanitizePath(args.source); } catch (e) { return { output: 'Security: ' + e.message }; } }
+        if (args.destination != null && args.destination !== '' && args.destination !== '.') { try { sanitizePath(args.destination); } catch (e) { return { output: 'Security: ' + e.message }; } }
       }
 
       try {
@@ -9978,7 +9988,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           .replace('{{CONTEXT_SECTION}}', ctxSection)
           .replace('{{WORKING_DIR}}', state.dirName || '(none)')
           .replace('{{PROJECT_INFO}}', projInfo)
-          .replace('{{WORKSPACE_AWARENESS}}', state.dirName ? `═══ WORKSPACE AWARENESS ═══\nYou are operating INSIDE the project directory \`${state.dirName}\` on a ${state.compInfo?.platform || (navigator.userAgent.includes('Win') ? 'Windows' : 'Linux/Mac')} system.\n- DO NOT create a nested folder named \`${state.dirName}\` inside the current workspace.\n- Write files directly to the current directory (e.g., "src/main.js" NOT "${state.dirName}/src/main.js").\n` : '')
+          .replace('{{WORKSPACE_AWARENESS}}', state.dirName ? `═══ WORKSPACE AWARENESS ═══\nYou are operating INSIDE the project directory \`${state.dirName}\` on a ${state.compInfo?.platform || (navigator.userAgent.includes('Win') ? 'Windows' : 'Linux/Mac')} system.\n- DO NOT create a nested folder named \`${state.dirName}\` inside the current workspace.\n- Write files directly to the current directory (e.g., "src/main.js" NOT "${state.dirName}/src/main.js"). Do NOT prefix paths with the directory name.\n` : '')
           .replace('{{PYTHON_CMD}}', pythonCmd)
           .replace('{{SMART_CONTEXT_SECTION}}', smartContextSection);
       }
@@ -9994,22 +10004,27 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       })];
 
       state.abortCtrl = new AbortController();
+      const reqBody = {
+        model: state.model,
+        messages: apiMsgs,
+        tools: getToolDefs(),
+        stream: true,
+        temperature: state.temp,
+        max_tokens: state.maxTokens
+      };
+      if (state.topP !== 1.0) reqBody.top_p = state.topP;
+      if (state.topK > 0) reqBody.top_k = state.topK;
+
+      state.abortCtrl = new AbortController();
       const res = await fetch(`${state.apiUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: state.model,
-          messages: apiMsgs,
-          tools: getToolDefs(),
-          stream: true,
-          temperature: state.temp,
-          max_tokens: state.maxTokens
-        }),
+        body: JSON.stringify(reqBody),
         signal: state.abortCtrl.signal
       });
 
         if (!res.ok) {
-          const errRaw = await res.text().catch(() => '');
+          const errRaw = await res.text().catch(() => res.statusText);
           let err = errRaw || res.statusText || 'Unknown error';
 
         if (err.includes('<!DOCTYPE') || err.includes('<html')) {
@@ -10204,6 +10219,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       return prompt;
     }
 
+
     /**
      * Stream a sub-agent chat completion.
      * System prompt is built and cached internally based on the provided tools.
@@ -10233,18 +10249,23 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         })
       ];
 
+      // ── Build request body with sampling params ──
+      const reqBody = {
+        model: state.model,
+        messages: apiMsgs,
+        tools: tools,
+        stream: true,
+        temperature: 0.2,
+        max_tokens: Math.min(state.maxTokens, 8000)
+      };
+      if (state.topP !== 1.0) reqBody.top_p = state.topP;
+      if (state.topK > 0) reqBody.top_k = state.topK;
+
       // ── Make API request ──
       const res = await fetch(`${state.apiUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: state.model,
-          messages: apiMsgs,
-          tools: tools,
-          stream: true,
-          temperature: 0.2,
-          max_tokens: Math.min(state.maxTokens, 8000)
-        }),
+        body: JSON.stringify(reqBody),
         signal: abortSignal
       });
 
@@ -10312,7 +10333,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
               }
             }
           } catch {
-            // Skip malformed chunks — common during truncation
+            // Ignore parse error on trailing buffer
           }
         }
       }
@@ -10738,10 +10759,14 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         // Confirmed match — show model info
         const parts = [];
         if (info?.paramsString) parts.push(info.paramsString);
-        if (info?.contextLength) parts.push((info.contextLength / 1000).toFixed(0) + 'k');
+        if (info?.contextLength) parts.push((info.contextLength / 1000).toFixed(0) + 'k ctx');
         if (info?.trainedForToolUse) parts.push('🔧');
         if (info?.vision) parts.push('👁');
-        meta.textContent = parts.length ? parts.join(' · ') : '';
+        const isGemma = /gemma/i.test(state.model || '');
+        if (state.topK > 0) parts.push('top_k=' + state.topK);
+        if (state.topP !== 1.0) parts.push('p=' + state.topP.toFixed(2));
+        if (isGemma && state.temp >= 0.9) parts.push('🔥 hot');
+        meta.textContent = parts.length ? '(' + parts.join(' · ') + ')' : '';
       } else {
         // Couldn't verify — show nothing or a subtle hint
         const parts = [];
@@ -11942,7 +11967,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const banner = document.createElement('div');
       banner.id = bannerId;
       banner.style.cssText = 'padding:6px 10px;font-size:10px;color:var(--yellow);font-family:JetBrains Mono,monospace;background:rgba(234,179,8,.04);border:1px solid rgba(234,179,8,.12);border-radius:5px;margin:0;border-top:none;display:flex;align-items:center;gap:6px';
-      banner.innerHTML = '<i class="fas fa-info-circle" style="flex-shrink:0"></i><span>Standalone preview — CSS/JS not loaded. <button style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:10px;font-family:inherit;padding:0 4px;text-decoration:underline" onclick="this.closest(\'div\').remove()">Start a dev server for full preview →</button></span>';
+      banner.innerHTML = '<i class="fas fa-info-circle" style="flex-shrink:0"></i><span>Standalone preview — separate CSS/JS files may not be loaded. <button style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:10px;font-family:inherit;padding:0 4px;text-decoration:underline" onclick="this.closest(\'div\').remove()">Start a dev server for full preview →</button></span>';
       previewEl.appendChild(banner);
 
       /* Set iframe content after DOM is ready */
@@ -13058,6 +13083,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         if (s.requireEditApproval !== undefined) state.requireEditApproval = s.requireEditApproval;
         if (s.autoVerifyCommand !== undefined) state.autoVerifyCommand = s.autoVerifyCommand;
         if (s.autoVerifyMaxRetries !== undefined) state.autoVerifyMaxRetries = s.autoVerifyMaxRetries;
+        if (s.topP !== undefined) state.topP = s.topP;
+        if (s.topK !== undefined) state.topK = s.topK;
         if (s.smartContextThreshold !== undefined) state.smartContextThreshold = s.smartContextThreshold; else state.smartContextThreshold = 150;  
         if (s.wsWarningDismissed !== undefined) _wsWarningDismissed = s.wsWarningDismissed;
              
@@ -13091,7 +13118,9 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           autoVerifyCommand: state.autoVerifyCommand,
           autoVerifyMaxRetries: state.autoVerifyMaxRetries,
           wsWarningDismissed: _wsWarningDismissed,
-          smartContextThreshold: state.smartContextThreshold
+          smartContextThreshold: state.smartContextThreshold,
+          topP: state.topP,
+          topK: state.topK
           // NO conversation data here anymore
         }));
       } catch { }
@@ -13112,6 +13141,9 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       document.getElementById('s-require-approval').checked = state.requireEditApproval;
       document.getElementById('s-auto-verify').value = state.autoVerifyCommand || '';
       document.getElementById('s-auto-verify-retries').value = state.autoVerifyMaxRetries;
+      document.getElementById('s-top-p').value = state.topP;
+      document.getElementById('s-top-p-val').textContent = state.topP.toFixed(2);
+      document.getElementById('s-top-k').value = state.topK;
       document.getElementById('s-smart-context').value = state.smartContextThreshold;
       if (!document.getElementById('s-sys-prompt').value) document.getElementById('s-sys-prompt').value = DEFAULT_SYS;
 
@@ -13155,6 +13187,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       state.requireEditApproval = document.getElementById('s-require-approval').checked;
       state.autoVerifyCommand = document.getElementById('s-auto-verify').value.trim();
       state.autoVerifyMaxRetries = Math.max(1, parseInt(document.getElementById('s-auto-verify-retries').value) || 3);
+      state.topP = parseFloat(document.getElementById('s-top-p').value) || 1.0;
+      state.topK = parseInt(document.getElementById('s-top-k').value) || 0;
       state.smartContextThreshold = Math.max(0, parseInt(document.getElementById('s-smart-context').value) || 0);
       persistSettings(); closeSettings(); showToast('Settings saved', 'ok');
       testConnection(); updateContextMeter();
@@ -13451,24 +13485,39 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     STEP: Add validate_jwt() function to src/auth.py
     STEP: Update /login endpoint in src/routes.py to use validate_jwt
     STEP: Run pytest to verify changes`;
-
+    
       try {
         state.abortCtrl = new AbortController();
+
+        const apiMsgs = [
+          { role: 'system', content: planSysPrompt },
+          ...state.messages.map(m => {
+            if (m._images && m._images.length) {
+              const parts = [];
+              if (m.content) parts.push({ type: 'text', text: m.content });
+              parts.push(...m._images);
+              return { role: m.role, content: parts };
+            }
+            return m;
+          })
+        ];
+
+        const reqBody = {
+          model: state.model,
+          messages: apiMsgs,
+          tools: getToolDefs(),
+          temperature: state.temp,
+          maxTokens: 800
+        };
+        if (state.top_p !== 1.0) reqBody.top_p = state.top_p;
+        if (state.top_k > 0) reqBody.top_k = state.top_k;
         const res = await fetch(`${state.apiUrl}/v1/chat/completions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: state.model,
-            messages: [
-              { role: 'system', content: planSysPrompt },
-              { role: 'user', content: userText + (state.dirName ? '\n\nWorking directory: ' + state.dirName : '') }
-            ],
-            stream: false,
-            temperature: 0.3,
-            max_tokens: 2000
-          }),
+          body: JSON.stringify(reqBody),
           signal: state.abortCtrl.signal
         });
+
 
         if (!res.ok) {
           const err = await res.text().catch(() => res.statusText);
@@ -14781,10 +14830,33 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       document.getElementById('model-sel').addEventListener('change', async e => {
         const newModel = e.target.value;
         if (!newModel) return;
+        const isGemma = /gemma/i.test(newModel);
+        if (isGemma) {
+          state.topP = 0.95;
+          state.topK = 64;
+          const tpEl = document.getElementById('s-top-p');
+          const tpVal = document.getElementById('s-top-p-val');
+          const tkEl = document.getElementById('s-top-k');
+          if (tpEl) tpEl.value = '0.95';
+          if (tpVal) tpVal.textContent = '0.95';
+          if (tkEl) tkEl.value = '64';
+          persistSettings();
+          updateModelMeta();
+        } else {
+          state.topP = 1.0;
+          state.topK = 0;
+          const tpEl = document.getElementById('s-top-p');
+          const tpVal = document.getElementById('s-top-p-val');
+          const tkEl = document.getElementById('s-top-k');
+          if (tpEl) tpEl.value = '1';
+          if (tpVal) tpVal.textContent = '1.0';
+          if (tkEl) tkEl.value = '0';
+          persistSettings();
+          updateModelMeta();
+        }
         if (activeInstance?.identifier === newModel) {
           state.model = newModel;
           updateVisionUI();
-          updateModelMeta();
           updateModelLoadBtn();
           updateSendBtn();
           updateWelcomeStatus();
@@ -14797,7 +14869,6 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         }
         state.model = newModel;
         updateVisionUI();
-        updateModelMeta();
         updateSendBtn();
         updateWelcomeStatus();
         await requestModelLoad(newModel);
