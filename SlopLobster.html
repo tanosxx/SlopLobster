@@ -8307,6 +8307,54 @@ Python command: {{PYTHON_CMD}}`;
       return { output: `File: ${rel}\nSize: ${text.length} chars, ${lines.length} lines\n---\n${text}` };
     }
 
+    async function readFileSummarySafe(rel) {
+      requireWorkspace();
+      const h = await resolvePath(rel);
+      if (h.kind !== 'file') return { output: `"${rel}" is not a file` };
+      const f = await h.getFile();
+      if (f.size > 5 * 1024 * 1024) return { output: `File too large for summary (${(f.size/1024/1024).toFixed(1)} MB)` };
+      
+      // For small files, just do it client-side
+      if (f.size < 50000) {
+        const text = await f.text();
+        const lines = text.split('\n');
+        if (lines.length < 150) return { output: `File: ${rel} (${lines.length} lines) — small enough to read directly with read_file` };
+        return { output: buildLocalSummary(rel, text, lines) };
+      }
+      
+      // For larger files, use the API
+      try {
+        const text = await f.text();
+        const lines = text.split('\n');
+        const ext = rel.split('.').pop().toLowerCase();
+        
+        state.abortCtrl = new AbortController();
+        const res = await fetch(`${state.apiUrl}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: state.model,
+            messages: [
+              { role: 'system', content: 'Summarize this source file in exactly this format:\nPurpose: <one line>\nImports: <comma-separated list, or "none">\nExports: <comma-separated list, or "none">\nClasses: <name> (L<start>-L<end>) — one line each\nFunctions: <name> (L<start>-L<end>) — one line each\nConstants: <name> = <value preview>\nKey logic: <2-3 sentences about the most important behavior>\nBe precise with line numbers.' },
+              { role: 'user', content: text.slice(0, 100000) + (text.length > 100000 ? '\n... [truncated]' : '') }
+            ],
+            temperature: 0.1,
+            max_tokens: 500
+          }),
+          signal: state.abortCtrl.signal
+        });
+        
+        if (!res.ok) return { output: buildLocalSummary(rel, text.slice(0, 50000), lines) };
+        const data = await res.json();
+        const summary = data.choices?.[0]?.message?.content || '';
+        return { output: `File: ${rel} (${lines.length} lines, ${(f.size/1024).toFixed(1)} KB)\n---\n${summary}` };
+      } catch {
+        const text = await f.text();
+        return { output: buildLocalSummary(rel, text.slice(0, 50000), text.split('\n')) };
+      }
+    }
+
+
     function buildLocalSummary(path, text, lines) {
       const ext = path.split('.').pop().toLowerCase();
       const result = [`File: ${path} (${lines.length} lines)`, ''];
