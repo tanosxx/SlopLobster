@@ -11458,12 +11458,9 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         const th = showThinking(); let cur = '', tcs = [];
         const liveThinkEls = new Map();
         let _chatRes = null;
+        let usage = null;
         try {
             _chatRes = await streamChat(state.messages, t => { cur = t; if (th) th.remove(); updateStreamingMsg(t); }, c => { tcs = c; }, (thinkText) => {
-            const cur = _chatRes.content || '';
-            const tcs = _chatRes?.toolCalls?.filter(Boolean) || [];
-            const usage = _chatRes.usage || { in: 0, out: 0 };
-            tokenTracker.commit();
             let idx = -1; for (let i = 0; i < tcs.length; i++) { if (tcs[i].function.name === 'think') idx = i; }
             if (idx === -1) return; if (th) th.remove();
             if (!liveThinkEls.has(idx)) {
@@ -11474,6 +11471,10 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             }
             updateLiveThinkBlock(liveThinkEls.get(idx), thinkText); scrollBottom();
           });
+          cur = _chatRes.content || '';
+          tcs = _chatRes?.toolCalls?.filter(Boolean) || [];
+          usage = _chatRes.usage || { in: 0, out: 0 };
+          tokenTracker.commit();
         } catch (e) {
           // ── Cleanup: safely finalize all mid-stream UI elements ──
           if (th && th.parentNode) th.remove();
