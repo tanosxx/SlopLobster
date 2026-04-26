@@ -125,12 +125,12 @@ def run_cmd(cmd, cwd=None, timeout=DEFAULT_TIMEOUT):
     if WINDOWS_BASH:
         # Translate Windows command syntax to Unix/bash equivalents for Git Bash
         cmd = _translate_for_cmd_bash(cmd)
-        kw = dict(args=[WINDOWS_BASH, "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=base_cwd)
+        kw = dict(args=[WINDOWS_BASH, "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd)
     elif platform.system() == "Windows":
         translated = _translate_for_cmd(cmd)
-        kw = dict(shell=True, args=translated, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=base_cwd)
+        kw = dict(shell=True, args=translated, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd)
     else:
-        kw = dict(shell=True, args=cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=base_cwd, start_new_session=True)
+        kw = dict(shell=True, args=cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd, start_new_session=True)
     proc = subprocess.Popen(**kw)
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
@@ -456,12 +456,12 @@ def stream_cmd(write_fn, cmd, cwd=None, timeout=DEFAULT_TIMEOUT):
                 cmd = alt + stripped[len(first_word):]
                 
     if WINDOWS_BASH:
-        kw = dict(args=[WINDOWS_BASH, "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=base_cwd)
+        kw = dict(args=[WINDOWS_BASH, "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd)
     elif platform.system() == "Windows":
         translated = _translate_for_cmd(cmd)
-        kw = dict(shell=True, args=translated, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=base_cwd)
+        kw = dict(shell=True, args=translated, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd)
     else:
-        kw = dict(shell=True, args=cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=base_cwd, start_new_session=True)
+        kw = dict(shell=True, args=cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd, start_new_session=True)
         
     proc = subprocess.Popen(**kw)
     out_buf = []; err_buf = []; lock = threading.Lock()
@@ -663,6 +663,17 @@ def _close_browser():
     _pw_browser = None
     _pw_console = []
     _pw_launch_time = None
+
+@staticmethod
+def _browser_error_hint():
+    if not HAS_PLAYWRIGHT:
+        return "Playwright not installed. Run: pip install playwright && playwright install chromium"
+    try:
+        from playwright._impl._driver import compute_driver_executable
+        compute_driver_executable()
+        return "Playwright installed but browser binary missing. Run: playwright install chromium"
+    except Exception:
+        return "Playwright import works but browser launch failed. Check: playwright install chromium"    
 
 def _ensure_page():
     global _pw, _pw_browser, _pw_page, _pw_console, _pw_launch_time
@@ -885,7 +896,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     page.goto(start_url, timeout=30000, wait_until="domcontentloaded")
                 self.send_json(200, {"ok": True, "url": page.url, "headless": headless})
             except Exception as e:
-                self.send_json(500, {"error": str(e)})
+                import traceback
+                tb = traceback.format_exc()
+                err_msg = str(e) or 'Unknown error'
+                self.send_json(500, {"error": err_msg, "hint": self._browser_error_hint()})
         elif path == '/browser_navigate':
             try:
                 body = self.read_body()
