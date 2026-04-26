@@ -5092,12 +5092,12 @@ def run_cmd(cmd, cwd=None, timeout=DEFAULT_TIMEOUT):
     if WINDOWS_BASH:
         # Translate Windows command syntax to Unix/bash equivalents for Git Bash
         cmd = _translate_for_cmd_bash(cmd)
-        kw = dict(args=[WINDOWS_BASH, "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=base_cwd)
+        kw = dict(args=[WINDOWS_BASH, "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd)
     elif platform.system() == "Windows":
         translated = _translate_for_cmd(cmd)
-        kw = dict(shell=True, args=translated, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=base_cwd)
+        kw = dict(shell=True, args=translated, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd)
     else:
-        kw = dict(shell=True, args=cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=base_cwd, start_new_session=True)
+        kw = dict(shell=True, args=cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd, start_new_session=True)
     proc = subprocess.Popen(**kw)
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
@@ -5423,12 +5423,12 @@ def stream_cmd(write_fn, cmd, cwd=None, timeout=DEFAULT_TIMEOUT):
                 cmd = alt + stripped[len(first_word):]
                 
     if WINDOWS_BASH:
-        kw = dict(args=[WINDOWS_BASH, "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=base_cwd)
+        kw = dict(args=[WINDOWS_BASH, "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd)
     elif platform.system() == "Windows":
         translated = _translate_for_cmd(cmd)
-        kw = dict(shell=True, args=translated, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=base_cwd)
+        kw = dict(shell=True, args=translated, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd)
     else:
-        kw = dict(shell=True, args=cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=base_cwd, start_new_session=True)
+        kw = dict(shell=True, args=cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd, start_new_session=True)
         
     proc = subprocess.Popen(**kw)
     out_buf = []; err_buf = []; lock = threading.Lock()
@@ -5630,6 +5630,17 @@ def _close_browser():
     _pw_browser = None
     _pw_console = []
     _pw_launch_time = None
+
+@staticmethod
+def _browser_error_hint():
+    if not HAS_PLAYWRIGHT:
+        return "Playwright not installed. Run: pip install playwright && playwright install chromium"
+    try:
+        from playwright._impl._driver import compute_driver_executable
+        compute_driver_executable()
+        return "Playwright installed but browser binary missing. Run: playwright install chromium"
+    except Exception:
+        return "Playwright import works but browser launch failed. Check: playwright install chromium"    
 
 def _ensure_page():
     global _pw, _pw_browser, _pw_page, _pw_console, _pw_launch_time
@@ -5852,7 +5863,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     page.goto(start_url, timeout=30000, wait_until="domcontentloaded")
                 self.send_json(200, {"ok": True, "url": page.url, "headless": headless})
             except Exception as e:
-                self.send_json(500, {"error": str(e)})
+                import traceback
+                tb = traceback.format_exc()
+                err_msg = str(e) or 'Unknown error'
+                self.send_json(500, {"error": err_msg, "hint": self._browser_error_hint()})
         elif path == '/browser_navigate':
             try:
                 body = self.read_body()
@@ -6235,6 +6249,7 @@ if __name__ == "__main__":
     };
 
     const inputHistory = [];
+    let _prevHtmlPreviewUrl = null;
     let inputHistoryIdx = -1;
     let inputDraft = '';
     const toolCallHistory = [];
@@ -7239,8 +7254,8 @@ Python command: {{PYTHON_CMD}}`;
         // The assistant message that initiated the batch — include in deletion
         if (prev.classList.contains('msg') && prev._msgIndex === assistantIdx) {
           domElToRemove = prev;
+          break;
         }
-        break;
         // Unrelated user/agent message — safety boundary, stop walking backwards
         if (prev.classList.contains('msg')) {
           break;
@@ -7282,15 +7297,23 @@ Python command: {{PYTHON_CMD}}`;
     function pollDevServer(port) {
       stopDevPolling();
       const maxPolls = 60; // 60 * 2s = 2 minutes max startup wait
+      let polls = 0;
 
       state.devServer.pollInterval = setInterval(async () => {
         if (!state.devServer || state.devServer.port !== port) {
           stopDevPolling();
           return;
         }
+        if (++polls > maxPolls) {
+          stopDevPolling();
+          return;
+        }
 
         try {
-          const res = await fetch(`${state.compUrl}/dev_status?port=${port}`, {
+          const res = await fetch(`${state.compUrl}/dev_status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ port }),
             signal: AbortSignal.timeout(3000)
           });
           const data = await res.json();
@@ -7401,6 +7424,7 @@ Python command: {{PYTHON_CMD}}`;
 
     function setDevPreviewWidth(btn, width) {
       const wrap = document.getElementById('rp-preview-iframe-wrap');
+      const iframe = document.getElementById('rp-preview-iframe');
       if (!wrap) return;
       if (width === '100%') {
         wrap.style.maxWidth = 'none';
@@ -7475,13 +7499,14 @@ Python command: {{PYTHON_CMD}}`;
       }
       async embedBatch(texts, bs = 16) {
             if (!this.ready) throw new Error(this.error || 'Model not loaded');
-            const out = await this.model(texts, { pooling: 'mean', normalize: true });
-            // out.data is a flat Float32Array of shape [n * dim]
-            // For all-MiniLM-L6-v2 model, embedding dimension is fixed at 384
             const DIM = 384; // Hardcoded for all-MiniLM-L6-v2
             const res = [];
-            for (let j = 0; j < out.data.length; j += DIM) {
-              res.push(new Float32Array(out.data.slice(j, j + DIM)));
+            for (let i = 0; i < texts.length; i += bs) {
+              const batchTexts = texts.slice(i, i + bs);
+              const out = await this.model(batchTexts, { pooling: 'mean', normalize: true });
+              for (let j = 0; j < out.data.length; j += DIM) {
+                res.push(new Float32Array(out.data.slice(j, j + DIM)));
+              }
             }
             return res;
           }
@@ -8890,12 +8915,46 @@ Python command: {{PYTHON_CMD}}`;
           body: JSON.stringify(args || {}),
           signal: AbortSignal.timeout(30000)
         });
-        const data = await res.json();
+
+        /* ── 404 = endpoint missing in this companion version ── */
+        if (res.status === 404) {
+          const isDev = endpoint.startsWith('/dev_');
+          if (isDev) {
+            return `[Dev Server Error] Endpoint not available in this companion version. Update the embedded companion script or start the dev server manually with: ${args?.command || 'npm run dev'}`;
+          }
+          return `[Browser Error] Endpoint not found: ${endpoint}. Your companion may need to be updated.`;
+        }
+
+        /* ── Handle non-JSON responses (Python crashes return HTML error pages) ── */
+        if (!res.ok) {
+          let errText = await res.text().catch(() => '');
+          if (errText.includes('<!DOCTYPE') || errText.includes('<html')) {
+            const tmp = document.createElement('DIV'); tmp.innerHTML = errText;
+            errText = tmp.textContent || tmp.innerText || 'HTTP ' + res.status;
+            errText = errText.trim().replace(/\s+/g, ' ').slice(0, 400);
+          }
+          return `[Browser Error] HTTP ${res.status}: ${errText}`;
+        }
+
+        /* ── Handle empty response (companion crashed) ── */
+        const text = await res.text().catch(() => '');
+        if (!text || !text.trim()) {
+          if (endpoint.startsWith('/dev_')) {
+            return `[Dev Server Error] Endpoint not available in this companion version. Start the dev server manually: ${args?.command || 'npm run dev'}`;
+          }
+          return `[Browser Error] Empty response — companion likely crashed. Check the companion terminal for traceback.`;
+        }
+
+        let data;
+        try { data = JSON.parse(text); }
+        catch {
+          return `[Browser Error] Invalid response${text.length > 200 ? ': ' + text.slice(0, 150) + '...' : ''}`;
+        }
         if (data.error) return `[Browser Error] ${data.error}`;
         if (endpoint === '/browser_navigate') return `Navigated to ${data.url}\nTitle: ${data.title || '(none)'}${data.timeout ? '\n⚠ Load timed out — page may have partially loaded' : ''}`;
         if (endpoint === '/browser_launch') return `Browser launched (headless: ${data.headless})\nURL: ${data.url || '(blank)'}`;
         if (endpoint === '/browser_click') return `Clicked: ${data.selector}`;
-        if (endpoint === '/browser_type') return `Typed "${args.text}" into ${data.selector}${args.submit ? ' and pressed Enter' : ''}`;
+        if (endpoint === '/browser_type') return `Typed "${args.text}" into ${args.selector}${args.submit ? ' and pressed Enter' : ''}`;
         if (endpoint === '/browser_evaluate') return `Result (${data.type}): ${data.result}`;
         if (endpoint === '/browser_get_content') return `Page content (${data.mode}, ${data.length} chars):\n---\n${data.content}`;
         if (endpoint === '/browser_wait_for') return data.ok ? `Element visible: ${data.selector}` : `Timeout waiting for: ${data.selector}`;
@@ -8905,11 +8964,16 @@ Python command: {{PYTHON_CMD}}`;
         if (endpoint === '/browser_scroll') return `Scrolled ${data.direction}${data.amount ? ' ' + data.amount + 'px' : ''}`;
         if (endpoint === '/browser_go_back' || endpoint === '/browser_go_forward') return `Navigated ${endpoint.replace('browser_', '')}: ${data.url}`;
         if (endpoint === '/browser_close') return 'Browser closed.';
+        if (endpoint === '/dev_start') return `Dev server starting: "${args.command}" → http://localhost:${args.port}\n\nPreview loading in the Preview panel.`;
+        if (endpoint === '/dev_status') return `Dev server: ${data.alive ? 'running' : 'stopped'} | Ready: ${data.ready ? 'Yes' : 'No'}${data.output_tail ? '\nTail: ' + data.output_tail.slice(-200) : ''}`;
+        if (endpoint === '/dev_output') return `Dev server output (${data.alive ? 'running' : 'stopped'}):\n${data.output}`;
+        if (endpoint === '/dev_stop') return `Dev server stopped.`;
         return JSON.stringify(data);
       } catch (e) {
         return `[Browser Error] ${e.message}`;
       }
     }
+
 
     async function handleBrowserScreenshot(args, panel) {
       try {
@@ -9146,6 +9210,9 @@ Python command: {{PYTHON_CMD}}`;
           /\bcomposer\s+(require|install)\b/,
           /\bdotnet\s+add\b/, /\bnuget\s+install\b/,
       ];
+      if (!explicitTimeout && longPatterns.some(p => p.test(cmdLower))) {
+        timeout = Math.max(timeout, 300); // Grant 5 mins for package installations
+      }
       const httpTimeout = timeout + 15000;
       try {
         const res = await fetch(`${state.compUrl}/execute`, {
@@ -12031,12 +12098,76 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       }
     }
 
-        function renderHtmlFilePreview(f) {
+    function renderHtmlFilePreview(f) {
       const emptyEl = document.getElementById('rp-files-empty');
       const previewEl = document.getElementById('rp-file-preview');
 
-      const lines = f.lines;
-      const lineHtml = lines.map((line, i) => {
+      const MAX_PREVIEW_SIZE = 500 * 1024; // 500KB
+
+      // ── Skip preview for oversized files ──
+      if (f.content.length > MAX_PREVIEW_SIZE) {
+        const sizeKB = Math.round(f.content.length / 1024);
+        const linesHtml = f.lines.map((line, i) => {
+          let highlighted;
+          try { highlighted = hljs.highlight(line, { language: 'html' }).value; }
+          catch { highlighted = esc(line); }
+          return '<div class="rp-file-line">' +
+            '<span class="rp-file-line-num" data-line="' + (i + 1) + '">' + (i + 1) + '</span>' +
+            '<span class="rp-file-line-text">' + highlighted + '</span></div>';
+        }).join('');
+
+        previewEl.innerHTML =
+          '<div class="rp-file-header">' +
+            '<span class="rp-file-name"><i class="fas fa-globe" style="color:var(--accent);margin-right:4px"></i>' + esc(f.path) + '</span>' +
+            '<span class="rp-file-meta">' + f.lines.length + ' lines · ' + sizeKB + ' KB</span>' +
+            '<div class="rp-file-actions">' +
+              '<button class="rp-file-act" onclick="rpCopyFile()" title="Copy source"><i class="fas fa-copy"></i></button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="html-preview-size-warn"><i class="fas fa-triangle-exclamation"></i> Large file (' + sizeKB + ' KB) — showing code only. Rendered preview unavailable for files over 500 KB.</div>' +
+          '<div id="html-code-view">' +
+          '<div class="rp-file-code">' + linesHtml + '</div>' +
+          '</div>' +
+          (f.truncated ? '<div class="rp-file-truncated">File was truncated — preview may be incomplete</div>' : '');
+
+        emptyEl.style.display = 'none';
+        previewEl.style.display = 'block';
+        return;
+      }
+
+      // ── Skip preview for files with relative resource references ──
+      const hasRelativeRefs = /(?:src|href)\s*=\s*["'](?:\.\/|\.\.\/)/.test(f.content);
+      if (hasRelativeRefs) {
+        const linesHtml = f.lines.map((line, i) => {
+          let highlighted;
+          try { highlighted = hljs.highlight(line, { language: 'html' }).value; }
+          catch { highlighted = esc(line); }
+          return '<div class="rp-file-line">' +
+            '<span class="rp-file-line-num" data-line="' + (i + 1) + '">' + (i + 1) + '</span>' +
+            '<span class="rp-file-line-text">' + highlighted + '</span></div>';
+        }).join('');
+
+        previewEl.innerHTML =
+          '<div class="rp-file-header">' +
+            '<span class="rp-file-name"><i class="fas fa-globe" style="color:var(--accent);margin-right:4px"></i>' + esc(f.path) + '</span>' +
+            '<span class="rp-file-meta">' + f.lines.length + ' lines · ' + Math.round(f.content.length / 1024) + ' KB</span>' +
+            '<div class="rp-file-actions">' +
+              '<button class="rp-file-act" onclick="rpCopyFile()" title="Copy source"><i class="fas fa-copy"></i></button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="html-preview-size-warn"><i class="fas fa-triangle-exclamation"></i> Preview unavailable — HTML references local resources (<code>src=</code>, <code>href=</code> with relative paths) that cannot be resolved in file-system preview. Use the dev server for full rendering.</div>' +
+          '<div id="html-code-view">' +
+          '<div class="rp-file-code">' + linesHtml + '</div>' +
+          '</div>' +
+          (f.truncated ? '<div class="rp-file-truncated">File was truncated — preview may be incomplete</div>' : '');
+
+        emptyEl.style.display = 'none';
+        previewEl.style.display = 'block';
+        return;
+      }
+
+      // ── Normal case: standalone HTML — use Blob URL for better compatibility ──
+      const linesHtml = f.lines.map((line, i) => {
         let highlighted;
         try { highlighted = hljs.highlight(line, { language: 'html' }).value; }
         catch { highlighted = esc(line); }
@@ -12046,24 +12177,15 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       }).join('');
 
       const sizeKB = Math.round(f.content.length / 1024);
-      const sizeWarn = sizeKB > 500
-        ? '<div class="html-preview-size-warn"><i class="fas fa-triangle-exclamation"></i> Large file (' + sizeKB + ' KB) — preview may be slow</div>'
-        : '';
 
       previewEl.innerHTML =
         '<div class="rp-file-header">' +
           '<span class="rp-file-name"><i class="fas fa-globe" style="color:var(--accent);margin-right:4px"></i>' + esc(f.path) + '</span>' +
           '<span class="rp-file-meta">' + f.lines.length + ' lines · ' + sizeKB + ' KB</span>' +
           '<div class="rp-file-actions">' +
-            '<button class="rp-file-act html-toggle-btn active" id="html-toggle-btn" onclick="toggleHtmlPreview()" title="Switch between code and rendered preview">' +
-              '<i class="fas fa-code"></i> Code' +
-            '</button>' +
-            '<button class="rp-file-act" id="html-refresh-btn" onclick="refreshHtmlPreview()" title="Refresh preview" style="display:none">' +
-              '<i class="fas fa-rotate"></i>' +
-            '</button>' +
-            '<button class="rp-file-act" onclick="rpCopyFile()" title="Copy source">' +
-              '<i class="fas fa-copy"></i>' +
-            '</button>' +
+            '<button class="rp-file-act html-toggle-btn active" id="html-toggle-btn" onclick="toggleHtmlPreview()" title="Switch between code and rendered preview"><i class="fas fa-code"></i> Code</button>' +
+            '<button class="rp-file-act" id="html-refresh-btn" onclick="refreshHtmlPreview()" title="Refresh preview" style="display:none"><i class="fas fa-rotate"></i></button>' +
+            '<button class="rp-file-act" onclick="rpCopyFile()" title="Copy source"><i class="fas fa-copy"></i></button>' +
           '</div>' +
         '</div>' +
         '<div class="html-preview-bar" id="html-preview-bar" style="display:flex">' +
@@ -12074,23 +12196,33 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         '</div>' +
         '<div id="html-preview-view">' +
           '<div class="html-preview-iframe-wrap" id="html-iframe-wrap">' +
-            '<iframe id="html-preview-iframe" sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin" style="width:100%;height:100%;border:none;background:white;"></iframe>' +
+            '<iframe id="html-preview-iframe" sandbox="allow-scripts allow-modals allow-forms allow-popups allow-top-navigation" style="width:100%;height:100%;border:none;background:white;"></iframe>' +
           '</div>' +
         '</div>' +
         '<div id="html-code-view" style="display:none">' +
-          '<div class="rp-file-code">' + lineHtml + '</div>' +
+          '<div class="rp-file-code">' + linesHtml + '</div>' +
         '</div>' +
-        (f.truncated ? '<div class="rp-file-truncated">File was truncated — preview may be incomplete</div>' : '') +
-        sizeWarn;
-
-      /* Set iframe content after DOM is ready */
-      requestAnimationFrame(() => {
-        const iframe = document.getElementById('html-preview-iframe');
-        if (iframe) iframe.srcdoc = f.content;
-      });
+        (f.truncated ? '<div class="rp-file-truncated">File was truncated — preview may be incomplete</div>' : '');
 
       emptyEl.style.display = 'none';
       previewEl.style.display = 'block';
+
+      // ── Set iframe content via Blob URL (not srcdoc) ──
+      requestAnimationFrame(() => {
+        const iframe = document.getElementById('html-preview-iframe');
+        if (iframe) {
+          try {
+            if (_prevHtmlPreviewUrl) URL.revokeObjectURL(_prevHtmlPreviewUrl);
+            const blob = new Blob([f.content], { type: 'text/html; charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            _prevHtmlPreviewUrl = url;
+            iframe.src = url;
+          } catch(e) {
+            console.warn('[preview] blob URL failed, falling back to srcdoc:', e.message);
+            iframe.srcdoc = f.content;
+          }
+        }
+      });
     }
 
     let _htmlPreviewWidth = null;
