@@ -4526,6 +4526,208 @@
     }
     .embed-status.has-error .embed-retry { display: inline-flex; align-items: center; gap: 3px; }
     .embed-retry:hover { color: var(--tx-0); background: var(--bg-3); border-color: var(--border-l); }
+
+    /* ── Tree-of-Thought Graph ── */
+    .tot-tree {
+      padding: 8px;
+      font-size: 11px;
+      line-height: 1.4;
+      overflow-y: auto;
+    }
+
+    .tot-node {
+      padding: 5px 8px;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background .12s, border-color .12s;
+      border: 1px solid transparent;
+      margin-bottom: 2px;
+      position: relative;
+    }
+
+    .tot-node:hover {
+      background: var(--bg-3);
+      border-color: var(--border);
+    }
+
+    .tot-node.highlighted {
+      background: var(--accent-glow);
+      border-color: rgba(232, 160, 35, 0.3);
+    }
+
+    .tot-info {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .tot-label {
+      font-size: 11px;
+      color: var(--tx-1);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .tot-detail {
+      font-size: 9px;
+      color: var(--tx-4);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .tot-time {
+      font-size: 9px;
+      color: var(--tx-4);
+      font-family: 'JetBrains Mono', monospace;
+      flex-shrink: 0;
+    }
+
+    .tot-children {
+      padding-left: 14px;
+      border-left: 1px solid var(--border);
+      margin-left: 7px;
+      transition: border-color .15s;
+    }
+
+    .tot-node:hover > .tot-children {
+      border-color: var(--accent-d);
+    }
+
+    .tot-node-line {
+      position: absolute;
+      left: 7px;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: var(--border-l);
+    }
+
+    .tot-icon {
+      width: 14px;
+      text-align: center;
+      flex-shrink: 0;
+      font-size: 9px;
+    }
+
+    .tot-badge {
+      font-size: 7px;
+      padding: 0 4px;
+      line-height: 14px;
+      border-radius: 3px;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .tot-badge.think {
+      background: rgba(232, 160, 35, .12);
+      color: var(--accent);
+    }
+
+    .tot-badge.tool {
+      background: rgba(45, 212, 191, .1);
+      color: var(--teal);
+    }
+
+    .tot-badge.sub {
+      background: rgba(34, 211, 238, .1);
+      color: var(--cyan);
+    }
+
+    .tot-badge.verify {
+      background: rgba(34, 197, 94, .1);
+      color: var(--green);
+    }
+
+    .tot-badge.user {
+      background: var(--bg-4);
+      color: var(--tx-2);
+    }
+
+    .tot-badge.assistant {
+      background: rgba(255, 255, 255, .06);
+      color: var(--tx-1);
+    }
+
+    .tot-badge.compact {
+      background: rgba(34, 211, 238, .06);
+      color: var(--cyan);
+    }
+
+    .tot-clear {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--tx-3);
+      cursor: pointer;
+      font-size: 9px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      transition: .12s;
+      margin-left: auto;
+    }
+
+    .tot-clear:hover {
+      color: var(--tx-1);
+      background: var(--bg-3);
+      border-color: var(--border-l);
+    }
+
+    .tot-empty {
+      padding: 8px 12px;
+      text-align: center;
+      color: var(--tx-4);
+      font-size: 11px;
+    }
+
+    .tot-empty i {
+      font-size: 20px;
+      opacity: .4;
+      margin-bottom: 6px;
+    }
+
+    .tot-empty span {
+      display: block;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    .tot-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-0);
+      flex-shrink: 0;
+    }
+
+    .tot-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--tx-1);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .tot-title i {
+      font-size: 11px;
+      color: var(--accent);
+    }
+
+    .tot-stats {
+      font-size: 9px;
+      color: var(--tx-4);
+      font-family: 'JetBrains Mono', monospace;
+      display: flex;
+      gap: 8px;
+    }
   </style>
 </head>
 
@@ -4693,6 +4895,7 @@
             Term</button>
           <button class="rp-tab" data-tab="git" onclick="switchRpTab('git')"><i class="fas fa-code-branch"></i>
             Git</button>
+          <button class="rp-tab" data-tab="graph" onclick="switchRpTab('graph')"><i class="fas fa-project-diagram"></i> ToT Graph</button>
         </div>
         <div class="rp-content">
           <div class="rp-pane active" id="rp-files">
@@ -4760,6 +4963,10 @@
               <div class="rp-empty-state"><i class="fas fa-code-branch"></i><span>Open the Git tab to see status</span>
               </div>
             </div>
+          </div>
+          <div class="rp-pane" id="rp-graph">
+            <div class="rp-empty-state" id="rp-graph-empty"><i class="fas fa-project-diagram"></i><span>No thought data yet</span><small>Agent thoughts, tool calls, and verification rendered as a tree</small></div>
+            <div id="rp-graph-content" style="flex:1;overflow-y:auto"></div>
           </div>
         </div>
       </aside>
@@ -6522,12 +6729,13 @@ Python command: {{PYTHON_CMD}}`;
       return text;
     }
 
+
     /* ═════════════════ TOKEN TRACKING ═══════════════ */
-    
+    const _tokenizeCache = new Map();
+
     async function exactTokenCount(text) {
       if (!text || !state.connected) return -1;
       const key = text.slice(0, 200);
-      const _tokenizeCache = new Map();
       if (_tokenizeCache.has(key)) return _tokenizeCache.get(key);
       try {
         const res = await fetch(`${state.apiUrl}/v1/tokenize`, {
@@ -8203,6 +8411,7 @@ Python command: {{PYTHON_CMD}}`;
         }
         if (/^(?:import |from )/.test(trimmed)) { inImports = true; result.push(line); continue; }
         if (inImports) continue;
+        else { inImports = false; }
 
         // Keep only signatures (fixed parts)
         if (/^L\d+: (?:async\s+)?(?:def|class)\s/.test(trimmed)) {
@@ -8308,7 +8517,7 @@ Python command: {{PYTHON_CMD}}`;
                   stripped
               };
             }
-           }
+           
             // Skeleton is reasonable size, return as-is (body preview preserved for context)
             return { output: skeleton };
           }
@@ -8330,6 +8539,7 @@ Python command: {{PYTHON_CMD}}`;
       }
 
       return { output: `File: ${rel}\nSize: ${text.length} chars, ${lines.length} lines\n---\n${text}` };
+     }
     }
 
     async function readFileSummarySafe(rel) {
@@ -10778,6 +10988,16 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         <div class="sub-agent-summary">${renderMd(data.summary)}</div>
         <div class="sub-agent-details"><div class="sub-agent-log">${logHtml || '<div style="padding:8px;color:var(--tx-4);font-style:italic">No tool calls logged</div>'}</div></div>`;
 
+      addToThoughtGraph({
+        id: 'sub_' + Date.now() + '_' + Math.random().toString(36).substr(2, 8),
+        type: 'sub-agent',
+        label: 'Sub-agent: ' + (data.task || '').slice(0, 50),
+        detail: data.iterations + ' rounds, ' + (data.log?.length || 0) + ' calls',
+        timestamp: Date.now(),
+        msgIndex: state.messages.length,
+        children: []
+      });
+
       $msg().appendChild(el);
       scrollBottom();
 
@@ -11230,7 +11450,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       for (let i = idx - 1; i >= 0; i--) {
         const m = state.messages[i];
         if (m.role !== 'assistant' || !m.tool_calls) continue;
-        const tc = m.tool_calls.find(tc => tc.id === state.messages[idx].tool_call_id);
+        const tc = m.tool_calls.find(tc => tc.id === state.messages[idx].tool_call_id); 
         if (tc) return tc;
       }
       return null;
@@ -11331,7 +11551,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           if (m.tool_calls) {
             text += '\n[Tools Called]: ' + m.tool_calls.map(tc => {
               const args = safeParseArgs(tc.function.arguments);
-              return tc.function.name + '(' + Object.entries(args).map(([k, v]) => k + '=' + String(v).slice(0, 60)).join(', ') + ')';
+              return tc.function.name + '(' + Object.entries(args).map(([k, v]) => k + '=' + String(v).slice(0, 60).join(', ') + ')');
             }).join(', ');
           }
           return text;
@@ -11387,6 +11607,17 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         const after = estimateConvTokens();
         const parent = $msg(); while (parent.firstChild) parent.firstChild.remove(); streamEl = null; switchToChat();
         showCompactBanner(before, after);
+
+        addToThoughtGraph({
+          id: 'compact_' + Date.now(),
+          type: 'compact',
+          label: 'Context compacted (' + before + ' → ' + after + ')' + '% reduction',
+          detail: Math.round((1 - after / before) * 100) + '% reduction',
+          timestamp: Date.now(),
+          msgIndex: state.messages.length,
+          children: []
+        });
+
         if (progressSaved) {
           const el = document.createElement('div'); el.className = 'compact-banner';
           el.style.background = 'rgba(34,211,238,.06)';
@@ -11795,6 +12026,16 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             const vi = document.createElement('div');
             vi.className = 'verify-indicator running';
             vi.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Running verification...<span class="vi-cmd">' + esc(state.autoVerifyCommand) + '</span>';
+            addToThoughtGraph({
+              id: 'verify_' + Date.now(),
+              type: 'verify',
+              label: 'Verify: ' + state.autoVerifyCommand,
+              detail: 'Running verification...',
+              timestamp: Date.now(),
+              msgIndex: state.messages.length,
+              children: []
+            });
+
             $msg().appendChild(vi);
             scrollBottom();
 
@@ -12061,6 +12302,17 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const lenBadge = document.createElement('span'); lenBadge.className = 'think-badge len'; lenBadge.textContent = shortCount + ' chars';
       badge.parentNode.insertBefore(lenBadge, badge.nextSibling);
       el._finalText = content.textContent;
+
+      // ADD: Dispatch to thought graph
+      addToThoughtGraph({
+        id: 'think_' + Date.now() + '_' + Math.random().toString(36).substr(2, 8),
+        type: 'think',
+        label: el._finalText.slice(0, 60) + (el._finalText.length > 60 ? '...' : ''),
+        detail: el._finalText.length + ' chars',
+        timestamp: Date.now(),
+        msgIndex: state.messages.length - 1,
+        children: []
+      });
     }
     function renderStaticThinkBlock(text) {
       const el = document.createElement('div'); el.className = 'think-block';
@@ -12135,7 +12387,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       }
 
       // ── Skip preview for files with relative resource references ──
-      const hasRelativeRefs = /(?:src|href)\s*=\s*["'](?:\.\/|\.\.\/)/.test(f.content);
+      const hasRelativeRefs = /(?:src|href)\s*=\s*["'](?:\.\/|\.\.\/)/.test(f.content || '');
       if (hasRelativeRefs) {
         const linesHtml = f.lines.map((line, i) => {
           let highlighted;
@@ -12345,8 +12597,20 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           hdr.insertBefore(tokEl, hdr.querySelector('.msg-actions'));
       }
 
+      if (t && t.length > 10) {
+        addToThoughtGraph({
+          id: 'asst_' + Date.now() + '_' + Math.random().toString(36).substr(2, 8),
+          type: 'assistant',
+          label: t.slice(0, 60) + (t.length > 60 ? '...' : ''),
+          detail: t.length + ' chars',
+          timestamp: Date.now(),
+          msgIndex: state.messages.length - 1,
+          children: []
+        });
+      }
+
       streamEl._streaming = false;
-      streamEl._text = t;
+      // streamEl._text = t;
       streamEl = null;
       scrollBottom();
     }
@@ -12373,6 +12637,19 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         el.innerHTML = `<div style="width:26px;flex-shrink:0"></div><div class="msg-body"><div class="msg-content" style="color:${isWarn ? 'var(--yellow)' : 'var(--tx-3)'};font-size:11px;font-style:italic">${esc(content)}</div></div>`;
         $msg().appendChild(el); scrollBottom(); return;
       }
+      if (role === 'user' && content && content.length > 5 && !content.startsWith('[')) {
+        addToThoughtGraph({
+          id: 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 8),
+          type: 'user',
+          label: content.slice(0, 50) + (content.length > 50 ? '...' : ''),
+          detail: content.length + ' chars',
+          timestamp: Date.now(),
+          msgIndex: state.messages.length,
+          children: []
+        });
+      }
+
+      // const el = createMsgEl(role, content);
       const el = createMsgEl(role, content); $msg().appendChild(el); scrollBottom();
     }
 
@@ -12448,43 +12725,56 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     }
 
     function showToolPanel(name, argsStr, status, onStopClick, toolCallId) {
-          if (argsStr == null || typeof argsStr !== 'string') argsStr = '{}';
+      if (argsStr == null || typeof argsStr !== 'string') argsStr = '{}';
 
-          let prev = '';
-          try {
-            const a = JSON.parse(argsStr);
-            prev = Object.entries(a).map(([k, v]) => {
-              let display;
-              if (Array.isArray(v)) {
-                // edits is an array of {old_text, new_text} objects
-                display = v.map((item, idx) => {
-                  if (typeof item === 'object' && item !== null) {
-                    const keys = Object.keys(item);
-                    return keys.map(key => {
-                      const val = String(item[key]);
-                      const truncated = val.length > 80 ? val.slice(0, 77) + '...' : val;
-                      return key + ': "' + truncated.replace(/"/g, '\\"') + '"';
-                    }).join(', ');
-                  }
-                  return String(item);
-                }).join('\n');
-                if (display.length > 300) display = display.slice(0, 297) + '...';
-              } else if (typeof v === 'object' && v !== null) {
-                display = JSON.stringify(v);
-                if (display.length > 120) display = display.slice(0, 117) + '...';
-              } else {
-                display = String(v);
-                if (display.length > 120) display = display.slice(0, 117) + '...';
+      let prev = '';
+      try {
+        const a = JSON.parse(argsStr);
+        prev = Object.entries(a).map(([k, v]) => {
+          let display;
+          if (Array.isArray(v)) {
+            display = v.map((item, idx) => {
+              if (typeof item === 'object' && item !== null) {
+                const keys = Object.keys(item);
+                return keys.map(key => {
+                  const val = String(item[key]);
+                  const truncated = val.length > 80 ? val.slice(0, 77) + '...' : val;
+                  return key + ': "' + truncated.replace(/"/g, '\\"') + '"';
+                }).join(', ');
               }
-              return '<span>' + esc(k) + '</span>: ' + esc(display);
-            }).join('<br>');
-          } catch {
-            prev = esc(argsStr?.slice(0, 200) || '');
+              return String(item);
+            }).join('\n');
+            if (display.length > 300) display = display.slice(0, 297) + '...';
+          } else if (typeof v === 'object' && v !== null) {
+            display = JSON.stringify(v);
+            if (display.length > 120) display = display.slice(0, 117) + '...';
+          } else {
+            display = String(v);
+            if (display.length > 120) display = display.slice(0, 117) + '...';
           }
+          return '<span>' + esc(k) + '</span>: ' + esc(display);
+        }).join('<br>');
+      } catch {
+        prev = esc(argsStr?.slice(0, 200) || '');
+      }
       const el = document.createElement('div'); el.className = 'tool-panel';
       el._toolCallId = toolCallId || null;
       el._toolName = name; el._toolArgs = argsStr; el._screenshotDataUrl = null; el._imageDataUrl = null; el._imagePath = null; el._imageReason = null; el._imageType = null; el._resultText = ''; el._collapsed = false;
+
+      // ADD: Dispatch to thought graph
+      addToThoughtGraph({
+        id: 'tool_' + (toolCallId || Date.now()),
+        type: 'tool',
+        label: name + (prev ? ': ' + prev.slice(0, 40) + '...' : ''),
+        detail: name,
+        timestamp: Date.now(),
+        msgIndex: state.messages.length,
+        toolCallId: toolCallId,
+        children: []
+      });
+
       el.innerHTML = `<div class="tool-hdr"><i class="fas fa-bolt tool-icon"></i><span class="tool-name">${esc(name)}</span><span class="tool-status ${status}">${status === 'run' ? 'Running...' : status === 'ok' ? 'Done' : 'Error'}</span><div class="tool-actions">${onStopClick ? '<button class="tool-stop" title="Stop"><i class="fas fa-stop"></i> Stop</button>' : ''}<button class="tool-act-btn" onclick="copyToolOutput(this)" title="Copy output"><i class="fas fa-copy"></i></button><button class="tool-act-btn tool-expand-btn" onclick="toggleToolExpand(this)" title="Expand/Collapse" style="display:none"><i class="fas fa-expand"></i></button></div></div><div class="tool-params">${prev}</div><div class="tool-result loading"></div>`;
+
       if (onStopClick) el.querySelector('.tool-stop').onclick = (e) => { e.stopPropagation(); onStopClick(); };
       $msg().appendChild(el); scrollBottom(); return { el };
     }
@@ -12608,29 +12898,38 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       requireWorkspace();
       const segs = sanitizePath(pr._pendingPath);
       let dir = state.dirHandle;
-      for (let i = 0; i < segs.length - 1; i++) dir = await dir.getDirectoryHandle(segs[i]);
+      for (let i = 0; i < segs.length - 1; i++) dir = await dir.getDirectoryHandle(segs[i], { create: true });
       const fh = await dir.getFileHandle(segs[segs.length - 1], { create: false });
-      
+
       // Verify file hasn't changed since dry-run
       const current = await (await fh.getFile()).text();
-      const expectedOld = pr._originalContent || ''; // Store this in dry-run result
-      if (expectedOld && current !== expectedOld) {
-        return { 
-          output: '⚠ Edit rejected — file was modified since preview. Tool call returned stale data.\n' +
-                  'The file may have been changed by a parallel tool or another process.',
-          diff: null 
+      const expectedOld = pr._originalContent;
+      if (expectedOld != null && current !== expectedOld) {
+        return {
+          output: '⚠ Edit rejected — file was modified since preview. The file content changed between when you approved it and now. This can happen if:\n\n1. Another process modified the file externally\n2. A parallel tool call changed the same file\n\nFix: Try again — the tool will re-analyze the current file state.',
+          diff: null
         };
       }
-      
+
       const w = await fh.createWritable();
       await w.write(pr._pendingNewContent);
       await w.close();
-      state.fileCache.set(pr._pendingPath, pr._pendingNewContent); modifiedFiles.add(pr._pendingPath);
+      state.fileCache.set(pr._pendingPath, pr._pendingNewContent);
+      modifiedFiles.add(pr._pendingPath);
       let vm = '';
-      if (state.verifyWrites) { try { const v = await (await fh.getFile()).text(); vm = v === pr._pendingNewContent ? '\n✓ Write verified' : '\n✗ WRITE VERIFICATION FAILED'; } catch { } }
-      return { output: '✓ Approved — ' + pr.output.replace('[PENDING APPROVAL] ', '') + vm, diff: pr.diff };
+      if (state.verifyWrites) {
+        try {
+          const v = await (await fh.getFile()).text();
+          vm = v === pr._pendingNewContent ? '\n✓ Write verified' : '\n✗ WRITE VERIFICATION FAILED';
+        } catch { }
+      const op = pr._pendingIsNewFile ? 'Created' : 'Overwrote';
+      return {
+        output: `✓ Approved — ${op} ${pr._pendingPath} (${pr._pendingNewContent.length} chars)${vm}`,
+        diff: pr.diff
+      };
+     }
     }
-
+    
     async function applyPendingWrite(pr) {
       requireWorkspace();      
       const segs = sanitizePath(pr._pendingPath);
@@ -12855,7 +13154,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     }
 
     /* ═══════════════ FILE TREE ═══════════════ */
-    function getDotCls(n) { const e = n.split('.').pop().toLowerCase(); return { js: 'js', jsx: 'js', ts: 'ts', tsx: 'ts', py: 'py', html: 'html', htm: 'html', css: 'css', scss: 'css', json: 'json', md: 'md', png: 'img', jpg: 'img', gif: 'img', svg: 'img', webp: 'img', rs: 'rs', go: 'go', toml: 'json', lock: 'json', yaml: 'json', yml: 'json', pdf: 'pdf' }[e] || 'default'; }
+    function getDotCls(n) { if (!n) return 'default'; const e = String(n).split('.').pop().toLowerCase(); return { js: 'js', jsx: 'js', ts: 'ts', tsx: 'ts', py: 'py', html: 'html', htm: 'html', css: 'css', scss: 'css', json: 'json', md: 'md', png: 'img', jpg: 'img', gif: 'img', svg: 'img', webp: 'img', rs: 'rs', go: 'go', toml: 'json', lock: 'json', yaml: 'json', yml: 'json', pdf: 'pdf' }[e] || 'default'; }
 
     async function refreshFileTree() {
       if (!state.dirHandle) { document.getElementById('file-tree').innerHTML = ''; return; }
@@ -13003,6 +13302,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       rpState.activeFile = null;
       document.getElementById('rp-files-empty').style.display = '';
       document.getElementById('rp-file-preview').style.display = 'none';
+      rpState.thoughtGraph = [];
 
       $msg().innerHTML = '';
       streamEl = null;
@@ -14298,6 +14598,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       changes: [],
       terminalEntries: [],
       _termCurrentId: null,
+      thoughtGraph: [],
+      _graphCount: 0,
       addChange(path, type, diff) {
         const existing = this.changes.find(c => c.path === path);
         if (existing) { existing.type = type; existing.diff = diff; existing.stats = diff?.stats || existing.stats; existing.timestamp = Date.now(); }
@@ -14447,10 +14749,11 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       /* ── Text / image / SVG files ── */
       try {
         const result = await readFileSafe(path);
-        const header = result.output.split('\n---\n')[0] || '';
-        const content = result.output.includes('\n---\n')
-          ? result.output.split('\n---\n').slice(1).join('\n---\n')
-          : result.output;
+        const outStr = result && result.output ? String(result.output) : '';
+        const header = outStr.split('\n---\n')[0] || '';
+        const content = outStr.includes('\n---\n')
+          ? outStr.split('\n---\n').slice(1).join('\n---\n')
+          : outStr;
 
         /* ── Raster image: show preview instead of code ── */
         if (result._imageDataUrl) {
@@ -14463,7 +14766,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           previewEl.innerHTML =
             `<div class="rp-file-header">` +
               `<span class="rp-file-name"><i class="fas fa-image" style="color:var(--accent);margin-right:4px"></i>${esc(path)}</span>` +
-              `<span class="rp-file-meta">${result.output.split('\n')[0]}</span>` +
+              `<span class="rp-file-meta">${outStr.split('\n')[0]}</span>` +
             `</div>` +
             `<div class="rp-file-image">` +
               `<img src="${result._imageDataUrl}" onclick="openImgViewer(this.src)" alt="${esc(path)}">` +
@@ -14484,7 +14787,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           previewEl.innerHTML =
             `<div class="rp-file-header">` +
               `<span class="rp-file-name"><i class="fas fa-bezier-curve" style="color:var(--accent);margin-right:4px"></i>${esc(path)}</span>` +
-              `<span class="rp-file-meta">${result.output.split('\n')[0]}</span>` +
+              `<span class="rp-file-meta">${outStr.split('\n')[0]}</span>` +
             `</div>` +
             `<div class="rp-file-image">` +
               `<img src="${result._svgPreviewUrl}" onclick="openImgViewer(this.src)" alt="${esc(path)}">` +
@@ -14498,17 +14801,17 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         /* ── HTML files: code + rendered preview ── */
         const isHtml = /\.(html?|xhtml?)$/i.test(path);
         if (isHtml) {
-          // Always use full content for preview, even when agent got a skeleton
-          let realContent = content;
-          if (result.output.includes('→ structure skeleton')) {
+          let realContent = content || '';
+          if (outStr.includes('→ structure skeleton')) {
             const cached = state.fileCache.get(path);
-            if (cached) realContent = cached;
+            if (cached && typeof cached === 'string') realContent = cached;
           }
+          if (!realContent) realContent = '';
           rpState.activeFile = {
             path, content: realContent,
-            lines: realContent.split('\n'),
+            lines: realContent ? String(realContent).split('\n') : [],
             isHtml: true,
-            truncated: result.output.includes('TRUNCATED'),
+            truncated: outStr.includes('TRUNCATED'),
             meta: header
           };
           renderFilePreview();
@@ -14517,7 +14820,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           return;
         }
         /* ── Text file: render with syntax highlighting ── */
-        const lines = content.split('\n');
+        const lines = String(content || '').split('\n');
         rpState.activeFile = {
           path, content, lines,
           isImage: false, imageDataUrl: null,
@@ -14993,6 +15296,156 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       handleEmbedLoad();
     }
 
+    /* ═══════════════ THOUGHT GRAPH TRACKING ═══════════════ */
+    function addToThoughtGraph(node) {
+      const graph = rpState.thoughtGraph;
+      if (graph.length > 0) {
+        node.parentId = graph[graph.length - 1].id;
+      }
+      graph.push(node);
+      if (rpState.activeTab === 'graph') {
+        renderThoughtGraph();
+      }
+    }
+
+    function renderThoughtGraph() {
+      const container = document.getElementById('rp-graph-content');
+      if (!container) return;
+
+      const graph = rpState.thoughtGraph;
+      if (!graph.length) {
+        container.innerHTML = '<div class="tot-empty"><i class="fas fa-project-diagram"></i><span>No thought data yet</span></div>';
+        return;
+      }
+
+      // Build lookup map
+      const nodeMap = new Map();
+      graph.forEach(n => nodeMap.set(n.id, n));
+
+      // Find roots (nodes with no parent)
+      const roots = graph.filter(n => !n.parentId);
+
+      // Count nodes by type for stats
+      const counts = { think: 0, tool: 0, sub: 0, verify: 0, user: 0, assistant: 0, compact: 0 };
+      graph.forEach(n => { if (counts[n.type] !== undefined) counts[n.type]++; });
+
+      const icons = {
+        think: 'fa-brain',
+        tool: 'fa-bolt',
+        sub: 'fa-sitemap',
+        verify: 'fa-circle-check',
+        user: 'fa-user',
+        assistant: 'fa-robot',
+        compact: 'fa-compress'
+      };
+
+      const badgeCls = {
+        think: 'think',
+        tool: 'tool',
+        sub: 'sub',
+        verify: 'verify',
+        user: 'user',
+        assistant: 'assistant',
+        compact: 'compact'
+      };
+
+      const renderNode = (node, depth) => {
+        const indent = depth * 20;
+        const line = document.createElement('div');
+        line.className = 'tot-node';
+        line.style.paddingLeft = (indent + 7) + 'px';
+        line.dataset.nodeId = node.id;
+        line.onclick = () => scrubToNode(node.id);
+
+        // Connector line
+        if (depth > 0) {
+          const lineEl = document.createElement('div');
+          lineEl.className = 'tot-node-line';
+          line.appendChild(line);
+        }
+
+        const childContainer = document.createElement('div');
+        childContainer.className = 'tot-children';
+
+        const icon = document.createElement('i');
+        icon.className = 'fas ' + (icons[node.type] || 'fa-circle') + ' tot-icon';
+        const badge = document.createElement('span');
+        badge.className = 'tot-badge ' + (badgeCls[node.type] || '');
+        badge.textContent = node.type === 'sub' ? 'SA' : node.type.charAt(0).toUpperCase();
+
+        const info = document.createElement('div');
+        info.className = 'tot-info';
+
+        const label = document.createElement('span');
+        label.className = 'tot-label';
+        label.textContent = node.label || '(unnamed)';
+
+        const detail = document.createElement('span');
+        detail.className = 'tot-detail';
+        detail.textContent = node.detail || '';
+
+        const time = document.createElement('span');
+        time.className = 'tot-time';
+        time.textContent = timeAgo(node.timestamp);
+
+        info.appendChild(badge);
+        info.appendChild(label);
+        if (detail) info.appendChild(detail);
+        info.appendChild(time);
+
+        line.appendChild(icon);
+        line.appendChild(info);
+
+        // Render children
+        const children = node.children || [];
+        for (const childId of children) {
+          const child = nodeMap.get(childId);
+          if (child) {
+            childContainer.appendChild(renderNode(child, depth + 1));
+          }
+        }
+
+        return line;
+      };
+
+      let html = '<div class="tot-header"><span class="tot-title"><i class="fas fa-project-diagram"></i> Thought Graph</span><div class="tot-stats">' +
+        '<span>' + counts.think + ' think</span>' +
+        (counts.tool ? '<span>' + counts.tool + ' tool</span>' : '') +
+        (counts.sub ? '<span>' + counts.sub + ' sub-agent</span>' : '') +
+        (counts.verify ? '<span>' + counts.verify + ' verify</span>' : '') +
+        '<span>' + graph.length + ' total</span>' +
+      '</div></div>';
+
+      const treeContainer = document.createElement('div');
+      treeContainer.className = 'tot-tree';
+      for (const root of roots) {
+        treeContainer.appendChild(renderNode(root, 0));
+      }
+
+      html += treeContainer.outerHTML;
+
+      container.innerHTML = html;
+    }
+
+    function scrubToNode(nodeId) {
+      const node = rpState.thoughtGraph.find(n => n.id === nodeId);
+      if (!node || node.msgIndex == null) return;
+
+      const msgs = $msg().querySelectorAll('.msg');
+      if (node.msgIndex >= 0 && node.msgIndex < msgs.length) {
+        const target = msgs[node.msgIndex];
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+          // Highlight briefly
+          target.classList.add('highlighted');
+          setTimeout(() => target.classList.remove('highlighted'), 1500);
+        }
+      }
+      // If switching to graph tab, switch there
+      if (rpState.activeTab !== 'graph') switchRpTab('graph');
+    }
+
     /* ═══════════════ INIT ═══════════════ */
     function init() {
       loadSettings();
@@ -15215,6 +15668,18 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       /* ── Poll companion health every 20s ── */
       const _intervals = [];
       _intervals.push(setInterval(checkCompanion, 20000));
+
+      // ADD: Periodic thought graph cleanup (remove nodes older than 10 minutes)
+      _intervals.push(setInterval(() => {
+        if (rpState.thoughtGraph.length > 0) {
+          const cutoff = Date.now() - 10 * 60 * 1000; // 10 minutes
+          rpState.thoughtGraph = rpState.thoughtGraph.filter(n => n.timestamp > cutoff);
+          if (rpState.thoughtGraph.length < rpState._graphCount) {
+            rpState._graphCount = rpState.thoughtGraph.length;
+            if (rpState.activeTab === 'graph') renderThoughtGraph();
+          }
+        }
+      }, 60000));
 
       /* ── Poll LM Studio for model changes every 300s ── */
       setInterval(async () => {
