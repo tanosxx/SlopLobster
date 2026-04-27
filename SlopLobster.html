@@ -6188,8 +6188,8 @@ if __name__ == "__main__":
 
     /** Strip <think>...</think> and <|channel>thought...<channel|> from model output */
     function stripThinkingBlocks(text) {
-      text = text.replace(/<think>[\s\S]*?<\/think>/gs, '');
-      text = text.replace(/<\|channel>thought[\s\S]*?<\|channel>/gs, '');
+      text = text.replace(/<think>[\s\S]*?<\/think>/g, '');
+      text = text.replace(/<\|channel>thought[\s\S]*?<\|channel>/g, '');
       return text.trim();
     }
 
@@ -8350,8 +8350,6 @@ Python command: {{PYTHON_CMD}}`;
       // For larger files, use the API
       try {
         const text = await f.text();
-        const lines = text.split('\n');
-        const ext = rel.split('.').pop().toLowerCase();
         
         state.abortCtrl = new AbortController();
         const res = await fetch(`${state.apiUrl}/v1/chat/completions`, {
@@ -8975,7 +8973,7 @@ Python command: {{PYTHON_CMD}}`;
     }
 
 
-    async function handleBrowserScreenshot(args, panel) {
+    async function handleBrowserScreenshot(args) {
       try {
         const res = await fetch(`${state.compUrl}/browser_screenshot`, {
           method: 'POST',
