@@ -6524,10 +6524,11 @@ Python command: {{PYTHON_CMD}}`;
 
     /* ═════════════════ TOKEN TRACKING ═══════════════ */
     
+    const _tokenizeCache = new Map();
+
     async function exactTokenCount(text) {
       if (!text || !state.connected) return -1;
       const key = text.slice(0, 200);
-      const _tokenizeCache = new Map();
       if (_tokenizeCache.has(key)) return _tokenizeCache.get(key);
       try {
         const res = await fetch(`${state.apiUrl}/v1/tokenize`, {
@@ -8631,7 +8632,7 @@ Python command: {{PYTHON_CMD}}`;
         if (!hasChanges) return { output: results.join('\n'), diff: null, _pendingApproval: false };
         const diffOutput = allDiffs.filter(d => d.lines.length);
         const diff = diffOutput.length ? { path: rel, lines: diffOutput.flatMap(d => d.lines), stats: { additions: diffOutput.flatMap(d => d.lines).filter(l => l.type === 'add').length, deletions: diffOutput.flatMap(d => d.lines).filter(l => l.type === 'del').length }, truncated: false } : null;
-        return { output: '[PENDING APPROVAL] ' + results.join('\n'), diff, _pendingApproval: true, _pendingPath: rel, _pendingNewContent: content, _pendingIsNewFile: false, _pendingOriginalContent: content  };
+        return { output: '[PENDING APPROVAL] ' + results.join('\n'), diff, _pendingApproval: true, _pendingPath: rel, _pendingNewContent: content, _pendingIsNewFile: false, _pendingOriginalContent: OriginalContent };
       }
       const w = await fh.createWritable(); await w.write(content); await w.close();
       state.fileCache.set(rel, content); modifiedFiles.add(rel);
@@ -8860,6 +8861,7 @@ Python command: {{PYTHON_CMD}}`;
       try { regex = new RegExp(pattern, 'g'); }
       catch { return { output: `Invalid regex: ${pattern}` }; }
       const ctx = Math.min(contextLines || 0, 10);
+      const results = [];
       let fileCount = 0;
       const MAX_FILES = 50, MAX_MATCHES = 200;
       async function searchFile(fileHandle, filePath) {
@@ -8888,6 +8890,7 @@ Python command: {{PYTHON_CMD}}`;
           if (matches) fileCount++;
         }
       }
+
       async function walk(h, pfx, d) {
         if (d > 8 || fileCount >= MAX_FILES) return;
         for await (const [name, kh] of h.entries()) {
@@ -8897,7 +8900,6 @@ Python command: {{PYTHON_CMD}}`;
           else if (kh.kind === 'directory') await walk(kh, full, d + 1);
         }
       }
-      const results = [];
       await walk(state.dirHandle, searchPath || '', 0);
       const totalMatches = results.filter(l => l.includes('>>')).length;
       return { output: results.length ? `Found ${totalMatches} match(es) in ${fileCount} file(s):${results.join('\n')}` : 'No matches found.' };
@@ -12024,7 +12026,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
     /* ── Show completion summary when agent finishes ── */
     function showCompletionSummary() {
-      const out = tokenTracker._callOut; // ← per-message output, not cumulative
+      const out = tokenTracker.totalOutputTokens; 
       if (out < 10) return;
       const elapsed = agentStopwatch ? ((performance.now() - agentStopwatch) / 1000) : null;
       const timeStr = elapsed ? (elapsed < 60 ? elapsed.toFixed(1) + 's' : (elapsed / 60).toFixed(1) + 'min') : '';
@@ -13445,7 +13447,11 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         }
       }
       const blob = new Blob([md], { type: 'text/markdown' }); const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob); a.download = `SlopLobster-${Date.now()}.md`; a.click(); URL.revokeObjectURL(a.href);
+      const url = URL.createObjectURL(blob);
+      a.href = url;
+      a.download = `SlopLobster-${Date.now()}.md`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
       showToast('Exported as Markdown', 'ok');
     }
 
