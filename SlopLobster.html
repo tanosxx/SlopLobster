@@ -8342,10 +8342,10 @@ Python command: {{PYTHON_CMD}}`;
       
       // For small files, just do it client-side
       if (f.size < 50000) {
-        const text = await f.text();
-        const lines = text.split('\n');
-        if (lines.length < 150) return { output: `File: ${rel} (${lines.length} lines) — small enough to read directly with read_file` };
-        return { output: buildLocalSummary(rel, text, lines) };
+      const text = await f.text();
+      const lines = text.split('\n');
+      if (lines.length < 150) return { output: `File: ${rel} (${lines.length} lines) — small enough to read directly with read_file` };
+      return { output: buildLocalSummary(rel, text, lines) };
       }
       
       // For larger files, use the API
@@ -8632,7 +8632,7 @@ Python command: {{PYTHON_CMD}}`;
         if (!hasChanges) return { output: results.join('\n'), diff: null, _pendingApproval: false };
         const diffOutput = allDiffs.filter(d => d.lines.length);
         const diff = diffOutput.length ? { path: rel, lines: diffOutput.flatMap(d => d.lines), stats: { additions: diffOutput.flatMap(d => d.lines).filter(l => l.type === 'add').length, deletions: diffOutput.flatMap(d => d.lines).filter(l => l.type === 'del').length }, truncated: false } : null;
-        return { output: '[PENDING APPROVAL] ' + results.join('\n'), diff, _pendingApproval: true, _pendingPath: rel, _pendingNewContent: content, _pendingIsNewFile: false, _pendingOriginalContent: OriginalContent };
+        return { output: '[PENDING APPROVAL] ' + results.join('\n'), diff, _pendingApproval: true, _pendingPath: rel, _pendingNewContent: content, _pendingIsNewFile: false, _pendingOriginalContent: originalContent };
       }
       const w = await fh.createWritable(); await w.write(content); await w.close();
       state.fileCache.set(rel, content); modifiedFiles.add(rel);
@@ -12612,24 +12612,30 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       let dir = state.dirHandle;
       for (let i = 0; i < segs.length - 1; i++) dir = await dir.getDirectoryHandle(segs[i]);
       const fh = await dir.getFileHandle(segs[segs.length - 1], { create: false });
-      
+
       // Verify file hasn't changed since dry-run
       const current = await (await fh.getFile()).text();
-      const expectedOld = pr._originalContent || ''; // Store this in dry-run result
+      const expectedOld = pr._originalContent || '';
       if (expectedOld && current !== expectedOld) {
-        return { 
+        return {
           output: '⚠ Edit rejected — file was modified since preview. Tool call returned stale data.\n' +
                   'The file may have been changed by a parallel tool or another process.',
-          diff: null 
+          diff: null
         };
       }
-      
+
       const w = await fh.createWritable();
       await w.write(pr._pendingNewContent);
       await w.close();
-      state.fileCache.set(pr._pendingPath, pr._pendingNewContent); modifiedFiles.add(pr._pendingPath);
+      state.fileCache.set(pr._pendingPath, pr._pendingNewContent);
+      modifiedFiles.add(pr._pendingPath);
       let vm = '';
-      if (state.verifyWrites) { try { const v = await (await fh.getFile()).text(); vm = v === pr._pendingNewContent ? '\n✓ Write verified' : '\n✗ WRITE VERIFICATION FAILED'; } catch { } }
+      if (state.verifyWrites) {
+        try {
+          const v = await (await fh.getFile()).text();
+          vm = v === pr._pendingNewContent ? '\n✓ Write verified' : '\n✗ WRITE VERIFICATION FAILED';
+        } catch { }
+      }
       return { output: '✓ Approved — ' + pr.output.replace('[PENDING APPROVAL] ', '') + vm, diff: pr.diff };
     }
 
