@@ -4711,7 +4711,7 @@
               <div class="rp-file-header" id="rp-preview-header">
                 <span class="rp-file-name"><i class="fas fa-globe"
                     style="color:var(--green);margin-right:4px"></i> <span
-                    id="rp-preview-url">localhost:8000</span></span>
+                    id="rp-preview-url">localhost:3000</span></span>
                 <span class="rp-file-meta" id="rp-preview-status"></span>
                 <div class="rp-file-actions">
                   <button class="rp-file-act" id="rp-preview-reload"
@@ -5091,7 +5091,7 @@ def run_cmd(cmd, cwd=None, timeout=DEFAULT_TIMEOUT):
                 cmd = alt + stripped[len(first_word):]
     if WINDOWS_BASH:
         # Translate Windows command syntax to Unix/bash equivalents for Git Bash
-        cmd = _translate_for_cmd_bash(cmd)
+        cmd = _translate_for_cmd(cmd)
         kw = dict(args=[WINDOWS_BASH, "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd)
     elif platform.system() == "Windows":
         translated = _translate_for_cmd(cmd)
@@ -6087,7 +6087,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 cmd = body.get("command", "")
                 if not cmd:
                     return self.send_json(400, {"error": "command is required"})
-                port = int(body.get("port", 8000))
+                port = int(body.get("port", 3000))
                 cwd = body.get("cwd") or None
                 result = _start_dev_process(cmd, port, cwd)
                 self.send_json(200, result)
@@ -6097,7 +6097,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif path == '/dev_status':
             try:
                 body = self.read_body()
-                port = int(body.get("port", 8000))
+                port = int(body.get("port", 3000))
                 ps = _dev_processes.get(str(port))
                 if not ps:
                     return self.send_json(200, {"alive": False, "ready": False, "port": port})
@@ -6112,7 +6112,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif path == '/dev_output':
             try:
                 body = self.read_body()
-                port = int(body.get("port", 8000))
+                port = int(body.get("port", 3000))
                 tail = int(body.get("tail", 100))
                 ps = _dev_processes.get(str(port))
                 if not ps:
@@ -6126,7 +6126,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif path == '/dev_stop':
             try:
                 body = self.read_body()
-                port = int(body.get("port", 8000))
+                port = int(body.get("port", 3000))
                 port_s = str(port)
                 ps = _dev_processes.get(port_s)
                 killed = False
@@ -7100,7 +7100,7 @@ Python command: {{PYTHON_CMD}}`;
         { type: 'function', function: { name: 'list_directory', description: 'List files and directories. Image files are marked with [IMAGE].', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path (default: root)' }, recursive: { type: 'boolean', description: 'List recursively' } }, required: [] } } },
         { type: 'function', function: { name: 'search_files', description: 'Search for files by name pattern.', parameters: { type: 'object', properties: { pattern: { type: 'string', description: 'Substring or glob pattern' } }, required: ['pattern'] } } },
         { type: 'function', function: { name: 'grep', description: 'Search for text patterns in files with line numbers and context.', parameters: { type: 'object', properties: { pattern: { type: 'string', description: 'Regex or text to search for' }, path: { type: 'string', description: 'File or directory to search (default: root)' }, include: { type: 'string', description: 'File glob to include, e.g. "*.py"' }, context_lines: { type: 'number', description: 'Lines of context around matches (default: 0)' } }, required: ['pattern'] } } },
-        { type: 'function', function: { name: 'start_dev_server', description: 'Start a local dev server in the background. The preview appears in the Preview panel. Supports hot-reload. Use browser_screenshot and browser_console to inspect the running app.', parameters: { type: 'object', properties: { command: { type: 'string', description: 'Shell command to start the dev server, e.g. "npm run dev", "python -m http.server 8000", "cargo run"' }, port: { type: 'number', description: 'Port number (default: 8000)' } }, required: ['command'] } } },
+        { type: 'function', function: { name: 'start_dev_server', description: 'Start a local dev server in the background. The preview appears in the Preview panel. Supports hot-reload. Use browser_screenshot and browser_console to inspect the running app.', parameters: { type: 'object', properties: { command: { type: 'string', description: 'Shell command to start the dev server, e.g. "npm run dev", "python -m http.server 8000", "cargo run"' }, port: { type: 'number', description: 'Port number (default: 3000)' } }, required: ['command'] } } },
         { type: 'function', function: { name: 'delete_file', description: 'Delete a file or empty directory. Use recursive=true for directories with contents. Use with caution — this cannot be undone.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path to delete' }, recursive: { type: 'boolean', description: 'Delete directory and all contents (default: false)' } }, required: ['path'] } } },
         { type: 'function', function: { name: 'move_file', description: 'Move or rename a file or directory. Creates parent directories in destination if needed.', parameters: { type: 'object', properties: { source: { type: 'string', description: 'Current relative path' }, destination: { type: 'string', description: 'New relative path' } }, required: ['source', 'destination'] } } },
         { type: 'function', function: { name: 'semantic_search', description: 'Semantic code search using embeddings. Finds files by meaning, not exact string match. Best for conceptual queries like "find the auth middleware" or "where is DB config". Falls back to grep if model not loaded. Returns ranked file paths with relevance scores and context snippets.', parameters: { type: 'object', properties: { query: { type: 'string', description: 'Natural language description of what to find' }, top_k: { type: 'number', description: 'Max results (default 8)' } }, required: ['query'] } } },
@@ -9623,8 +9623,8 @@ Python command: {{PYTHON_CMD}}`;
             break;
           case 'start_dev_server': {
             if (!state.compConnected) return { output: 'start_dev_server requires the companion server.' };
-            if (!args.command) return { output: 'Error: "command" is required. Example: start_dev_server({"command": "npm run dev", "port": 8000})' };
-            const port = parseInt(args.port) || 8000;
+            if (!args.command) return { output: 'Error: "command" is required. Example: start_dev_server({"command": "npm run dev", "port": 3000})' };
+            const port = parseInt(args.port) || 3000;
 
             try {
               const res = await fetch(`${state.compUrl}/dev_start`, {
@@ -11201,7 +11201,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     }
 
     /* ═══════════════ PROGRESS PERSISTENCE ═══════════════ */
-    const PROGRESS_FILE = `.sloplobster-progress-${state.activeConvId}.md`;
+    const PROGRESS_FILE = getProgressFile(state.activeConvId);
 
     function getProgressFile(convId) {
       return `.sloplobster-progress-${convId || 'default'}.md`;
@@ -11977,8 +11977,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
             const imgUrl = panel.el._screenshotDataUrl || panel.el._imageDataUrl;
             const hasImageData = imgUrl && !panel.el._svgPreviewUrl && !panel.el._pdfThumbnail;
-            if (!hasImageData) continue;            
-            if (!imgUrl || panel.el._svgPreviewUrl || panel.el._pdfThumbnail) continue;
+            if (!hasImageData) continue;
 
             if (!panel.el.querySelector('.screenshot-preview')) {
               panel.el.classList.add('screenshot-tool');
@@ -12273,11 +12272,17 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const iframe = document.getElementById('html-preview-iframe');
       const f = rpState.activeFile;
       if (!iframe || !f || !f.isHtml) return;
-      /* Force full re-render by clearing first */
-      iframe.srcdoc = '';
-      requestAnimationFrame(() => {
-        iframe.srcdoc = f.content;
-      });
+      /* Use Blob URL for consistent sandboxing (matches renderHtmlFilePreview) */
+      try {
+        if (_prevHtmlPreviewUrl) URL.revokeObjectURL(_prevHtmlPreviewUrl);
+        const blob = new Blob([f.content], { type: 'text/html; charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        _prevHtmlPreviewUrl = url;
+        iframe.src = url;
+      } catch(e) {
+        iframe.srcdoc = '';
+        requestAnimationFrame(() => { iframe.srcdoc = f.content; });
+      }
     }
 
     /* ═══════════════ UI RENDERING ═══════════════ */
@@ -12292,7 +12297,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     function updateStreamingMsg(t) {
       switchToChat();
       if (!streamEl) {
-        streamEl = createMsgEl('agent', '', t, true);
+        streamEl = createMsgEl('agent', t, true);
         streamEl._streaming = true;
         streamEl._lastRenderedLen = 0;
         streamEl._lastBlockText = '';
@@ -13153,8 +13158,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         return `<div class="conv-item ${a}" style="${opacity}" onclick="switchConv('${c.id}')">
           <i class="fas fa-message" style="font-size:9px;color:var(--tx-4);flex-shrink:0"></i>
           <span class="conv-title">${esc(c.title || 'Untitled')}${c._loadError ? ' ⚠' : ''}</span>
-          ${msgCount > 0 ? `<span style="font-size:8px;color:var(--tx-4);flex-shrink:0;font-family:'JetBrains Mono,monospace">${msgCount}m</span>` : ''}
-          <span style="font-size:9px;color:var(--tx-4);flex-shrink:0;font-family:'JetBrains Mono,monospace">${ago}</span>
+          ${msgCount > 0 ? `<span style="font-size:8px;color:var(--tx-4);flex-shrink:0;font-family:'JetBrains Mono',monospace">${msgCount}m</span>` : ''}
+          <span style="font-size:9px;color:var(--tx-4);flex-shrink:0;font-family:'JetBrains Mono',monospace">${ago}</span>
           <button class="conv-fork" onclick="forkConv('${c.id}',event)" title="Fork"><i class="fas fa-code-branch"></i></button>
           <button class="conv-del" onclick="deleteConv('${c.id}',event)" title="Delete"><i class="fas fa-xmark"></i></button>
         </div>`;
@@ -14505,8 +14510,6 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           previewEl.style.display = 'block';
           return;
         }
-        /* ── HTML files: code + rendered preview ── */
-        /* ── HTML files: code + rendered preview ── */
         /* ── HTML files: code + rendered preview ── */
         const isHtml = /\.(html?|xhtml?)$/i.test(path);
         if (isHtml) {
