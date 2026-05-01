@@ -6368,7 +6368,14 @@ Read this section to know what is available RIGHT NOW:
 
 ═══ FILE MODIFICATIONS ═══
 
-**CRITICAL: Always use edit_file for existing files.** write_file is ONLY for creating brand new files that do not yet exist.
+**File writing rules:**
+- **edit_file** — for modifying existing files. Preferred. Put \`"path"\` first. Keep each \`old_text\` ≤ 20 lines.
+- **write_file** — for NEW files only. Put \`"path"\` first. Use only if content is ≤ 100 lines.
+- **write_file_chunked** — for NEW files > 100 lines. CRITICAL: keep each chunk ≤ 60 lines — the entire chunks array must fit in the token budget together, so many small chunks are always safer than a few large ones. Example:
+  write_file_chunked({"path": "src/app.js", "chunks": ["lines 1-60...", "lines 61-120...", "lines 121-180..."]})
+  If a write is truncated mid-chunks, the tool writes what it received and tells you how to continue with \`"append": true\`.
+
+**Size heuristic:** If you estimate a file will be > 100 lines, always use \`write_file_chunked\` with ≤ 60-line chunks.
 
 edit_file uses search/replace blocks. Rules:
 - **Always put \`"path"\` as the first key** in the JSON object — before \`"edits"\`. If \`path\` comes after the edits array and the JSON is truncated, the path is lost and the call fails.
@@ -6712,6 +6719,13 @@ Python command: {{PYTHON_CMD}}`;
         ? tokenTracker.lastPromptTokens
         : estimateConvTokens() + state._sysPromptLength;
       label.textContent = formatTok(tok) + ' tok';
+      const stats = getCompressionStats();
+      const meter = fill.closest('.ctx-meter');
+      if (meter && stats && stats.saved > 100) {
+        meter.title = `Context: ~${formatTok(tok)} tokens (${pct.toFixed(0)}% of ${formatTok(state.ctxWindow)})\nCompression saved: ~${formatTok(Math.round(stats.saved / 3.8))} tokens (${stats.pct}% reduction in tool outputs)`;
+      } else if (meter) {
+        meter.title = `Estimated context usage: ~${formatTok(tok)} tokens`;
+      }
     }
 
     /* ═══════════════ TEXT LOOP DETECTION ═══════════════ */
@@ -7194,7 +7208,8 @@ Python command: {{PYTHON_CMD}}`;
         { type: 'function', function: { name: 'read_file_lines', description: 'Read specific line ranges from a file. Much more efficient than reading entire files.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path' }, start_line: { type: 'number', description: '1-based start line (default: 1)' }, end_line: { type: 'number', description: '1-based end line (default: end of file)' } }, required: ['path'] } } },
         { type: 'function', function: { name: 'view_image', description: 'Display an image file visually to the user. For SVG files, renders the graphic with a "View Code" toggle. For raster images (PNG, JPG, GIF, WebP), shows the image. If you are vision-capable, the image is also sent to you for analysis. Use this when you want to see how an image/SVG actually looks. Use read_file instead when you want to read the raw SVG/XML markup as text.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path to the image file (SVG, PNG, JPG, GIF, WebP, etc.)' } }, required: ['path'] } } },
         { type: 'function', function: { name: 'edit_file', description: 'CRITICAL: Modify existing files using search/replace blocks. ALWAYS put "path" as the FIRST key in the JSON — placing it after "edits" causes truncation when edits are large, resulting in a missing-path error. Keep each old_text block under 20 lines.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'REQUIRED FIRST: Relative path to the file to edit. Put this before "edits" in the JSON object.' }, edits: { type: 'array', items: { type: 'object', properties: { old_text: { type: 'string', description: 'Exact text to find (must be unique in file, under 20 lines)' }, new_text: { type: 'string', description: 'Replacement text' } }, required: ['old_text', 'new_text'] }, description: 'Array of search/replace edits to apply sequentially' } }, required: ['path', 'edits'] } } },
-        { type: 'function', function: { name: 'write_file', description: 'Create a new file or completely overwrite. Only use for NEW files — prefer edit_file for existing files.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path' }, content: { type: 'string', description: 'Full file content' } }, required: ['path', 'content'] } } },
+        { type: 'function', function: { name: 'write_file', description: 'Create a new file or completely overwrite. Only use for NEW files — prefer edit_file for existing files. If content is large (>200 lines), use write_file_chunked instead to avoid truncation.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path' }, content: { type: 'string', description: 'Full file content' } }, required: ['path', 'content'] } } },
+        { type: 'function', function: { name: 'write_file_chunked', description: 'Write a large file by splitting content into an array of chunks that are concatenated in order. Use instead of write_file when file content is >100 lines — this prevents JSON truncation. CRITICAL: keep each chunk ≤ 60 lines so ALL chunks fit within the token budget together. More smaller chunks is always safer than fewer large ones. Put "path" first.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'REQUIRED FIRST: Relative path to the file to create/overwrite' }, chunks: { type: 'array', items: { type: 'string' }, description: 'Array of content strings concatenated in order to form the complete file. KEEP EACH CHUNK ≤ 60 LINES. The final file is chunks.join("").', minItems: 1 }, append: { type: 'boolean', description: 'If true, append chunks to existing file instead of overwriting. Use this to continue a partial write.' } }, required: ['path', 'chunks'] } } },
         { type: 'function', function: { name: 'list_directory', description: 'List files and directories. Image files are marked with [IMAGE].', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path (default: root)' }, recursive: { type: 'boolean', description: 'List recursively' } }, required: [] } } },
         { type: 'function', function: { name: 'search_files', description: 'Search for files by name pattern.', parameters: { type: 'object', properties: { pattern: { type: 'string', description: 'Substring or glob pattern' } }, required: ['pattern'] } } },
         { type: 'function', function: { name: 'grep', description: 'Search for text patterns in files with line numbers and context.', parameters: { type: 'object', properties: { pattern: { type: 'string', description: 'Regex or text to search for' }, path: { type: 'string', description: 'File or directory to search (default: root)' }, include: { type: 'string', description: 'File glob to include, e.g. "*.py"' }, context_lines: { type: 'number', description: 'Lines of context around matches (default: 0)' } }, required: ['pattern'] } } },
@@ -7265,6 +7280,21 @@ Python command: {{PYTHON_CMD}}`;
       tools.push({
         type: 'function',
         function: {
+          name: 'get_tool_schema',
+          description: 'Get the full parameter schema for any tool. Use when you need the exact parameter names, types, and constraints before calling an unfamiliar tool.',
+          parameters: {
+            type: 'object',
+            properties: {
+              tool_name: { type: 'string', description: 'Name of the tool to look up' }
+            },
+            required: ['tool_name']
+          }
+        }
+      });
+
+      tools.push({
+        type: 'function',
+        function: {
           name: 'spawn_swarm',
           description: 'Spawn a multi-agent swarm with a Manager and specialised Worker agents that share a live memory state. Workers can read what others have written and build on each other\'s outputs — unlike sub-agents, they communicate.\n\nUse for:\n- Full-stack tasks where frontend needs to know the backend API\n- Parallel investigation across different parts of a codebase\n- Tasks that decompose cleanly into independent specialisms (auth, DB, UI, tests, docs…)\n- Any task where agents need to hand off structured data to each other\n\nWorkflow:\n1. The Manager designs the worker roles and their execution order (sequential waves or independent)\n2. Workers run in order — each sees the shared memory written by earlier workers\n3. Workers can write keys to shared memory that later workers read\n4. The Manager synthesises all worker summaries into a final answer\n\nShared memory is a simple key/value store — workers write things like\n  {"api_endpoints": "/api/v1/users POST, /api/v1/users/:id GET"}\nand later workers read those keys to stay consistent.',
           parameters: {
@@ -7303,7 +7333,7 @@ Python command: {{PYTHON_CMD}}`;
       const el = document.getElementById('tools-list');
       el.innerHTML = defs.map(t => {
         const n = t.function.name;
-        const icons = { think: 'brain', read_file: 'file-code', read_file_lines: 'file-lines', view_image: 'image', edit_file: 'pen-to-square', write_file: 'file-circle-plus', list_directory: 'list', search_files: 'magnifying-glass', grep: 'magnifying-glass-plus', web_search: 'globe', fetch_url: 'magnifying-glass', execute_command: 'terminal', git_status: 'code-branch', git_diff: 'code-compare', git_log: 'clock-rotate-left', git_add: 'plus', git_commit: 'check', browser_launch: 'rocket', browser_navigate: 'compass', browser_screenshot: 'camera', browser_console: 'terminal', browser_click: 'hand-pointer', browser_type: 'keyboard', browser_evaluate: 'code', browser_get_content: 'file-lines', browser_wait_for: 'hourglass', browser_hover: 'arrow-pointer', hand_pointer: 'list-dropdown', browser_press_key: 'keyboard', browser_scroll: 'arrows-up-down', browser_go_back: 'arrow-left', browser_go_forward: 'arrow-right', browser_close: 'xmark', browser_select_option: 'hand-pointer', semantic_search: 'brain', spawn_sub_agent: 'sitemap', spawn_swarm: 'network-wired', swarm_memory_write: 'database', swarm_message: 'comments' };
+        const icons = { think: 'brain', read_file: 'file-code', read_file_lines: 'file-lines', view_image: 'image', edit_file: 'pen-to-square', write_file: 'file-circle-plus', write_file_chunked: 'file-circle-plus', list_directory: 'list', search_files: 'magnifying-glass', grep: 'magnifying-glass-plus', web_search: 'globe', fetch_url: 'magnifying-glass', execute_command: 'terminal', git_status: 'code-branch', git_diff: 'code-compare', git_log: 'clock-rotate-left', git_add: 'plus', git_commit: 'check', browser_launch: 'rocket', browser_navigate: 'compass', browser_screenshot: 'camera', browser_console: 'terminal', browser_click: 'hand-pointer', browser_type: 'keyboard', browser_evaluate: 'code', browser_get_content: 'file-lines', browser_wait_for: 'hourglass', browser_hover: 'arrow-pointer', hand_pointer: 'list-dropdown', browser_press_key: 'keyboard', browser_scroll: 'arrows-up-down', browser_go_back: 'arrow-left', browser_go_forward: 'arrow-right', browser_close: 'xmark', browser_select_option: 'hand-pointer', semantic_search: 'brain', spawn_sub_agent: 'sitemap', spawn_swarm: 'network-wired', swarm_memory_write: 'database', swarm_message: 'comments', get_tool_schema: 'book-open' };
         const live = ((n === 'execute_command' || n === 'web_search') && state.compConnected) || (n.startsWith('browser_') && state.browserAvailable) ? ' live' : '';
         return `<div class="tool-tag${live}" title="${t.function.description}"><i class="fas fa-${icons[n] || 'bolt'}"></i> ${n}</div>`;
       }).join('');
@@ -9833,6 +9863,91 @@ Python command: {{PYTHON_CMD}}`;
             break;
           }
 
+          case 'write_file_chunked': {
+            // Salvage partial chunks even from truncated/malformed JSON
+            let wcArgs = args;
+            let wasSalvaged = false;
+            if (args._parseError && argsStr) {
+              const rescued = { _parseError: args._parseError };
+              const pathM = argsStr.match(/"path"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+              if (pathM) rescued.path = pathM[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+              // Extract all complete quoted strings from the partial "chunks" array
+              const chunksStart = argsStr.indexOf('"chunks"');
+              if (chunksStart !== -1) {
+                const arrStart = argsStr.indexOf('[', chunksStart);
+                if (arrStart !== -1) {
+                  const partial = argsStr.slice(arrStart);
+                  const salvaged = [];
+                  let i = 1;
+                  while (i < partial.length) {
+                    while (i < partial.length && /[\s,]/.test(partial[i])) i++;
+                    if (partial[i] !== '"') break;
+                    let j = i + 1, str = '', complete = false;
+                    while (j < partial.length) {
+                      if (partial[j] === '\\' && j + 1 < partial.length) {
+                        const esc = partial[j + 1];
+                        str += esc === 'n' ? '\n' : esc === 't' ? '\t' : esc === 'r' ? '\r' : esc === '"' ? '"' : esc === '\\' ? '\\' : esc;
+                        j += 2;
+                      } else if (partial[j] === '"') { complete = true; j++; break; }
+                      else { str += partial[j]; j++; }
+                    }
+                    if (complete) { salvaged.push(str); i = j; }
+                    else break; // truncation point
+                  }
+                  if (salvaged.length) { rescued.chunks = salvaged; wasSalvaged = true; }
+                }
+              }
+              wcArgs = rescued;
+            }
+
+            if (!wcArgs.path) {
+              result = { output: 'Error: "path" is required for write_file_chunked. Put it first in the JSON.' };
+              break;
+            }
+            if (!Array.isArray(wcArgs.chunks) || !wcArgs.chunks.length) {
+              const errDetail = args._parseError
+                ? `The JSON was truncated before any complete chunks could be parsed.\n\nIMPORTANT: Keep each chunk small — 50-80 lines max — so that all chunks fit within the token budget.\n\nFix:\nwrite_file_chunked({"path": "${wcArgs.path || 'YOUR_FILE'}", "chunks": ["lines 1-60 here", "lines 61-120 here", "lines 121-180 here", ...]})`
+                : `"chunks" must be a non-empty array of strings.\n\nDebug: args.chunks = ${JSON.stringify(wcArgs.chunks)}, keys: ${Object.keys(wcArgs).join(', ')}`;
+              result = { output: 'Error: ' + errDetail };
+              break;
+            }
+
+            const joined = wcArgs.chunks.join('');
+            if (wcArgs.append) {
+              let existing = '';
+              try {
+                const segs2 = sanitizePath(wcArgs.path);
+                let d2 = state.dirHandle;
+                for (let i = 0; i < segs2.length - 1; i++) d2 = await d2.getDirectoryHandle(segs2[i], { create: false }).catch(() => null);
+                if (d2) {
+                  const fh2 = await d2.getFileHandle(segs2[segs2.length - 1], { create: false }).catch(() => null);
+                  if (fh2) existing = await (await fh2.getFile()).text();
+                }
+              } catch { /* file doesn't exist yet */ }
+              result = await writeFileSafe(wcArgs.path, existing + joined, state.requireEditApproval);
+            } else {
+              result = await writeFileSafe(wcArgs.path, joined, state.requireEditApproval);
+            }
+
+            if (result && !result._pendingApproval && !String(result.output || '').includes('Error')) {
+              const totalLines = joined.split('\n').length;
+              if (wasSalvaged) {
+                // Partial write — tell the model exactly what was written and how to continue
+                result.output = `⚠ PARTIAL WRITE (JSON was truncated mid-chunks):\n` +
+                  `Wrote ${wcArgs.chunks.length} chunk(s) / ${totalLines} lines / ${joined.length} bytes to "${wcArgs.path}".\n\n` +
+                  `The file is INCOMPLETE. Continue writing the rest using append mode:\n` +
+                  `write_file_chunked({"path": "${wcArgs.path}", "append": true, "chunks": ["...lines that come after what was written...", "...more lines..."]})\n\n` +
+                  `Keep each chunk ≤ 60 lines so all chunks fit in one tool call.`;
+              } else {
+                result.output = (result.output || 'OK') +
+                  ` [write_file_chunked: ${wcArgs.chunks.length} chunks, ${totalLines} lines, ${joined.length} bytes]`;
+              }
+              debouncedFileTreeRefresh();
+              debouncedEmbedUpdate(wcArgs.path);
+            }
+            break;
+          }
+
           case 'write_file': {
             if (args._parseError) {
               const contentHint = argsStr.includes('"content"') ? 'The "content" field was present but the JSON was cut off — the file content was too long for a single tool call.' : 'Could not find a "content" field in the truncated JSON.';
@@ -10067,6 +10182,20 @@ Python command: {{PYTHON_CMD}}`;
             
             
             
+          case 'get_tool_schema': {
+            const name = args.tool_name;
+            if (!name) { result = { output: 'Error: "tool_name" is required' }; break; }
+            const all = getToolDefs();
+            const def = all.find(t => t.function.name === name);
+            if (!def) {
+              const names = all.map(t => t.function.name).join(', ');
+              result = { output: `Tool "${name}" not found.\n\nAvailable tools: ${names}` };
+            } else {
+              result = { output: `Tool: ${name}\nDescription: ${def.function.description}\n\nParameters:\n${JSON.stringify(def.function.parameters, null, 2)}` };
+            }
+            break;
+          }
+
           case 'spawn_swarm':
             if (!args.goal) return { output: 'Error: "goal" is required for spawn_swarm' };
             if (!Array.isArray(args.workers) || !args.workers.length) return { output: 'Error: "workers" must be a non-empty array' };
@@ -10605,9 +10734,12 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             if (chunk.usage) {
               const u = chunk.usage;
               if (u.prompt_tokens != null) tokenTracker.lastPromptTokens = u.prompt_tokens;
-              if (u.completion_tokens != null && u.completion_tokens > 0) tokenTracker._callOut += u.completion_tokens;              
+              if (u.completion_tokens != null && u.completion_tokens > 0) tokenTracker._callOut += u.completion_tokens;
             }
-            const delta = chunk.choices?.[0]?.delta;
+            // Track finish_reason — "length" means the model hit max_tokens mid-output
+            const choice = chunk.choices?.[0];
+            if (choice?.finish_reason) streamState.finishReason = choice.finish_reason;
+            const delta = choice?.delta;
             if (!delta) continue;
             if (delta.content) {
               streamState.content += delta.content;
@@ -10631,7 +10763,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       }
 
       const outAccum = tokenTracker.totalOutputTokens + tokenTracker._callOut;
-      return { content: streamState.content, toolCalls: streamState.toolCalls.filter(Boolean), usage: { in: tokenTracker.lastPromptTokens, out: outAccum } };
+      return { content: streamState.content, toolCalls: streamState.toolCalls.filter(Boolean), finishReason: streamState.finishReason || 'stop', usage: { in: tokenTracker.lastPromptTokens, out: outAccum } };
     }
 
     /* ═══════════════ SUB-AGENT CHAT (with system prompt caching) ═══════════════ */
@@ -11473,6 +11605,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
               try {
                 const res = await executeTool(name, tc.function.arguments, workerAbort.signal, null);
                 outText = (typeof res === 'string') ? res : (res?.output || '');
+                outText = compressToolOutput(name, outText);
                 log.push({ tool: name, args: (tc.function.arguments || '').slice(0, 100), output: outText.slice(0, 200), success: !outText.includes('Error:') && !outText.includes('ERROR') });
               } catch (e) {
                 outText = 'Error: ' + e.message;
@@ -12067,7 +12200,165 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       }, { passive: true });
     }
 
-    /* ═══════════════ PROGRESS PERSISTENCE ═══════════════ */
+    /* ═══════════════════════════════════════════════════════════
+       TOKEN COMPRESSION PIPELINE
+       All tool outputs pass through compressToolOutput() before
+       being pushed to state.messages. Each compressor targets a
+       specific output format and is skipped if not applicable.
+       ═══════════════════════════════════════════════════════════ */
+
+    const _TOKEN_BUDGET = {
+      maxOutputChars: 40000,    // hard cap per tool result (~10k tokens)
+      searchSnippet: 300,       // chars per search result snippet
+      fetchMaxChars: 60000,     // max fetch_url content fed to model
+    };
+
+    /**
+     * Strip HTML boilerplate from fetch_url content.
+     * Removes: <script>, <style>, <nav>, <header>, <footer>, <aside>,
+     * inline attrs, and collapses whitespace.
+     * Preserves the actual page text content.
+     */
+    function _stripHtml(text) {
+      if (!text || !text.includes('<')) return text;
+      // Remove full block elements we never want
+      text = text.replace(/<script[\s\S]*?<\/script>/gi, '');
+      text = text.replace(/<style[\s\S]*?<\/style>/gi, '');
+      text = text.replace(/<nav[\s\S]*?<\/nav>/gi, '');
+      text = text.replace(/<header[\s\S]*?<\/header>/gi, '');
+      text = text.replace(/<footer[\s\S]*?<\/footer>/gi, '');
+      text = text.replace(/<aside[\s\S]*?<\/aside>/gi, '');
+      text = text.replace(/<!--[\s\S]*?-->/g, '');
+      // Strip remaining tags but keep their text content
+      text = text.replace(/<[^>]+>/g, ' ');
+      // Decode common HTML entities
+      text = text.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ');
+      // Collapse whitespace — but preserve paragraph breaks
+      text = text.replace(/[ \t]+/g, ' ');
+      text = text.replace(/\n[ \t]+/g, '\n');
+      text = text.replace(/\n{3,}/g, '\n\n');
+      return text.trim();
+    }
+
+    /**
+     * Light-parse web_search results:
+     * - Remove result metadata noise
+     * - Trim snippets to budget
+     * - Output as TOON (Token-Oriented Object Notation):
+     *   headers defined once, values streamed — no repeated key names
+     */
+    function _compressSearchOutput(text) {
+      if (!text.startsWith('Search:')) return text;
+      // Extract header line
+      const lines = text.split('\n');
+      const header = lines[0]; // "Search: "..." / Found N results"
+      const budget = _TOKEN_BUDGET.searchSnippet;
+      // Re-parse the result blocks
+      const blocks = text.split(/\n(?=\d+\. )/);
+      const headerBlock = blocks.shift() || header;
+      // TOON header — defined once
+      const toon = [
+        headerBlock.trim(),
+        '# TOON format: num|title|url|snippet',
+        ...blocks.map(b => {
+          const numM = b.match(/^(\d+)\.\s+(.+)/);
+          const urlM = b.match(/^\s+(https?:\/\/\S+)/m);
+          const snipM = b.match(/^\s{3}(?!https?:\/\/)(.+)/m);
+          const num = numM ? numM[1] : '?';
+          const title = numM ? numM[2].trim().slice(0, 100) : '?';
+          const url = urlM ? urlM[1].trim() : '';
+          const snip = snipM ? snipM[1].trim().slice(0, budget) : '';
+          // Inline fetched content if present
+          const fetchM = b.match(/--- Fetched content \([\d,]+ chars\) ---\n([\s\S]+?)(?:\n\s*\.\.\.|$)/);
+          const fetched = fetchM ? '\n  [fetched] ' + _stripHtml(fetchM[1]).slice(0, 3000).replace(/\n/g, '\n  ') : '';
+          return `${num}|${title}|${url}|${snip}${fetched}`;
+        })
+      ];
+      return toon.join('\n');
+    }
+
+    /**
+     * Convert list_directory output to TOON format.
+     * Before: "FILE src/app.js\nDIR src/components\n..."
+     * After:  "# TOON type|path[|tag]\nF|src/app.js\nD|src/components\n..."
+     * Saves ~25% of tokens on large directory listings.
+     */
+    function _compressDirectoryOutput(text) {
+      if (!text.includes('FILE ') && !text.includes('DIR ')) return text;
+      const lines = text.split('\n');
+      const toon = ['# TOON type|path[|tag]'];
+      let footer = '';
+      for (const line of lines) {
+        if (line.startsWith('FILE ') || line.startsWith('DIR ')) {
+          const isDir = line.startsWith('DIR ');
+          const rest = line.slice(5); // strip "FILE " or "DIR  "
+          const tagM = rest.match(/^(.+?)(\s+\[(IMAGE|PDF)\])?$/);
+          const path = tagM ? tagM[1] : rest;
+          const tag = tagM && tagM[2] ? '|' + tagM[3] : '';
+          toon.push((isDir ? 'D' : 'F') + '|' + path + tag);
+        } else if (line.startsWith('[')) {
+          footer = line; // keep the "N entries skipped" note
+        }
+      }
+      if (footer) toon.push(footer);
+      // Only use TOON if it's actually shorter
+      const toonStr = toon.join('\n');
+      return toonStr.length < text.length ? toonStr : text;
+    }
+
+    /**
+     * Hard-cap any tool output that's too large.
+     * Keeps head + tail so structural info is preserved.
+     */
+    function _capOutputSize(text, toolName) {
+      const max = _TOKEN_BUDGET.maxOutputChars;
+      if (text.length <= max) return text;
+      const head = Math.floor(max * 0.6);
+      const tail = max - head;
+      const truncMsg = `\n\n[... TRUNCATED: output was ${text.length} chars, showing first ${head} + last ${tail}. Use read_file_lines or grep to read specific sections. ...]\n\n`;
+      return text.slice(0, head) + truncMsg + text.slice(-tail);
+    }
+
+    let _totalCompressedChars = 0;
+    let _totalOriginalChars = 0;
+
+    /** Master pipeline — call before pushing any tool result to state.messages */
+    function compressToolOutput(toolName, outText) {
+      if (!outText || typeof outText !== 'string') return outText;
+      let t = outText;
+
+      // Per-tool compressors
+      if (toolName === 'web_search') t = _compressSearchOutput(t);
+      else if (toolName === 'list_directory') t = _compressDirectoryOutput(t);
+      else if (toolName === 'fetch_url') {
+        // Strip HTML from the content section (after the --- separator)
+        const sepIdx = t.indexOf('\n---\n');
+        if (sepIdx !== -1) {
+          const header = t.slice(0, sepIdx + 5);
+          const body = _stripHtml(t.slice(sepIdx + 5));
+          t = header + body.slice(0, _TOKEN_BUDGET.fetchMaxChars) +
+            (body.length > _TOKEN_BUDGET.fetchMaxChars ? '\n\n[... fetch content truncated ...]' : '');
+        }
+      }
+
+      // Universal size cap
+      t = _capOutputSize(t, toolName);
+
+      // Track savings
+      _totalOriginalChars += outText.length;
+      _totalCompressedChars += t.length;
+
+      return t;
+    }
+
+    function getCompressionStats() {
+      if (_totalOriginalChars === 0) return null;
+      const saved = _totalOriginalChars - _totalCompressedChars;
+      const pct = Math.round(saved / _totalOriginalChars * 100);
+      return { saved, pct, original: _totalOriginalChars, compressed: _totalCompressedChars };
+    }
+
+    /* ══════════════════════════════════════════════════════════= */
     const PROGRESS_FILE = getProgressFile(state.activeConvId);
 
     function getProgressFile(convId) {
@@ -12258,6 +12549,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
         // Re-inject original task so the model knows what to continue doing
         state.messages = [];
+        _totalOriginalChars = 0; _totalCompressedChars = 0; // reset compression stats after compact
         if (state.originalTask) {
           state.messages.push({ role: 'user', content: '[ORIGINAL TASK — keep working on this]\n' + state.originalTask });
         }
@@ -12361,6 +12653,31 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           tcs = _chatRes?.toolCalls?.filter(Boolean) || [];
           usage = _chatRes.usage || { in: 0, out: 0 };
           tokenTracker.commit();
+
+          /* ── Truncation recovery ──────────────────────────────────────
+           * If the model hit max_tokens while generating a tool call's
+           * arguments, finish_reason will be "length" and the arguments
+           * string will be invalid JSON. Instead of passing broken args
+           * to executeTool (which gives a confusing error), we inject a
+           * synthetic tool result that explains exactly how to recover.
+           * ────────────────────────────────────────────────────────────*/
+          if (_chatRes.finishReason === 'length' && tcs.length) {
+            const truncatedTcs = tcs.filter(tc => {
+              if (!tc.function.arguments) return true;
+              try { JSON.parse(tc.function.arguments); return false; }
+              catch { return true; }
+            });
+            if (truncatedTcs.length) {
+              // Push the (broken) assistant message first so the conversation is valid
+              const brokenAm = { role: 'assistant', content: cur || null };
+              brokenAm.tool_calls = tcs;
+              // Don't double-push — we already pushed am below, so patch it
+              // Actually we haven't pushed yet here; handle below by continuing
+              // before the normal push. Mark them so agentLoop skips execution.
+              tcs._hasTruncation = true;
+              tcs._truncatedTcs = truncatedTcs;
+            }
+          }
         } catch (e) {
           // ── Cleanup: safely finalize all mid-stream UI elements ──
           if (th && th.parentNode) th.remove();
@@ -12434,6 +12751,60 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             continue;
           }
           finalizeStreamingMsg(cur); break;
+        }
+
+        /* ── Truncation recovery: inject synthetic error results ── */
+        if (tcs._hasTruncation) {
+          finalizeStreamingMsg(cur); streamEl = null;
+          const am2 = { role: 'assistant', content: cur || null, tool_calls: tcs };
+          state.messages.push(am2); updateContextMeter();
+
+          for (const tc of tcs._truncatedTcs) {
+            const name = tc.function.name;
+            const argsStr = tc.function.arguments || '';
+            // Try to rescue path from whatever was generated before truncation
+            const pathMatch = argsStr.match(/"path"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+            const rescuedPath = pathMatch ? pathMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\') : null;
+            const pathHint = rescuedPath ? ` for "${rescuedPath}"` : '';
+
+            let recoveryMsg;
+            if (name === 'write_file') {
+              recoveryMsg =
+                `TRUNCATED — write_file${pathHint} was cut off mid-argument (hit max_tokens).\n\n` +
+                `The file content is too large to fit in a single tool call's JSON.\n\n` +
+                `Fix — use write_file_chunked instead:\n` +
+                `write_file_chunked({\n` +
+                `  "path": "${rescuedPath || 'YOUR_FILE_PATH'}",\n` +
+                `  "chunks": [\n` +
+                `    "first ~200 lines of the file",\n` +
+                `    "next ~200 lines",\n` +
+                `    "... continue until complete"\n` +
+                `  ]\n` +
+                `})\n\n` +
+                `Each chunk should be under 300 lines. The tool concatenates them in order.`;
+            } else if (name === 'edit_file') {
+              recoveryMsg =
+                `TRUNCATED — edit_file${pathHint} was cut off mid-argument (hit max_tokens).\n\n` +
+                `The old_text or new_text block is too large.\n\n` +
+                `Fix:\n` +
+                `1. Break the edit into multiple smaller edit_file calls (each old_text ≤ 20 lines)\n` +
+                `2. Target only the specific lines that need to change — don't include large unchanged blocks in old_text\n` +
+                `3. Always put "path" as the FIRST key in the JSON`;
+            } else {
+              recoveryMsg =
+                `TRUNCATED — ${name}${pathHint} arguments were cut off mid-stream (hit max_tokens).\n\n` +
+                `Reduce the size of the arguments and retry.`;
+            }
+
+            state.messages.push({ role: 'tool', tool_call_id: tc.id, content: recoveryMsg });
+
+            // Show a warning UI element
+            const warnEl = document.createElement('div');
+            warnEl.className = 'health-warning';
+            warnEl.innerHTML = `<i class="fas fa-scissors"></i><span>Tool call truncated (hit max_tokens) — injecting recovery guidance for <code>${esc(name)}</code>${rescuedPath ? ' → ' + esc(rescuedPath) : ''}</span>`;
+            $msg().appendChild(warnEl); scrollBottom();
+          }
+          continue; // Let the model read the recovery messages and retry
         }
         if (cur) finalizeStreamingMsg(cur);
 
@@ -12664,6 +13035,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           if (!outText.includes('Error:') && !outText.includes('ERROR') && !outText.includes('Cancelled')) {
             const args = safeParseArgs(tc.function.arguments);
             if (tc.function.name === 'write_file') sessionChanges.created.add(args.path);
+            if (tc.function.name === 'write_file_chunked') sessionChanges.created.add(args.path);
             if (tc.function.name === 'edit_file') sessionChanges.modified.add(args.path);
             if (tc.function.name === 'delete_file') sessionChanges.deleted.add(args.path);
             if (tc.function.name === 'move_file') sessionChanges.moved.push({ from: args.source, to: args.destination });
@@ -12802,7 +13174,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
                 });
                 continue;
               }
-              const toolMsg = { role: 'tool', tool_call_id: tc.id, content: r.outText, _diff: r.diff || null, _searchData: r.searchData || null };
+              const toolMsg = { role: 'tool', tool_call_id: tc.id, content: compressToolOutput(tc.function.name, r.outText), _diff: r.diff || null, _searchData: r.searchData || null };
               if (panel) {
                 if (panel.el._svgPreviewUrl) { toolMsg._svgPreviewUrl = panel.el._svgPreviewUrl; toolMsg._svgText = panel.el._svgText; toolMsg._svgPath = panel.el._svgPath; }
                 if (panel.el._previewDataUrl) { toolMsg._previewDataUrl = panel.el._previewDataUrl; toolMsg._previewPath = panel.el._previewPath; }
