@@ -3651,6 +3651,90 @@
       flex-shrink: 0
     }
 
+    /* ══════════════════════════════════════════
+       SWARM PANEL — Manager/Worker UI
+       ══════════════════════════════════════════ */
+    .swarm-panel {
+      border: 1px solid rgba(139, 92, 246, .25);
+      border-radius: 10px;
+      background: var(--bg-1);
+      overflow: hidden;
+      margin: 4px 0;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .swarm-hdr {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px;
+      background: rgba(139, 92, 246, .07);
+      border-bottom: 1px solid rgba(139, 92, 246, .15);
+      cursor: pointer; user-select: none;
+    }
+    .swarm-hdr:hover { background: rgba(139, 92, 246, .12); }
+    .swarm-icon { color: #a78bfa; font-size: 13px; flex-shrink: 0; }
+    .swarm-label { font-size: 11px; font-weight: 700; color: #a78bfa; letter-spacing: .5px; text-transform: uppercase; flex-shrink: 0; }
+    .swarm-goal { font-size: 11px; color: var(--tx-1); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .swarm-status { font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 3px; flex-shrink: 0; letter-spacing: .5px; }
+    .swarm-status.running { background: rgba(234,179,8,.12); color: var(--yellow); animation: pulse 1s infinite; }
+    .swarm-status.done    { background: rgba(34,197,94,.1);  color: var(--green); }
+    .swarm-status.error   { background: rgba(239,68,68,.1);  color: var(--red); }
+    .swarm-meta { font-size: 9px; color: var(--tx-4); flex-shrink: 0; }
+    .swarm-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+    .swarm-mem { background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .swarm-mem-hdr { display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-bottom: 1px solid var(--border); font-size: 9px; color: var(--tx-3); cursor: pointer; }
+    .swarm-mem-hdr:hover { background: var(--bg-3); }
+    .swarm-mem-hdr i { color: #a78bfa; }
+    .swarm-mem-hdr .mem-count { margin-left: auto; background: var(--bg-3); padding: 0 5px; border-radius: 3px; color: var(--tx-4); }
+    .swarm-mem-body { padding: 8px 10px; font-size: 10px; line-height: 1.6; max-height: 140px; overflow-y: auto; display: none; }
+    .swarm-mem-body.open { display: block; }
+    .swarm-mem-entry { display: flex; gap: 6px; padding: 2px 0; border-bottom: 1px solid var(--border); }
+    .swarm-mem-entry:last-child { border-bottom: none; }
+    .swarm-mem-key { color: #a78bfa; min-width: 120px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .swarm-mem-val { color: var(--tx-1); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .swarm-mem-writer { color: var(--tx-4); font-size: 8px; flex-shrink: 0; }
+    .swarm-mem-empty { color: var(--tx-4); font-style: italic; font-size: 10px; padding: 4px 0; }
+    .swarm-bus { background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .swarm-bus-hdr { display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-bottom: 1px solid var(--border); font-size: 9px; color: var(--tx-3); cursor: pointer; }
+    .swarm-bus-hdr:hover { background: var(--bg-3); }
+    .swarm-bus-hdr i { color: var(--teal); }
+    .swarm-bus-body { padding: 6px 10px; font-size: 10px; line-height: 1.6; max-height: 120px; overflow-y: auto; display: none; }
+    .swarm-bus-body.open { display: block; }
+    .swarm-bus-msg { display: flex; gap: 6px; padding: 2px 0; border-bottom: 1px solid var(--border); align-items: flex-start; }
+    .swarm-bus-msg:last-child { border-bottom: none; }
+    .swarm-bus-from { color: var(--teal); flex-shrink: 0; min-width: 70px; }
+    .swarm-bus-to { color: var(--accent); flex-shrink: 0; min-width: 70px; }
+    .swarm-bus-arrow { color: var(--tx-4); flex-shrink: 0; }
+    .swarm-bus-content { color: var(--tx-1); flex: 1; word-break: break-word; white-space: pre-wrap; }
+    .swarm-workers { display: flex; flex-direction: column; gap: 4px; }
+    .swarm-worker { background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .swarm-worker.running { border-color: rgba(234,179,8,.3); }
+    .swarm-worker.done    { border-color: rgba(34,197,94,.2); }
+    .swarm-worker.error   { border-color: rgba(239,68,68,.2); }
+    .swarm-worker.pending { opacity: .55; }
+    .swarm-worker-hdr { display: flex; align-items: center; gap: 7px; padding: 6px 10px; cursor: pointer; }
+    .swarm-worker-hdr:hover { background: var(--bg-3); }
+    .swarm-worker-avatar { width: 22px; height: 22px; border-radius: 5px; display: grid; place-items: center; font-size: 10px; font-weight: 700; flex-shrink: 0; color: var(--bg-0); }
+    .swarm-worker-name { font-size: 11px; font-weight: 600; color: var(--tx-0); flex-shrink: 0; }
+    .swarm-worker-role { font-size: 10px; color: var(--tx-3); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .swarm-worker-status { font-size: 9px; padding: 1px 6px; border-radius: 3px; flex-shrink: 0; font-weight: 600; }
+    .swarm-worker-status.running { color: var(--yellow); animation: pulse 1s infinite; }
+    .swarm-worker-status.done    { color: var(--green); }
+    .swarm-worker-status.error   { color: var(--red); }
+    .swarm-worker-status.pending { color: var(--tx-4); }
+    .swarm-worker-iter { font-size: 9px; color: var(--tx-4); flex-shrink: 0; }
+    .swarm-worker-body { padding: 0 10px 8px; display: none; }
+    .swarm-worker-body.open { display: block; }
+    .swarm-worker-summary { font-size: 11px; line-height: 1.6; color: var(--tx-1); border-top: 1px solid var(--border); padding-top: 7px; margin-bottom: 5px; font-family: 'Space Grotesk', sans-serif; }
+    .swarm-worker-log { display: flex; flex-direction: column; gap: 1px; }
+    .swarm-worker-log-entry { display: flex; gap: 5px; font-size: 9px; padding: 1px 0; border-bottom: 1px solid var(--border); color: var(--tx-4); align-items: flex-start; }
+    .swarm-worker-log-entry:last-child { border-bottom: none; }
+    .swarm-worker-log-tool { color: var(--teal); flex-shrink: 0; min-width: 90px; }
+    .swarm-worker-log-ok  { color: var(--green); flex-shrink: 0; }
+    .swarm-worker-log-err { color: var(--red);   flex-shrink: 0; }
+    .swarm-worker-log-out { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .swarm-worker-log-out:hover { white-space: normal; word-break: break-word; }
+    .swarm-manager-summary { background: rgba(139,92,246,.06); border: 1px solid rgba(139,92,246,.18); border-radius: 6px; padding: 10px 12px; font-size: 12px; line-height: 1.65; color: var(--tx-1); font-family: 'Space Grotesk', sans-serif; }
+    .swarm-manager-label { font-size: 9px; font-weight: 700; color: #a78bfa; letter-spacing: .8px; text-transform: uppercase; margin-bottom: 6px; display: flex; align-items: center; gap: 5px; }
+
     .tool-actions {
       display: flex;
       gap: 2px;
@@ -5091,7 +5175,7 @@ def run_cmd(cmd, cwd=None, timeout=DEFAULT_TIMEOUT):
                 cmd = alt + stripped[len(first_word):]
     if WINDOWS_BASH:
         # Translate Windows command syntax to Unix/bash equivalents for Git Bash
-        cmd = _translate_for_cmd(cmd)
+        cmd = _translate_for_cmd_bash(cmd)
         kw = dict(args=[WINDOWS_BASH, "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd)
     elif platform.system() == "Windows":
         translated = _translate_for_cmd(cmd)
@@ -6287,9 +6371,12 @@ Read this section to know what is available RIGHT NOW:
 **CRITICAL: Always use edit_file for existing files.** write_file is ONLY for creating brand new files that do not yet exist.
 
 edit_file uses search/replace blocks. Rules:
-- The old_text MUST be an exact substring of the file (copy it exactly, including whitespace and indentation)
+- **Always put \`"path"\` as the first key** in the JSON object — before \`"edits"\`. If \`path\` comes after the edits array and the JSON is truncated, the path is lost and the call fails.
+- The old_text MUST be a substring of the file. It is matched using four tiers in order: (1) exact, (2) CRLF + trailing-whitespace normalised, (3) indent-flexible (leading whitespace stripped and re-applied), (4) fuzzy best-window similarity score ≥ 0.82
+- If the fuzzy score is between 0.45 and 0.82, the error message will show you the closest matching block in the file — copy it as your new old_text and retry
+- If all tiers fail, use read_file or grep to find the exact current text, then retry
 - old_text must be unique in the file — include enough surrounding context (3-5 lines) to guarantee uniqueness
-- If old_text is not found, edit_file will try whitespace-normalized matching (trailing whitespace differences are tolerated)
+- Keep each old_text under 20 lines — split large edits into multiple edit_file calls
 - Multiple edits can be submitted in one call — they apply sequentially
 - After applying edits, a diff is shown to you for review — check it is correct
 - If a diff looks wrong, fix it with another edit_file call immediately
@@ -6379,6 +6466,17 @@ You can call multiple tools in a single turn — they execute in parallel. Use t
 Do NOT parallelize when:
 - The second tool depends on the first tool's output
 - Editing the same file from multiple calls (they'd conflict)
+
+═══ AGENT DELEGATION ═══
+
+**spawn_sub_agent** — for a focused, self-contained sub-task. The sub-agent works alone and returns a summary. Use for: reading many files to build context, searching a codebase, or making a contained set of edits.
+
+**spawn_swarm** — for complex tasks that need multiple specialists who share information. Workers run in order and use a shared memory store to pass structured data to each other (API endpoints, schemas, decisions). Use for:
+- Full-stack features (backend worker writes API shape → frontend worker reads it to write the fetch call)
+- Parallel investigation across domains (auth, DB, UI, tests) that must stay consistent
+- Any task where agent B needs to know what agent A decided
+
+When spawning a swarm, design roles at the start: think about who needs to write what and who needs to read it. Use \`writes_to\` and \`reads_from\` to make the data flow explicit.
 
 ═══ BROWSER AUTOMATION ═══
 
@@ -7095,7 +7193,7 @@ Python command: {{PYTHON_CMD}}`;
         }},
         { type: 'function', function: { name: 'read_file_lines', description: 'Read specific line ranges from a file. Much more efficient than reading entire files.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path' }, start_line: { type: 'number', description: '1-based start line (default: 1)' }, end_line: { type: 'number', description: '1-based end line (default: end of file)' } }, required: ['path'] } } },
         { type: 'function', function: { name: 'view_image', description: 'Display an image file visually to the user. For SVG files, renders the graphic with a "View Code" toggle. For raster images (PNG, JPG, GIF, WebP), shows the image. If you are vision-capable, the image is also sent to you for analysis. Use this when you want to see how an image/SVG actually looks. Use read_file instead when you want to read the raw SVG/XML markup as text.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path to the image file (SVG, PNG, JPG, GIF, WebP, etc.)' } }, required: ['path'] } } },
-        { type: 'function', function: { name: 'edit_file', description: 'CRITICAL: Modify existing files. You MUST specify the target file path. Provide exactly matching old_text search blocks and your new_text replacements.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'REQUIRED: Relative path to the file you want to edit. ALWAYS specify this key.' }, edits: { type: 'array', items: { type: 'object', properties: { old_text: { type: 'string', description: 'Exact text to find (must be unique in file)' }, new_text: { type: 'string', description: 'Replacement text' } }, required: ['old_text', 'new_text'] }, description: 'Array of search/replace edits to apply sequentially' } }, required: ['path', 'edits'] } } },
+        { type: 'function', function: { name: 'edit_file', description: 'CRITICAL: Modify existing files using search/replace blocks. ALWAYS put "path" as the FIRST key in the JSON — placing it after "edits" causes truncation when edits are large, resulting in a missing-path error. Keep each old_text block under 20 lines.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'REQUIRED FIRST: Relative path to the file to edit. Put this before "edits" in the JSON object.' }, edits: { type: 'array', items: { type: 'object', properties: { old_text: { type: 'string', description: 'Exact text to find (must be unique in file, under 20 lines)' }, new_text: { type: 'string', description: 'Replacement text' } }, required: ['old_text', 'new_text'] }, description: 'Array of search/replace edits to apply sequentially' } }, required: ['path', 'edits'] } } },
         { type: 'function', function: { name: 'write_file', description: 'Create a new file or completely overwrite. Only use for NEW files — prefer edit_file for existing files.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path' }, content: { type: 'string', description: 'Full file content' } }, required: ['path', 'content'] } } },
         { type: 'function', function: { name: 'list_directory', description: 'List files and directories. Image files are marked with [IMAGE].', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Relative path (default: root)' }, recursive: { type: 'boolean', description: 'List recursively' } }, required: [] } } },
         { type: 'function', function: { name: 'search_files', description: 'Search for files by name pattern.', parameters: { type: 'object', properties: { pattern: { type: 'string', description: 'Substring or glob pattern' } }, required: ['pattern'] } } },
@@ -7164,6 +7262,39 @@ Python command: {{PYTHON_CMD}}`;
         }
       });
 
+      tools.push({
+        type: 'function',
+        function: {
+          name: 'spawn_swarm',
+          description: 'Spawn a multi-agent swarm with a Manager and specialised Worker agents that share a live memory state. Workers can read what others have written and build on each other\'s outputs — unlike sub-agents, they communicate.\n\nUse for:\n- Full-stack tasks where frontend needs to know the backend API\n- Parallel investigation across different parts of a codebase\n- Tasks that decompose cleanly into independent specialisms (auth, DB, UI, tests, docs…)\n- Any task where agents need to hand off structured data to each other\n\nWorkflow:\n1. The Manager designs the worker roles and their execution order (sequential waves or independent)\n2. Workers run in order — each sees the shared memory written by earlier workers\n3. Workers can write keys to shared memory that later workers read\n4. The Manager synthesises all worker summaries into a final answer\n\nShared memory is a simple key/value store — workers write things like\n  {"api_endpoints": "/api/v1/users POST, /api/v1/users/:id GET"}\nand later workers read those keys to stay consistent.',
+          parameters: {
+            type: 'object',
+            properties: {
+              goal: { type: 'string', description: 'The high-level goal for the entire swarm — a few sentences describing what should be accomplished' },
+              workers: {
+                type: 'array',
+                description: 'Ordered list of worker agents. Workers earlier in the list run first and can write shared memory for later workers to read.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    name:  { type: 'string', description: 'Short identifier, e.g. "backend", "auth", "tests"' },
+                    role:  { type: 'string', description: 'One sentence describing what this worker does' },
+                    task:  { type: 'string', description: 'Detailed instructions for the worker. Mention which shared memory keys to READ and which to WRITE.' },
+                    tools: { type: 'array', items: { type: 'string' }, description: 'Tool names this worker may use. Defaults to read+write tools.' },
+                    reads_from:  { type: 'array', items: { type: 'string' }, description: 'Shared memory keys this worker will read (optional, for documentation)' },
+                    writes_to:   { type: 'array', items: { type: 'string' }, description: 'Shared memory keys this worker will write (optional, for documentation)' },
+                    max_iterations: { type: 'number', description: 'Max rounds for this worker (default 10, max 25)' }
+                  },
+                  required: ['name', 'role', 'task']
+                }
+              },
+              max_worker_iterations: { type: 'number', description: 'Default max iterations for all workers if not set individually (default 10)' }
+            },
+            required: ['goal', 'workers']
+          }
+        }
+      });
+
       return tools;
     }
 
@@ -7172,7 +7303,7 @@ Python command: {{PYTHON_CMD}}`;
       const el = document.getElementById('tools-list');
       el.innerHTML = defs.map(t => {
         const n = t.function.name;
-        const icons = { think: 'brain', read_file: 'file-code', read_file_lines: 'file-lines', view_image: 'image', edit_file: 'pen-to-square', write_file: 'file-circle-plus', list_directory: 'list', search_files: 'magnifying-glass', grep: 'magnifying-glass-plus', web_search: 'globe', fetch_url: 'magnifying-glass', execute_command: 'terminal', git_status: 'code-branch', git_diff: 'code-compare', git_log: 'clock-rotate-left', git_add: 'plus', git_commit: 'check', browser_launch: 'rocket', browser_navigate: 'compass', browser_screenshot: 'camera', browser_console: 'terminal', browser_click: 'hand-pointer', browser_type: 'keyboard', browser_evaluate: 'code', browser_get_content: 'file-lines', browser_wait_for: 'hourglass', browser_hover: 'arrow-pointer', hand_pointer: 'list-dropdown', browser_press_key: 'keyboard', browser_scroll: 'arrows-up-down', browser_go_back: 'arrow-left', browser_go_forward: 'arrow-right', browser_close: 'xmark', browser_select_option: 'hand-pointer', semantic_search: 'brain' };
+        const icons = { think: 'brain', read_file: 'file-code', read_file_lines: 'file-lines', view_image: 'image', edit_file: 'pen-to-square', write_file: 'file-circle-plus', list_directory: 'list', search_files: 'magnifying-glass', grep: 'magnifying-glass-plus', web_search: 'globe', fetch_url: 'magnifying-glass', execute_command: 'terminal', git_status: 'code-branch', git_diff: 'code-compare', git_log: 'clock-rotate-left', git_add: 'plus', git_commit: 'check', browser_launch: 'rocket', browser_navigate: 'compass', browser_screenshot: 'camera', browser_console: 'terminal', browser_click: 'hand-pointer', browser_type: 'keyboard', browser_evaluate: 'code', browser_get_content: 'file-lines', browser_wait_for: 'hourglass', browser_hover: 'arrow-pointer', hand_pointer: 'list-dropdown', browser_press_key: 'keyboard', browser_scroll: 'arrows-up-down', browser_go_back: 'arrow-left', browser_go_forward: 'arrow-right', browser_close: 'xmark', browser_select_option: 'hand-pointer', semantic_search: 'brain', spawn_sub_agent: 'sitemap', spawn_swarm: 'network-wired', swarm_memory_write: 'database', swarm_message: 'comments' };
         const live = ((n === 'execute_command' || n === 'web_search') && state.compConnected) || (n.startsWith('browser_') && state.browserAvailable) ? ' live' : '';
         return `<div class="tool-tag${live}" title="${t.function.description}"><i class="fas fa-${icons[n] || 'bolt'}"></i> ${n}</div>`;
       }).join('');
@@ -8583,66 +8714,232 @@ Python command: {{PYTHON_CMD}}`;
       }
     }
 
+    /* ═══════════════ EDIT-FILE MATCHING ENGINE ═══════════════
+     *
+     * Tier 1 — exact string match
+     * Tier 2 — CRLF + trailing-whitespace normalisation
+     * Tier 3 — indent-flexible: strip all leading whitespace, match on
+     *           content, then re-indent new_text to match the file's indent
+     * Tier 4 — best-window similarity: score every N-line window in the
+     *           file against old_text using Jaccard on word tokens.
+     *           If score ≥ FUZZY_THRESHOLD apply the edit; if score ≥
+     *           HINT_THRESHOLD but below the apply bar, show the near-
+     *           match so the LLM can fix its old_text immediately.
+     * ═══════════════════════════════════════════════════════ */
+    const FUZZY_APPLY_THRESHOLD = 0.82; // auto-apply above this similarity
+    const FUZZY_HINT_THRESHOLD  = 0.45; // show near-match hint above this
+
+    function _editTokens(line) {
+      // Normalise: lower-case, collapse whitespace, split on non-word chars
+      return line.toLowerCase().replace(/\s+/g, ' ').trim().split(/[^a-z0-9_]+/).filter(Boolean);
+    }
+
+    function _jaccard(setA, setB) {
+      if (!setA.size && !setB.size) return 1;
+      if (!setA.size || !setB.size) return 0;
+      let inter = 0;
+      for (const t of setA) if (setB.has(t)) inter++;
+      return inter / (setA.size + setB.size - inter);
+    }
+
+    /** Score how similar old_lines are to fileLines[start..start+len] */
+    function _windowScore(fileLines, start, oldLines) {
+      const len = oldLines.length;
+      if (start + len > fileLines.length) return 0;
+      let total = 0;
+      for (let i = 0; i < len; i++) {
+        const fa = new Set(_editTokens(fileLines[start + i]));
+        const oa = new Set(_editTokens(oldLines[i]));
+        total += _jaccard(fa, oa);
+      }
+      return total / len;
+    }
+
+    /** Find the best-matching window; returns {score, start, realOld} */
+    function _bestWindow(fileLines, oldLines) {
+      const len = Math.max(oldLines.length, 1);
+      let best = { score: 0, start: 0 };
+      for (let s = 0; s <= fileLines.length - len; s++) {
+        const sc = _windowScore(fileLines, s, oldLines);
+        if (sc > best.score) best = { score: sc, start: s };
+      }
+      best.realOld = fileLines.slice(best.start, best.start + len).join('\n');
+      return best;
+    }
+
+    /** Strip the common leading indent from a block of lines */
+    function _dedent(lines) {
+      const minInd = lines
+        .filter(l => l.trim())
+        .reduce((m, l) => Math.min(m, l.match(/^(\s*)/)[1].length), Infinity);
+      const ind = isFinite(minInd) ? minInd : 0;
+      return { lines: lines.map(l => l.slice(ind)), indent: ind };
+    }
+
+    /** Re-indent new_text so its base indent matches targetIndent spaces */
+    function _reindent(newText, targetIndent) {
+      const newLines = newText.split('\n');
+      const { lines: dedented, indent: newBase } = _dedent(newLines);
+      const prefix = ' '.repeat(targetIndent);
+      return dedented.map((l, i) => (i === 0 || l.trim() === '') ? l : prefix + l).join('\n');
+    }
+
     async function editFileSafe(rel, edits, dryRun = false) {
-      requireWorkspace(); const segs = sanitizePath(rel);
-      if (isSkippedPath(rel)) return { output: `File "${rel}" is filtered by workspace rules and cannot be edited.` };      
+      requireWorkspace();
+      const segs = sanitizePath(rel);
+      if (isSkippedPath(rel)) return { output: `File "${rel}" is filtered by workspace rules and cannot be edited.` };
+
       let dir = state.dirHandle;
       for (let i = 0; i < segs.length - 1; i++) dir = await dir.getDirectoryHandle(segs[i], { create: true });
       const fh = await dir.getFileHandle(segs[segs.length - 1], { create: false });
-      const file = await fh.getFile(); let content = await file.text();
+      const file = await fh.getFile();
+      let content = await file.text();
       const originalContent = content;
       if (!state.fileBackups.has(rel)) state.fileBackups.set(rel, content);
-      const results = []; const allDiffs = [];
+
+      const results = [];
+      const allDiffs = [];
+
       for (let i = 0; i < edits.length; i++) {
-        const { old_text, new_text } = edits[i];
+        const { old_text, new_text = '' } = edits[i];
         if (!old_text) { results.push(`Edit ${i + 1}: ERROR — old_text is empty`); continue; }
+
+        // ── Tier 1: exact match ──────────────────────────────────────────
         let idx = content.indexOf(old_text);
-        if (idx === -1) {
-          // Fallback: normalize trailing whitespace and blank lines, then retry
-          const normContent = content.split('\n').map(l => l.replace(/\s+$/, '')).join('\n').replace(/\n{3,}/g, '\n\n');
-          const normOld = old_text.split('\n').map(l => l.replace(/\s+$/, '')).join('\n').replace(/\n{3,}/g, '\n\n');
-          idx = normContent.indexOf(normOld);
-          if (idx !== -1) {
-            // Map back: find the same line range in original content
-            const normLines = normOld.split('\n');
-            const lineStart = normContent.substring(0, idx).split('\n').length - 1;
-            const origLines = content.split('\n');
-            const realOld = origLines.slice(lineStart, lineStart + normLines.length).join('\n');
-            if (content.indexOf(realOld) !== -1) {
-              content = content.replace(realOld, new_text);
-              results.push(`Edit ${i + 1}: OK (whitespace-normalized match)`);
-              const occurrences = content.split(realOld).length - 1;
-              if (occurrences > 1) results.push(`Edit ${i + 1}: WARNING — old_text found ${occurrences} times, replacing first`);
-              allDiffs.push(generateDiffFromStrings(realOld, new_text));
+        if (idx !== -1) {
+          const occ = (content.split(old_text).length - 1);
+          if (occ > 1) results.push(`Edit ${i + 1}: WARNING — old_text found ${occ} times, replacing first`);
+          content = content.slice(0, idx) + new_text + content.slice(idx + old_text.length);
+          results.push(`Edit ${i + 1}: OK`);
+          allDiffs.push(generateDiffFromStrings(old_text, new_text));
+          continue;
+        }
+
+        // ── Tier 2: CRLF + trailing-whitespace normalisation ─────────────
+        const norm = s => s.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+                           .split('\n').map(l => l.replace(/[^\S\n]+$/, '')).join('\n')
+                           .replace(/\n{3,}/g, '\n\n');
+        const normContent = norm(content);
+        const normOld    = norm(old_text);
+        idx = normContent.indexOf(normOld);
+        if (idx !== -1) {
+          const lineStart = normContent.substring(0, idx).split('\n').length - 1;
+          const origLines = content.split('\n');
+          const oldLineCount = normOld.split('\n').length;
+          const realOld = origLines.slice(lineStart, lineStart + oldLineCount).join('\n');
+          if (content.includes(realOld)) {
+            content = content.replace(realOld, new_text);
+            results.push(`Edit ${i + 1}: OK (whitespace-normalized match)`);
+            allDiffs.push(generateDiffFromStrings(realOld, new_text));
+            continue;
+          }
+        }
+
+        // ── Tier 3: indent-flexible match ────────────────────────────────
+        // Strip all leading indent from both sides, match on content only,
+        // then re-apply the file's indentation to new_text.
+        {
+          const fileLines = content.split('\n');
+          const oldLines  = old_text.split('\n');
+          const { lines: dedentedOld } = _dedent(oldLines.filter((_, li) => li > 0 || oldLines[0].trim()));
+          const dedentedOldStr = dedentedOld.join('\n').replace(/[^\S\n]+$/gm, '');
+
+          // Build a dedented version of the file for searching
+          let matchStart = -1;
+          let matchLen   = dedentedOld.length;
+          for (let s = 0; s <= fileLines.length - matchLen; s++) {
+            const slice = fileLines.slice(s, s + matchLen);
+            const { lines: dedentedSlice } = _dedent(slice);
+            const dedentedSliceStr = dedentedSlice.join('\n').replace(/[^\S\n]+$/gm, '');
+            if (dedentedSliceStr === dedentedOldStr) {
+              matchStart = s;
+              break;
+            }
+          }
+
+          if (matchStart !== -1) {
+            const realOld = fileLines.slice(matchStart, matchStart + matchLen).join('\n');
+            // Detect the indent of the first non-empty matched line in the file
+            const firstNonEmpty = fileLines.slice(matchStart, matchStart + matchLen).find(l => l.trim());
+            const fileIndent = firstNonEmpty ? firstNonEmpty.match(/^(\s*)/)[1].length : 0;
+            const reindentedNew = _reindent(new_text, fileIndent);
+            content = content.replace(realOld, reindentedNew);
+            results.push(`Edit ${i + 1}: OK (indent-flexible match, re-indented to ${fileIndent} spaces)`);
+            allDiffs.push(generateDiffFromStrings(realOld, reindentedNew));
+            continue;
+          }
+        }
+
+        // ── Tier 4: best-window similarity (fuzzy) ───────────────────────
+        {
+          const fileLines = content.split('\n');
+          const oldLines  = old_text.split('\n');
+
+          // Skip fuzzy for very short (1-line) old_text — too many false matches
+          if (oldLines.length >= 2) {
+            const best = _bestWindow(fileLines, oldLines);
+
+            if (best.score >= FUZZY_APPLY_THRESHOLD) {
+              // High confidence — apply automatically
+              const firstNonEmpty = (best.realOld.split('\n')).find(l => l.trim());
+              const fileIndent = firstNonEmpty ? firstNonEmpty.match(/^(\s*)/)[1].length : 0;
+              const reindentedNew = _reindent(new_text, fileIndent);
+              content = content.replace(best.realOld, reindentedNew);
+              results.push(`Edit ${i + 1}: OK (fuzzy match, score=${best.score.toFixed(2)}, re-indented to ${fileIndent} spaces)`);
+              allDiffs.push(generateDiffFromStrings(best.realOld, reindentedNew));
+              continue;
+            }
+
+            if (best.score >= FUZZY_HINT_THRESHOLD) {
+              // Low-confidence near-match: show what the file actually has so the LLM can fix it
+              const preview = best.realOld.split('\n').slice(0, 12).join('\n');
+              results.push(
+                `Edit ${i + 1}: ERROR — old_text not found (fuzzy score ${best.score.toFixed(2)}, below threshold).\n` +
+                `The closest match in the file (score=${best.score.toFixed(2)}) is:\n` +
+                '```\n' + preview + (best.realOld.split('\n').length > 12 ? '\n... (truncated)' : '') + '\n```\n' +
+                `Copy the exact text above as your new old_text.`
+              );
               continue;
             }
           }
-          results.push(`Edit ${i + 1}: ERROR — old_text not found exactly. Match failed even with whitespace normalization. Please copy the exact text from the file.`);
-          continue;
-        } else {
-          const occurrences = content.split(old_text).length - 1;
-          if (occurrences > 1) results.push(`Edit ${i + 1}: WARNING — old_text found ${occurrences} times, replacing first`);
-          content = content.slice(0, idx) + new_text + content.slice(idx + old_text.length);
-          results.push(`Edit ${i + 1}: OK`);
+
+          // No useful match found at all
+          results.push(
+            `Edit ${i + 1}: ERROR — old_text not found in ${rel}.\n` +
+            `Tried: exact, CRLF-normalised, indent-flexible, and fuzzy matching. ` +
+            `Use read_file or grep to find the exact current text and retry.`
+          );
         }
-        allDiffs.push(generateDiffFromStrings(old_text, new_text));
       }
+
       if (dryRun) {
         const hasChanges = content !== originalContent;
         if (!hasChanges) return { output: results.join('\n'), diff: null, _pendingApproval: false };
         const diffOutput = allDiffs.filter(d => d.lines.length);
-        const diff = diffOutput.length ? { path: rel, lines: diffOutput.flatMap(d => d.lines), stats: { additions: diffOutput.flatMap(d => d.lines).filter(l => l.type === 'add').length, deletions: diffOutput.flatMap(d => d.lines).filter(l => l.type === 'del').length }, truncated: false } : null;
+        const diff = diffOutput.length
+          ? { path: rel, lines: diffOutput.flatMap(d => d.lines), stats: { additions: diffOutput.flatMap(d => d.lines).filter(l => l.type === 'add').length, deletions: diffOutput.flatMap(d => d.lines).filter(l => l.type === 'del').length }, truncated: false }
+          : null;
         return { output: '[PENDING APPROVAL] ' + results.join('\n'), diff, _pendingApproval: true, _pendingPath: rel, _pendingNewContent: content, _pendingIsNewFile: false, _pendingOriginalContent: originalContent };
       }
+
       const w = await fh.createWritable(); await w.write(content); await w.close();
       state.fileCache.set(rel, content); modifiedFiles.add(rel);
+
       let verifyMsg = '';
       if (state.verifyWrites) {
-        try { const verify = await (await fh.getFile()).text(); verifyMsg = verify === content ? '\n✓ Write verified' : '\n✗ WRITE VERIFICATION FAILED — file content mismatch!'; }
-        catch { verifyMsg = '\n? Could not verify write'; }
+        try {
+          const verify = await (await fh.getFile()).text();
+          verifyMsg = verify === content ? '\n✓ Write verified' : '\n✗ WRITE VERIFICATION FAILED — file content mismatch!';
+        } catch { verifyMsg = '\n? Could not verify write'; }
       }
+
       const diffOutput = allDiffs.filter(d => d.lines.length);
-      return { output: results.join('\n') + verifyMsg, diff: diffOutput.length ? { path: rel, lines: diffOutput.flatMap(d => d.lines), stats: { additions: diffOutput.flatMap(d => d.lines).filter(l => l.type === 'add').length, deletions: diffOutput.flatMap(d => d.lines).filter(l => l.type === 'del').length }, truncated: false } : null };
+      return {
+        output: results.join('\n') + verifyMsg,
+        diff: diffOutput.length
+          ? { path: rel, lines: diffOutput.flatMap(d => d.lines), stats: { additions: diffOutput.flatMap(d => d.lines).filter(l => l.type === 'add').length, deletions: diffOutput.flatMap(d => d.lines).filter(l => l.type === 'del').length }, truncated: false }
+          : null
+      };
     }
 
     /* ═══════════════ LCS-BASED DIFF ═══════════════ */
@@ -9483,15 +9780,16 @@ Python command: {{PYTHON_CMD}}`;
 
           case 'edit_file': {
             if (args._parseError) {
-              const isTruncated = args._parseError.includes('empty') || args._parseError.includes('truncated');
+              const isTruncated = args._parseError.includes('truncated') || args._parseError.includes('empty');
+              const pathHint = args.path ? ` (path: "${args.path}")` : '';
               const msg = isTruncated
-                ? 'TRUNCATED — edit_file JSON was cut off mid-stream. The file content in old_text/new_text was too large for a single tool call.\n\nFix: Use edit_file with SMALLER search/replace blocks (10-20 lines max per block). Split large edits into multiple sequential edit_file calls, each targeting a specific section.'
-                : 'Error: edit_file received invalid arguments — ' + args._parseError + '\n\nFix: Provide "path" and "edits" as valid JSON. The old_text content was likely too long and got truncated. Use smaller search/replace blocks.\n\nExample:\nedit_file({\n  "path": "src/example.py",\n  "edits": [{"old_text": "old line", "new_text": "new line"}]\n})';
+                ? `TRUNCATED — edit_file JSON was cut off mid-stream${pathHint}. The edits array content was too large.\n\nThis usually happens when:\n- old_text or new_text contains a very large block of code\n- The path was placed AFTER the edits array and got cut off\n\nFix:\n1. Put "path" FIRST in the JSON object — before "edits"\n2. Keep each old_text under 20 lines / 500 chars\n3. Split large edits into multiple sequential edit_file calls\n\nExample:\nedit_file({"path": "index.html", "edits": [{"old_text": "short snippet", "new_text": "replacement"}]})`
+                : `Error: edit_file received invalid arguments${pathHint} — ${args._parseError}\n\nExample:\nedit_file({"path": "src/example.py", "edits": [{"old_text": "old line", "new_text": "new line"}]})`;
               result = { output: msg, _truncatedWrite: isTruncated };
               break;
             }
             if (!args.path) {
-              result = { output: 'Error: "path" is required for edit_file. Example:\nedit_file({"path": "src/example.py", "edits": [{"old_text": "...", "new_text": "..."}]})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
+              result = { output: 'Error: "path" is required for edit_file. Put "path" as the FIRST key in the JSON object (before "edits") so it is never truncated.\n\nExample:\nedit_file({"path": "src/example.py", "edits": [{"old_text": "...", "new_text": "..."}]})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
               break;
             }
             if (!Array.isArray(args.edits) || !args.edits.length) {
@@ -9769,6 +10067,18 @@ Python command: {{PYTHON_CMD}}`;
             
             
             
+          case 'spawn_swarm':
+            if (!args.goal) return { output: 'Error: "goal" is required for spawn_swarm' };
+            if (!Array.isArray(args.workers) || !args.workers.length) return { output: 'Error: "workers" must be a non-empty array' };
+            {
+              const swarmResult = await runSwarm(args.goal, args.workers, args.max_worker_iterations, signal, panel);
+              result = {
+                output: `[Swarm: ${args.workers.length} workers, ${swarmResult.totalIterations} total rounds, ${(swarmResult.duration / 1000).toFixed(1)}s${swarmResult.error ? ' — ERROR' : ''}]\n\n${swarmResult.managerSummary}`,
+                _swarmData: swarmResult
+              };
+            }
+            break;
+
           case 'spawn_sub_agent':
             if (!args.task) return { output: 'Error: "task" is required for spawn_sub_agent' };
             {
@@ -10383,6 +10693,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           '## File Modification Rules',
           '- You CAN modify files — use edit_file for existing files, write_file ONLY for new files',
           '- Always read a file before editing it',
+          '- edit_file uses 4-tier matching: exact → whitespace-normalised → indent-flexible → fuzzy (≥0.82). If it fails with a near-match hint, copy that hint as your new old_text.',
           '- After editing, describe what you changed concisely',
           '- Do NOT create unnecessary files',
         );
@@ -10795,6 +11106,562 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const toggleBtn = hdrEl.querySelector('.sub-agent-toggle');
       details.classList.toggle('open');
       toggleBtn.textContent = details.classList.contains('open') ? 'Hide' : 'Details';
+    }
+
+    /* ════════════════════════════════════════════════════════
+       MULTI-AGENT SWARM — Manager/Worker pattern with shared memory
+       ════════════════════════════════════════════════════════ */
+
+    /**
+     * Shared memory store for a swarm run.
+     * Key→{value, writer, timestamp}
+     */
+    class SwarmMemory {
+      constructor() { this._store = new Map(); this._bus = []; }
+      write(key, value, writerName) {
+        this._store.set(key, { value, writer: writerName, ts: Date.now() });
+      }
+      read(key) {
+        const e = this._store.get(key);
+        return e ? e.value : undefined;
+      }
+      readAll() {
+        const out = {};
+        for (const [k, v] of this._store) out[k] = v.value;
+        return out;
+      }
+      entries() { return [...this._store.entries()].map(([k, v]) => ({ key: k, ...v })); }
+      postMessage(from, to, content) {
+        this._bus.push({ from, to, content, ts: Date.now() });
+      }
+      getMessages(toName) {
+        return this._bus.filter(m => m.to === toName || m.to === '*');
+      }
+      get bus() { return this._bus; }
+      size() { return this._store.size; }
+      /** Serialise to a JSON string for injection into worker prompts */
+      toContextString() {
+        if (!this._store.size) return '(empty — no data written yet)';
+        return [...this._store.entries()]
+          .map(([k, v]) => `  ${k}: ${JSON.stringify(v.value).slice(0, 200)} [written by ${v.writer}]`)
+          .join('\n');
+      }
+    }
+
+    /**
+     * Build a worker-specific system prompt that knows about shared memory.
+     */
+    function buildWorkerSysPrompt(workerDef, memory, workerIdx, totalWorkers, swarmGoal, toolNames) {
+      const hasWrite = toolNames.some(t => ['edit_file','write_file','delete_file','move_file'].includes(t));
+      const hasShellMem = toolNames.includes('swarm_memory_write');
+      const lines = [
+        `You are **${workerDef.name}**, a specialised worker agent in a multi-agent swarm.`,
+        '',
+        `## Swarm Goal`,
+        swarmGoal,
+        '',
+        `## Your Role (worker ${workerIdx + 1} of ${totalWorkers})`,
+        workerDef.role,
+        '',
+        `## Your Task`,
+        workerDef.task,
+        '',
+        `## Shared Memory (written by previous workers)`,
+        memory.toContextString(),
+        '',
+        `## How to use Shared Memory`,
+        `- Use the **swarm_memory_write** tool to publish key/value pairs for later workers to read.`,
+        `- Keep keys short and descriptive: "api_endpoints", "db_schema", "auth_strategy", etc.`,
+        `- Values should be concise strings that later workers can directly use in code or decisions.`,
+        `- You can call swarm_memory_write multiple times — once per distinct piece of information.`,
+        '',
+        `## Rules`,
+        `- Complete ONLY your assigned task — do not attempt tasks assigned to other workers.`,
+        `- Read shared memory FIRST to understand what earlier workers have already done.`,
+        `- Write important decisions/outputs to shared memory so later workers stay consistent.`,
+        `- When done, write a clear summary of what you accomplished as your final message.`,
+      ];
+      if (hasWrite) {
+        lines.push('', '## File Permissions', '- You MAY create and modify files. Always read before editing.');
+      } else {
+        lines.push('', '## File Permissions', '- READ-ONLY. Describe changes in your summary; do not modify files.');
+      }
+      lines.push('', '## Output', 'End with a brief summary of: (1) what you accomplished, (2) what you wrote to shared memory.');
+      return lines.join('\n');
+    }
+
+    /**
+     * Run a swarm: manager-less sequential orchestration with shared memory.
+     * Each worker runs as a sub-agent, but receives shared memory context and
+     * can write back to it via the swarm_memory_write pseudo-tool.
+     */
+    async function runSwarm(goal, workerDefs, maxWorkerIter, parentSignal, parentPanel) {
+      const startTime = performance.now();
+      const memory = new SwarmMemory();
+      const defaultMax = Math.min(Math.max(maxWorkerIter || 10, 1), 25);
+      const workerResults = [];
+      let totalIterations = 0;
+      let swarmError = false;
+
+      // Inject swarm_memory_write into each worker's available tools
+      const swarmMemTool = {
+        type: 'function',
+        function: {
+          name: 'swarm_memory_write',
+          description: 'Write a key/value pair to the swarm\'s shared memory so later workers can read it. Call this for every important decision, API endpoint, schema, or output that later workers need to stay consistent with your work.',
+          parameters: {
+            type: 'object',
+            properties: {
+              key:   { type: 'string', description: 'Short descriptive key, e.g. "api_endpoints", "db_schema"' },
+              value: { type: 'string', description: 'The value — keep it concise (under 500 chars)' }
+            },
+            required: ['key', 'value']
+          }
+        }
+      };
+
+      // Also allow posting a message to a named worker or '*' (broadcast)
+      const swarmMsgTool = {
+        type: 'function',
+        function: {
+          name: 'swarm_message',
+          description: 'Post a message to another worker or all workers ("*") via the shared message bus. Use this to flag something important the next worker should know.',
+          parameters: {
+            type: 'object',
+            properties: {
+              to:      { type: 'string', description: 'Target worker name or "*" for broadcast' },
+              content: { type: 'string', description: 'Message content (max 500 chars)' }
+            },
+            required: ['to', 'content']
+          }
+        }
+      };
+
+      const allToolDefs = getToolDefs();
+      const defaultWorkerToolNames = ['read_file', 'read_file_lines', 'list_directory', 'search_files', 'grep',
+                                      'edit_file', 'write_file', 'execute_command', 'think'];
+
+      function updateParentStatus(text, cls) {
+        if (!parentPanel?.el) return;
+        const st = parentPanel.el.querySelector('.tool-status');
+        if (st) { st.className = 'tool-status ' + cls; st.textContent = text; }
+      }
+
+      // ── Live swarm UI panel (created before workers run) ──
+      const swarmLiveEl = document.createElement('div');
+      swarmLiveEl.className = 'swarm-panel';
+      swarmLiveEl._swarmMemory = memory;
+      const goalDisplay = goal.length > 90 ? goal.slice(0, 87) + '…' : goal;
+      swarmLiveEl.innerHTML = `
+        <div class="swarm-hdr" onclick="toggleSwarmBody(this)">
+          <i class="fas fa-network-wired swarm-icon"></i>
+          <span class="swarm-label">Swarm</span>
+          <span class="swarm-goal" title="${esc(goal)}">${esc(goalDisplay)}</span>
+          <span class="swarm-status running" id="swarm-live-status">Running</span>
+          <span class="swarm-meta" id="swarm-live-meta">${workerDefs.length} workers</span>
+        </div>
+        <div class="swarm-body" id="swarm-live-body">
+          <div class="swarm-mem" id="swarm-live-mem">
+            <div class="swarm-mem-hdr" onclick="event.stopPropagation();toggleSwarmMem(this)">
+              <i class="fas fa-database"></i> Shared Memory
+              <span class="mem-count" id="swarm-mem-count">0 keys</span>
+            </div>
+            <div class="swarm-mem-body open" id="swarm-mem-body">
+              <div class="swarm-mem-empty">No data written yet</div>
+            </div>
+          </div>
+          <div class="swarm-bus" id="swarm-live-bus" style="display:none">
+            <div class="swarm-bus-hdr" onclick="event.stopPropagation();toggleSwarmBus(this)">
+              <i class="fas fa-comments"></i> Message Bus
+            </div>
+            <div class="swarm-bus-body" id="swarm-bus-body"></div>
+          </div>
+          <div class="swarm-workers" id="swarm-live-workers">
+            ${workerDefs.map((w, i) => {
+              const colors = ['#f59e0b','#22d3ee','#a78bfa','#4ade80','#fb923c','#f472b6','#38bdf8','#a3e635'];
+              const bg = colors[i % colors.length];
+              return `<div class="swarm-worker pending" id="swarm-worker-${i}">
+                <div class="swarm-worker-hdr" onclick="toggleSwarmWorker(this)">
+                  <div class="swarm-worker-avatar" style="background:${bg}">${esc(w.name.slice(0,2).toUpperCase())}</div>
+                  <span class="swarm-worker-name">${esc(w.name)}</span>
+                  <span class="swarm-worker-role">${esc(w.role)}</span>
+                  <span class="swarm-worker-status pending" id="swarm-wstatus-${i}">Pending</span>
+                  <span class="swarm-worker-iter" id="swarm-witer-${i}"></span>
+                </div>
+                <div class="swarm-worker-body" id="swarm-wbody-${i}"></div>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>`;
+      $msg().appendChild(swarmLiveEl);
+      scrollBottom();
+
+      function refreshMemoryUI() {
+        const body = document.getElementById('swarm-mem-body');
+        const count = document.getElementById('swarm-mem-count');
+        if (!body) return;
+        const entries = memory.entries();
+        if (count) count.textContent = entries.length + ' key' + (entries.length !== 1 ? 's' : '');
+        if (!entries.length) {
+          body.innerHTML = '<div class="swarm-mem-empty">No data written yet</div>';
+          return;
+        }
+        body.innerHTML = entries.map(e =>
+          `<div class="swarm-mem-entry">
+            <span class="swarm-mem-key">${esc(e.key)}</span>
+            <span class="swarm-mem-val" title="${esc(String(e.value))}">${esc(String(e.value).slice(0, 100))}</span>
+            <span class="swarm-mem-writer">← ${esc(e.writer)}</span>
+          </div>`
+        ).join('');
+      }
+
+      function refreshBusUI() {
+        const busEl = document.getElementById('swarm-live-bus');
+        const body = document.getElementById('swarm-bus-body');
+        if (!body || !memory.bus.length) return;
+        if (busEl) busEl.style.display = '';
+        body.innerHTML = memory.bus.map(m =>
+          `<div class="swarm-bus-msg">
+            <span class="swarm-bus-from">${esc(m.from)}</span>
+            <span class="swarm-bus-arrow">→</span>
+            <span class="swarm-bus-to">${esc(m.to)}</span>
+            <span class="swarm-bus-content">${esc(m.content.slice(0, 200))}</span>
+          </div>`
+        ).join('');
+      }
+
+      // ── Run each worker in order ──
+      for (let wi = 0; wi < workerDefs.length; wi++) {
+        if (parentSignal?.aborted) break;
+
+        const wDef = workerDefs[wi];
+        const wEl = document.getElementById(`swarm-worker-${wi}`);
+        const wStatus = document.getElementById(`swarm-wstatus-${wi}`);
+        const wIter = document.getElementById(`swarm-witer-${wi}`);
+        const wBody = document.getElementById(`swarm-wbody-${wi}`);
+
+        if (wEl) wEl.className = 'swarm-worker running';
+        if (wStatus) { wStatus.className = 'swarm-worker-status running'; wStatus.textContent = 'Running…'; }
+        updateParentStatus(`Worker ${wi + 1}/${workerDefs.length}: ${wDef.name}`, 'run');
+        scrollBottom();
+
+        // Resolve tools
+        const wToolNames = (wDef.tools && wDef.tools.length)
+          ? wDef.tools
+          : defaultWorkerToolNames;
+        const filteredDefs = allToolDefs.filter(t => wToolNames.includes(t.function.name));
+        filteredDefs.push(swarmMemTool, swarmMsgTool);
+
+        // Messages to inject (from bus addressed to this worker)
+        const incomingMessages = memory.getMessages(wDef.name);
+        let incomingBlock = '';
+        if (incomingMessages.length) {
+          incomingBlock = '\n\n## Messages from other workers\n' +
+            incomingMessages.map(m => `- From **${m.from}**: ${m.content}`).join('\n');
+        }
+
+        // Build worker task with shared memory context
+        const maxIter = Math.min(Math.max(wDef.max_iterations || defaultMax, 1), 25);
+        const sysPrompt = buildWorkerSysPrompt(wDef, memory, wi, workerDefs.length, goal, filteredDefs.map(t => t.function.name));
+        const taskMsg = wDef.task + incomingBlock +
+          (state.dirName ? '\n\nWorking directory: ' + state.dirName : '');
+
+        const subMessages = [{ role: 'user', content: taskMsg }];
+        let iterations = 0;
+        const log = [];
+        const workerAbort = new AbortController();
+        if (parentSignal) parentSignal.addEventListener('abort', () => workerAbort.abort(), { once: true });
+
+        // ── Worker agent loop ──
+        while (iterations < maxIter) {
+          if (workerAbort.signal.aborted) break;
+          iterations++;
+          if (wIter) wIter.textContent = `${iterations}/${maxIter}r`;
+
+          // Patch system prompt into sub-agent chat manually
+          const apiMsgs = [{ role: 'system', content: sysPrompt }, ...subMessages];
+          let content = '', toolCalls = [];
+
+          try {
+            const res = await fetch(`${state.apiUrl}/v1/chat/completions`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                model: state.model,
+                messages: apiMsgs,
+                tools: filteredDefs,
+                stream: true,
+                temperature: 0.2,
+                max_tokens: Math.min(state.maxTokens, 8000)
+              }),
+              signal: workerAbort.signal
+            });
+            if (!res.ok) throw new Error(`API ${res.status}`);
+
+            // Parse SSE
+            const reader = res.body.getReader();
+            const dec = new TextDecoder();
+            let buf = '';
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buf += dec.decode(value, { stream: true });
+              const lines = buf.split('\n'); buf = lines.pop();
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed.startsWith('data:')) continue;
+                const data = trimmed.slice(5).trim();
+                if (data === '[DONE]') continue;
+                try {
+                  const chunk = JSON.parse(data);
+                  const delta = chunk.choices?.[0]?.delta;
+                  if (!delta) continue;
+                  if (delta.content) content += delta.content;
+                  if (delta.tool_calls) {
+                    for (const tc of delta.tool_calls) {
+                      const idx = tc.index ?? 0;
+                      if (!toolCalls[idx]) toolCalls[idx] = { id: tc.id || `tc_${Date.now()}_${idx}`, type: 'function', function: { name: '', arguments: '' } };
+                      if (tc.id) toolCalls[idx].id = tc.id;
+                      if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
+                      if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
+                    }
+                  }
+                } catch { /* skip bad chunks */ }
+              }
+            }
+          } catch (e) {
+            if (e.name === 'AbortError') break;
+            log.push({ tool: 'API', args: '', output: e.message, success: false });
+            swarmError = true; break;
+          }
+
+          toolCalls = toolCalls.filter(Boolean);
+          const assistantMsg = { role: 'assistant', content: content || null };
+          if (toolCalls.length) assistantMsg.tool_calls = toolCalls;
+          subMessages.push(assistantMsg);
+
+          if (!toolCalls.length) break; // Worker is done
+
+          // Execute tools
+          for (const tc of toolCalls) {
+            const name = tc.function.name;
+            let outText = '';
+
+            if (name === 'swarm_memory_write') {
+              try {
+                const a = JSON.parse(tc.function.arguments);
+                memory.write(a.key, a.value, wDef.name);
+                outText = `Written: ${a.key} = ${String(a.value).slice(0, 80)}`;
+                log.push({ tool: 'swarm_memory_write', args: a.key, output: outText, success: true });
+                refreshMemoryUI(); scrollBottom();
+              } catch (e) {
+                outText = 'Error: ' + e.message;
+                log.push({ tool: 'swarm_memory_write', args: '', output: outText, success: false });
+              }
+            } else if (name === 'swarm_message') {
+              try {
+                const a = JSON.parse(tc.function.arguments);
+                memory.postMessage(wDef.name, a.to, a.content);
+                outText = `Message posted to ${a.to}`;
+                log.push({ tool: 'swarm_message', args: a.to, output: outText, success: true });
+                refreshBusUI(); scrollBottom();
+              } catch (e) {
+                outText = 'Error: ' + e.message;
+                log.push({ tool: 'swarm_message', args: '', output: outText, success: false });
+              }
+            } else {
+              try {
+                const res = await executeTool(name, tc.function.arguments, workerAbort.signal, null);
+                outText = (typeof res === 'string') ? res : (res?.output || '');
+                log.push({ tool: name, args: (tc.function.arguments || '').slice(0, 100), output: outText.slice(0, 200), success: !outText.includes('Error:') && !outText.includes('ERROR') });
+              } catch (e) {
+                outText = 'Error: ' + e.message;
+                log.push({ tool: name, args: '', output: outText, success: false });
+              }
+            }
+
+            subMessages.push({ role: 'tool', tool_call_id: tc.id, content: outText });
+          }
+
+          // Update worker UI progress
+          if (wBody) {
+            const logHtml = log.slice(-8).map(e =>
+              `<div class="swarm-worker-log-entry">
+                <span class="swarm-worker-log-tool">${esc(e.tool)}</span>
+                <span class="${e.success ? 'swarm-worker-log-ok' : 'swarm-worker-log-err'}">${e.success ? '✓' : '✗'}</span>
+                <span class="swarm-worker-log-out" title="${esc(e.output)}">${esc(e.output)}</span>
+              </div>`
+            ).join('');
+            wBody.innerHTML = `<div class="swarm-worker-log">${logHtml}</div>`;
+          }
+        }
+
+        totalIterations += iterations;
+        const lastAssistant = [...subMessages].reverse().find(m => m.role === 'assistant');
+        const summary = lastAssistant?.content || '(no summary produced)';
+
+        workerResults.push({ name: wDef.name, role: wDef.role, summary, log, iterations, error: swarmError });
+
+        // Update worker UI to done/error
+        if (wEl) wEl.className = 'swarm-worker ' + (swarmError ? 'error' : 'done');
+        if (wStatus) { wStatus.className = 'swarm-worker-status ' + (swarmError ? 'error' : 'done'); wStatus.textContent = swarmError ? 'Error' : 'Done'; }
+        if (wIter) wIter.textContent = `${iterations}r · ${log.length} calls`;
+        if (wBody) {
+          const logHtml = log.map(e =>
+            `<div class="swarm-worker-log-entry">
+              <span class="swarm-worker-log-tool">${esc(e.tool)}</span>
+              <span class="${e.success ? 'swarm-worker-log-ok' : 'swarm-worker-log-err'}">${e.success ? '✓' : '✗'}</span>
+              <span class="swarm-worker-log-out" title="${esc(e.output)}">${esc(e.output)}</span>
+            </div>`
+          ).join('');
+          wBody.innerHTML = `
+            <div class="swarm-worker-summary">${renderMd(summary)}</div>
+            <div class="swarm-worker-log">${logHtml || '<div style="padding:4px;color:var(--tx-4)">No tool calls</div>'}</div>`;
+          wBody.classList.add('open');
+          wBody.querySelectorAll('pre code').forEach(b => { if (!b.dataset.hljs) { hljs.highlightElement(b); b.dataset.hljs = '1'; } });
+        }
+
+        // Auto-open first done worker so user sees progress
+        if (wi === 0 && wBody) wBody.classList.add('open');
+        scrollBottom();
+        refreshMemoryUI();
+      }
+
+      // ── Manager synthesis ──
+      updateParentStatus('Manager synthesising…', 'run');
+      const synthPrompt = [
+        { role: 'system', content: `You are the manager of a multi-agent swarm. Your job is to synthesise the workers\' outputs into a final, cohesive summary for the user. Be concise. Highlight what was built/done, any important decisions in shared memory, and next steps if relevant.` },
+        { role: 'user', content:
+          `## Swarm Goal\n${goal}\n\n` +
+          `## Shared Memory (final state)\n${memory.toContextString()}\n\n` +
+          `## Worker Summaries\n` +
+          workerResults.map((w, i) => `### ${i+1}. ${w.name} — ${w.role}\n${w.summary}`).join('\n\n') +
+          `\n\nWrite the final synthesis.`
+        }
+      ];
+
+      let managerSummary = '(Synthesis unavailable)';
+      try {
+        const synthRes = await fetch(`${state.apiUrl}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: state.model, messages: synthPrompt, stream: false, temperature: 0.3, max_tokens: 2000 }),
+          signal: parentSignal || undefined
+        });
+        if (synthRes.ok) {
+          const data = await synthRes.json();
+          managerSummary = data.choices?.[0]?.message?.content || managerSummary;
+        }
+      } catch { /* fall through */ }
+
+      const duration = performance.now() - startTime;
+
+      // Update live panel to final state
+      const liveStatus = document.getElementById('swarm-live-status');
+      const liveMeta = document.getElementById('swarm-live-meta');
+      if (liveStatus) { liveStatus.className = 'swarm-status ' + (swarmError ? 'error' : 'done'); liveStatus.textContent = swarmError ? 'Error' : 'Done'; }
+      if (liveMeta) liveMeta.textContent = `${workerDefs.length} workers · ${totalIterations} rounds · ${(duration/1000).toFixed(1)}s`;
+
+      // Append manager summary to swarm panel
+      const swarmBody = document.getElementById('swarm-live-body');
+      if (swarmBody) {
+        const synthEl = document.createElement('div');
+        synthEl.className = 'swarm-manager-summary';
+        synthEl.innerHTML = `<div class="swarm-manager-label"><i class="fas fa-crown"></i> Manager Synthesis</div>${renderMd(managerSummary)}`;
+        swarmBody.appendChild(synthEl);
+        synthEl.querySelectorAll('pre code').forEach(b => { if (!b.dataset.hljs) { hljs.highlightElement(b); b.dataset.hljs = '1'; } });
+        addCopyBtns(synthEl);
+      }
+      refreshMemoryUI();
+      scrollBottom();
+
+      updateParentStatus('Done', 'ok');
+
+      return { goal, workers: workerDefs, workerResults, managerSummary, memory: memory.readAll(), messageBus: memory.bus, totalIterations, duration, error: swarmError };
+    }
+
+    /** Render a completed swarm data object into a panel (for message replay). */
+    function showSwarmPanel(data) {
+      const el = document.createElement('div');
+      el.className = 'swarm-panel';
+      const goalDisplay = (data.goal || '').length > 90 ? (data.goal || '').slice(0, 87) + '…' : (data.goal || '');
+      const dur = data.duration ? (data.duration / 1000).toFixed(1) + 's' : '';
+      const statusCls = data.error ? 'error' : 'done';
+      const colors = ['#f59e0b','#22d3ee','#a78bfa','#4ade80','#fb923c','#f472b6','#38bdf8','#a3e635'];
+
+      const memEntries = Object.entries(data.memory || {});
+      const memHtml = memEntries.length
+        ? memEntries.map(([k, v]) => `<div class="swarm-mem-entry"><span class="swarm-mem-key">${esc(k)}</span><span class="swarm-mem-val">${esc(String(v).slice(0,100))}</span></div>`).join('')
+        : '<div class="swarm-mem-empty">No shared memory</div>';
+
+      const busHtml = (data.messageBus || []).map(m =>
+        `<div class="swarm-bus-msg"><span class="swarm-bus-from">${esc(m.from)}</span><span class="swarm-bus-arrow">→</span><span class="swarm-bus-to">${esc(m.to)}</span><span class="swarm-bus-content">${esc(m.content.slice(0,200))}</span></div>`
+      ).join('');
+
+      const workersHtml = (data.workerResults || []).map((w, i) => {
+        const bg = colors[i % colors.length];
+        const wStatusCls = w.error ? 'error' : 'done';
+        const logHtml = (w.log || []).map(e =>
+          `<div class="swarm-worker-log-entry"><span class="swarm-worker-log-tool">${esc(e.tool)}</span><span class="${e.success ? 'swarm-worker-log-ok' : 'swarm-worker-log-err'}">${e.success ? '✓' : '✗'}</span><span class="swarm-worker-log-out" title="${esc(e.output)}">${esc(e.output)}</span></div>`
+        ).join('');
+        return `<div class="swarm-worker ${wStatusCls}">
+          <div class="swarm-worker-hdr" onclick="toggleSwarmWorker(this)">
+            <div class="swarm-worker-avatar" style="background:${bg}">${esc(w.name.slice(0,2).toUpperCase())}</div>
+            <span class="swarm-worker-name">${esc(w.name)}</span>
+            <span class="swarm-worker-role">${esc(w.role)}</span>
+            <span class="swarm-worker-status ${wStatusCls}">${wStatusCls === 'error' ? 'Error' : 'Done'}</span>
+            <span class="swarm-worker-iter">${w.iterations}r · ${(w.log||[]).length} calls</span>
+          </div>
+          <div class="swarm-worker-body">
+            <div class="swarm-worker-summary">${renderMd(w.summary || '')}</div>
+            <div class="swarm-worker-log">${logHtml || '<div style="padding:4px;color:var(--tx-4)">No tool calls</div>'}</div>
+          </div>
+        </div>`;
+      }).join('');
+
+      el.innerHTML = `
+        <div class="swarm-hdr" onclick="toggleSwarmBody(this)">
+          <i class="fas fa-network-wired swarm-icon"></i>
+          <span class="swarm-label">Swarm</span>
+          <span class="swarm-goal" title="${esc(data.goal || '')}">${esc(goalDisplay)}</span>
+          <span class="swarm-status ${statusCls}">${data.error ? 'Error' : 'Done'}</span>
+          <span class="swarm-meta">${(data.workerResults||[]).length} workers · ${data.totalIterations} rounds${dur ? ' · ' + dur : ''}</span>
+        </div>
+        <div class="swarm-body" style="display:none">
+          <div class="swarm-mem">
+            <div class="swarm-mem-hdr" onclick="event.stopPropagation();toggleSwarmMem(this)">
+              <i class="fas fa-database"></i> Shared Memory <span class="mem-count">${memEntries.length} key${memEntries.length !== 1 ? 's' : ''}</span>
+            </div>
+            <div class="swarm-mem-body">${memHtml}</div>
+          </div>
+          ${busHtml ? `<div class="swarm-bus"><div class="swarm-bus-hdr" onclick="event.stopPropagation();toggleSwarmBus(this)"><i class="fas fa-comments"></i> Message Bus</div><div class="swarm-bus-body">${busHtml}</div></div>` : ''}
+          <div class="swarm-workers">${workersHtml}</div>
+          ${data.managerSummary ? `<div class="swarm-manager-summary"><div class="swarm-manager-label"><i class="fas fa-crown"></i> Manager Synthesis</div>${renderMd(data.managerSummary)}</div>` : ''}
+        </div>`;
+
+      $msg().appendChild(el);
+      scrollBottom();
+      el.querySelectorAll('pre code').forEach(b => { if (!b.dataset.hljs) { hljs.highlightElement(b); b.dataset.hljs = '1'; } });
+      addCopyBtns(el);
+    }
+
+    function toggleSwarmBody(hdrEl) {
+      const body = hdrEl.nextElementSibling;
+      if (!body) return;
+      body.style.display = body.style.display === 'none' ? 'flex' : 'none';
+    }
+    function toggleSwarmMem(hdrEl) {
+      const body = hdrEl.nextElementSibling;
+      if (body) body.classList.toggle('open');
+    }
+    function toggleSwarmBus(hdrEl) {
+      const body = hdrEl.nextElementSibling;
+      if (body) body.classList.toggle('open');
+    }
+    function toggleSwarmWorker(hdrEl) {
+      const workerEl = hdrEl.closest('.swarm-worker');
+      const body = workerEl?.querySelector('.swarm-worker-body');
+      if (body) body.classList.toggle('open');
     }
 
 
@@ -11210,13 +12077,32 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     function safeParseArgs(argsStr) {
       if (!argsStr || typeof argsStr !== 'string' || !argsStr.trim()) return { _parseError: 'empty arguments' };
       try { return JSON.parse(argsStr); } catch {
-        /* Check if it looks like truncated JSON (missing closing brace/bracket) */
         const trimmed = argsStr.trim();
-        const opens = (trimmed.match(/\{/g) || []).length;
+        const opens  = (trimmed.match(/\{/g) || []).length;
         const closes = (trimmed.match(/\}/g) || []).length;
-        const bracketOpens = (trimmed.match(/\[/g) || []).length;
+        const bracketOpens  = (trimmed.match(/\[/g) || []).length;
         const bracketCloses = (trimmed.match(/\]/g) || []).length;
-        if (opens > closes || bracketOpens > bracketCloses) {
+        const isTruncated = opens > closes || bracketOpens > bracketCloses;
+
+        /* ── Rescue: try to extract top-level string fields even from
+           truncated/malformed JSON. This lets edit_file report the correct
+           path in error messages even when the edits array was so long it
+           cut off before "path" was serialised. ── */
+        const rescued = {};
+        // Match "key": "value" pairs at the top level (not nested)
+        for (const m of trimmed.matchAll(/"(path|model|type)":\s*"((?:[^"\\]|\\.)*)"/g)) {
+          rescued[m[1]] = m[2].replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+        }
+        if (Object.keys(rescued).length) {
+          return {
+            ...rescued,
+            _parseError: isTruncated
+              ? 'truncated JSON — arguments were cut off mid-stream.'
+              : 'malformed JSON — could not parse arguments: ' + trimmed.slice(0, 80)
+          };
+        }
+
+        if (isTruncated) {
           return { _parseError: 'truncated JSON — arguments were cut off mid-stream. The file content was likely too large for a single tool call. Split into smaller writes or use edit_file instead.' };
         }
         return { _parseError: 'malformed JSON — could not parse arguments: ' + trimmed.slice(0, 80) };
@@ -11614,6 +12500,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           else if (result._imageDataUrl) { toolPanels[i].el._imageDataUrl = result._imageDataUrl; toolPanels[i].el._imagePath = result._imagePath || 'unknown'; toolPanels[i].el._imageReason = result._imageReason || 'file read'; toolPanels[i].el._imageType = result._imageType || 'file'; }
           toolPanels[i].el._svgPreviewUrl = result._svgPreviewUrl || null; toolPanels[i].el._svgText = result._svgText || null; toolPanels[i].el._svgPath = result._svgPath || null;
           toolPanels[i].el._previewDataUrl = result._previewDataUrl || null; toolPanels[i].el._previewPath = result._previewPath || null;
+          if (result._subAgentData) toolPanels[i].el._subAgentData = result._subAgentData;
+          if (result._swarmData)    toolPanels[i].el._swarmData    = result._swarmData;
 
           updateToolResult(toolPanels[i], outText);
           if (searchData) showSearchPanel(searchData);
@@ -11920,6 +12808,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
                 if (panel.el._previewDataUrl) { toolMsg._previewDataUrl = panel.el._previewDataUrl; toolMsg._previewPath = panel.el._previewPath; }
                 if (panel.el._imageDataUrl) { toolMsg._imageDataUrl = panel.el._imageDataUrl; toolMsg._imagePath = panel.el._imagePath; toolMsg._imageReason = panel.el._imageReason; toolMsg._imageType = panel.el._imageType; }
                 if (panel.el._screenshotDataUrl) { toolMsg._screenshotDataUrl = panel.el._screenshotDataUrl; toolMsg._imagePath = panel.el._imagePath; toolMsg._imageReason = panel.el._screenshotReason; toolMsg._imageType = panel.el._imageType; }
+                if (panel.el._subAgentData) toolMsg._subAgentData = panel.el._subAgentData;
+                if (panel.el._swarmData)    toolMsg._swarmData    = panel.el._swarmData;
               }
               state.messages.push(toolMsg);
               const tName = tc.function.name; const tArgs = safeParseArgs(tc.function.arguments);
@@ -11961,6 +12851,14 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             /* ── Sub-agent panels ── */
             if (panel.el._subAgentData && !panel.el.querySelector('.sub-agent-panel')) {
               showSubAgentPanel(panel.el._subAgentData);
+              const res = panel.el.querySelector('.tool-result');
+              if (res) res.style.display = 'none';
+              continue;
+            }
+
+            /* ── Swarm panels ── */
+            if (panel.el._swarmData && !panel.el.querySelector('.swarm-panel')) {
+              showSwarmPanel(panel.el._swarmData);
               const res = panel.el.querySelector('.tool-result');
               if (res) res.style.display = 'none';
               continue;
@@ -13260,6 +14158,20 @@ Use git_diff to review changes before committing. git_diff without arguments sho
                   preview.className = 'screenshot-preview';
                   preview.innerHTML = '<div style="font-size:10px;color:var(--tx-4);padding:12px;text-align:center"><i class="fas fa-image" style="margin-right:4px"></i>Image preview not available (page was reloaded)</div>';
                   panel.el.appendChild(preview);
+                }
+
+                /* ── Sub-agent panel replay ── */
+                if (toolMsg._subAgentData) {
+                  showSubAgentPanel(toolMsg._subAgentData);
+                  const res = panel.el.querySelector('.tool-result');
+                  if (res) res.style.display = 'none';
+                }
+
+                /* ── Swarm panel replay ── */
+                if (toolMsg._swarmData) {
+                  showSwarmPanel(toolMsg._swarmData);
+                  const res = panel.el.querySelector('.tool-result');
+                  if (res) res.style.display = 'none';
                 }
               } else {
                 // Tool result message was not found (corrupted/truncated localStorage)
@@ -14774,6 +15686,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             if (m.tool_call_id) c.tool_call_id = m.tool_call_id;
             if (m._hadImages) c._hadImages = m._hadImages;
             if (m._subAgentData) c._subAgentData = m._subAgentData;
+            if (m._swarmData)    c._swarmData    = m._swarmData;
             if (c.role === 'tool' && typeof c.content === 'string' && c.content.length > 8000) {
               c.content = c.content.slice(0, 8000) + '\n... [truncated in file storage]';
             }
