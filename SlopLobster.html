@@ -13535,6 +13535,15 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
       const MAX_PREVIEW_SIZE = 500 * 1024; // 500KB
 
+      // Guard: f.content and f.lines must be valid strings/arrays
+      if (!f || typeof f.content !== 'string') {
+        previewEl.innerHTML = `<div class="rp-empty-state"><i class="fas fa-exclamation-triangle" style="color:var(--red)"></i><span>Could not read file content</span></div>`;
+        emptyEl.style.display = 'none';
+        previewEl.style.display = 'block';
+        return;
+      }
+      if (!Array.isArray(f.lines)) f.lines = f.content.split('\n');
+
       // ── Skip preview for oversized files ──
       if (f.content.length > MAX_PREVIEW_SIZE) {
         const sizeKB = Math.round(f.content.length / 1024);
@@ -16121,10 +16130,11 @@ Format:
       /* ── Text / image / SVG files ── */
       try {
         const result = await readFileSafe(path);
-        const header = result.output.split('\n---\n')[0] || '';
-        const content = result.output.includes('\n---\n')
-          ? result.output.split('\n---\n').slice(1).join('\n---\n')
-          : result.output;
+        const rawOutput = result.output || '';
+        const header = rawOutput.split('\n---\n')[0] || '';
+        const content = rawOutput.includes('\n---\n')
+          ? rawOutput.split('\n---\n').slice(1).join('\n---\n')
+          : rawOutput;
 
         /* ── Raster image: show preview instead of code ── */
         if (result._imageDataUrl) {
@@ -16170,17 +16180,28 @@ Format:
         /* ── HTML files: code + rendered preview ── */
         const isHtml = /\.(html?|xhtml?)$/i.test(path);
         if (isHtml) {
-          // Always use full content for preview, even when agent got a skeleton
-          let realContent = content;
-          if (result.output.includes('→ structure skeleton')) {
-            const cached = state.fileCache.get(path);
-            if (cached) realContent = cached;
+          // For HTML preview we always need the actual file text, not a skeleton/summary.
+          // readFileSafe may return a skeleton or truncated output for large files.
+          // Priority: fileCache (set by readFileSafe on every real read) → direct file read → content from output
+          let realContent = state.fileCache.get(path);
+          if (typeof realContent !== 'string') {
+            // Cache miss — try reading the file directly (bypasses skeleton logic)
+            try {
+              const h = await resolvePath(path);
+              if (h && h.kind === 'file') {
+                const fh = await h.getFile();
+                realContent = await fh.text();
+                state.fileCache.set(path, realContent);
+              }
+            } catch { /* fall through */ }
           }
+          // Last resort: use whatever content we extracted from readFileSafe output
+          if (typeof realContent !== 'string') realContent = content || '';
           rpState.activeFile = {
             path, content: realContent,
             lines: realContent.split('\n'),
             isHtml: true,
-            truncated: result.output.includes('TRUNCATED'),
+            truncated: rawOutput.includes('TRUNCATED'),
             meta: header
           };
           renderFilePreview();
@@ -16194,7 +16215,7 @@ Format:
           path, content, lines,
           isImage: false, imageDataUrl: null,
           highlightLine: highlightLine || null,
-          truncated: result.output.includes('TRUNCATED'),
+          truncated: rawOutput.includes('TRUNCATED'),
           meta: header
         };
         renderFilePreview();
