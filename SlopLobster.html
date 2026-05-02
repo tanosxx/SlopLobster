@@ -16180,13 +16180,22 @@ Format:
         /* ── HTML files: code + rendered preview ── */
         const isHtml = /\.(html?|xhtml?)$/i.test(path);
         if (isHtml) {
-          // Always use full content for preview, even when agent got a skeleton
-          let realContent = content;
-          if (result.output && result.output.includes('→ structure skeleton')) {
-            const cached = state.fileCache.get(path);
-            if (cached) realContent = cached;
+          // For HTML preview we always need the actual file text, not a skeleton/summary.
+          // readFileSafe may return a skeleton or truncated output for large files.
+          // Priority: fileCache (set by readFileSafe on every real read) → direct file read → content from output
+          let realContent = state.fileCache.get(path);
+          if (typeof realContent !== 'string') {
+            // Cache miss — try reading the file directly (bypasses skeleton logic)
+            try {
+              const h = await resolvePath(path);
+              if (h && h.kind === 'file') {
+                const fh = await h.getFile();
+                realContent = await fh.text();
+                state.fileCache.set(path, realContent);
+              }
+            } catch { /* fall through */ }
           }
-          // Guard: realContent must be a string — fileCache miss returns undefined
+          // Last resort: use whatever content we extracted from readFileSafe output
           if (typeof realContent !== 'string') realContent = content || '';
           rpState.activeFile = {
             path, content: realContent,
