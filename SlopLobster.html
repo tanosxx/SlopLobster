@@ -6852,7 +6852,16 @@ Python command: {{PYTHON_CMD}}`;
       const tok = tokenTracker.lastPromptTokens > 0
         ? tokenTracker.lastPromptTokens
         : estimateConvTokens() + state._sysPromptLength;
-      label.textContent = formatTok(tok) + ' tok';
+      const remaining = state.ctxWindow - tok;
+      const remainingPct = remaining / state.ctxWindow;
+      // Show remaining tokens (red warning) when < 20% context left
+      if (remainingPct < 0.2) {
+        label.textContent = formatTok(remaining) + ' left';
+        label.style.color = 'var(--red)';
+      } else {
+        label.textContent = formatTok(tok) + ' tok';
+        label.style.color = '';
+      }
       const stats = getCompressionStats();
       const meter = fill.closest('.ctx-meter');
       if (meter && stats && stats.saved > 100) {
@@ -10817,7 +10826,17 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           top_p: _usesTC ? 0.95 : undefined,
           top_k: _usesTC ? (_isQwen ? 20 : 64) : undefined,
           presence_penalty: _isQwen ? 1.5 : undefined,
-          max_tokens: state.maxTokens
+          max_tokens: (() => {
+            // For local servers (llama.cpp, LM Studio, Ollama) the context slot is
+            // fixed. Asking for more output tokens than the remaining space causes
+            // the server to silently stop mid-response. Cap at a safe value.
+            const promptTokens = tokenTracker.lastPromptTokens > 0
+              ? tokenTracker.lastPromptTokens
+              : estimateConvTokens() + (state._sysPromptLength || 0);
+            const remaining = state.ctxWindow - promptTokens - 256; // 256 token safety margin
+            const safeMax = Math.max(256, remaining);
+            return Math.min(state.maxTokens, safeMax);
+          })()
 
 
 
@@ -12883,6 +12902,14 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             state.messages.push({ role: 'user', content: '[SYSTEM: Your last ' + TEXT_LOOP_WINDOW + ' responses were highly repetitive — you are looping. Stop. Either take a DIFFERENT action (use a tool, try a new approach) or clearly tell the user what you are stuck on and ask for guidance. Do NOT repeat what you just said.]' });
             textLoopBuffer.length = 0;
             continue;
+          }
+          // Warn if the model was cut off mid-response by the context/token limit
+          if (_chatRes.finishReason === 'length' && !tcs._hasTruncation) {
+            const promptTok = tokenTracker.lastPromptTokens > 0 ? tokenTracker.lastPromptTokens : estimateConvTokens();
+            const remaining = state.ctxWindow - promptTok;
+            const wEl = document.createElement('div'); wEl.className = 'health-warning';
+            wEl.innerHTML = `<i class="fas fa-scissors"></i><span>Response cut off — model hit the output token limit mid-answer (~${formatTok(promptTok)} of ${formatTok(state.ctxWindow)} ctx used, ~${formatTok(remaining)} remaining). Run <code>/compact</code> to free context, or ask the model to continue.</span>`;
+            $msg().appendChild(wEl); scrollBottom();
           }
           finalizeStreamingMsg(cur); break;
         }
