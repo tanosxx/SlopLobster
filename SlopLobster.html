@@ -3651,8 +3651,131 @@
       flex-shrink: 0
     }
 
-    /* ══════════════════════════════════════════
-       SWARM PANEL — Manager/Worker UI
+    /* ── Clarifying questions panel ── */
+    .clarify-panel {
+      background: var(--bg-1);
+      border: 1px solid rgba(139,92,246,.28);
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin: 6px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      font-family: 'Space Grotesk', sans-serif;
+    }
+    .clarify-hdr {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #a78bfa;
+      letter-spacing: .5px;
+      text-transform: uppercase;
+    }
+    .clarify-hdr i { font-size: 12px; }
+    .clarify-hdr .clarify-skip {
+      margin-left: auto;
+      font-size: 10px;
+      font-weight: 400;
+      color: var(--tx-4);
+      cursor: pointer;
+      text-transform: none;
+      letter-spacing: 0;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .clarify-hdr .clarify-skip:hover { color: var(--tx-2); }
+    .clarify-question {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .clarify-q-text {
+      font-size: 13px;
+      color: var(--tx-0);
+      line-height: 1.5;
+    }
+    .clarify-q-num {
+      font-size: 10px;
+      color: var(--tx-4);
+      font-family: 'JetBrains Mono', monospace;
+      margin-right: 4px;
+    }
+    .clarify-input-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .clarify-ans {
+      flex: 1;
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+      color: var(--tx-0);
+      font-family: 'Space Grotesk', sans-serif;
+      outline: none;
+      transition: border-color .15s;
+    }
+    .clarify-ans:focus { border-color: rgba(139,92,246,.5); }
+    .clarify-ans.answered {
+      background: rgba(34,197,94,.06);
+      border-color: rgba(34,197,94,.25);
+      color: var(--tx-1);
+    }
+    .clarify-ans-btn {
+      background: rgba(139,92,246,.12);
+      border: 1px solid rgba(139,92,246,.25);
+      color: #a78bfa;
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      font-family: 'Space Grotesk', sans-serif;
+      transition: background .15s;
+    }
+    .clarify-ans-btn:hover { background: rgba(139,92,246,.22); }
+    .clarify-ans-btn:disabled { opacity: .4; cursor: default; }
+    .clarify-skip-tag {
+      font-size: 10px;
+      color: var(--tx-4);
+      cursor: pointer;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      align-self: center;
+    }
+    .clarify-skip-tag:hover { color: var(--tx-2); }
+    .clarify-proceed {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      margin-top: 2px;
+    }
+    .clarify-proceed-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 7px 18px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: 'Space Grotesk', sans-serif;
+      transition: opacity .15s;
+    }
+    .clarify-proceed-btn:hover { opacity: .85; }
+    .clarify-proceed-btn:disabled { opacity: .4; cursor: default; }
+    .clarify-dots { display: flex; gap: 3px; align-items: center; padding: 4px 0; }
+    .clarify-dots span {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: #a78bfa; animation: pulse 1s infinite;
+    }
+    .clarify-dots span:nth-child(2) { animation-delay: .2s; }
+    .clarify-dots span:nth-child(3) { animation-delay: .4s; }
        ══════════════════════════════════════════ */
     .swarm-panel {
       border: 1px solid rgba(139, 92, 246, .25);
@@ -4980,6 +5103,15 @@
         <div class="field"><label>Require approval for file edits</label>
           <div class="slider-row"><input type="checkbox" id="s-require-approval" style="accent-color:var(--accent)"><span class="val" style="min-width:auto">Show Accept/Reject before applying edits (off = fully autonomous)</span></div>
         </div>
+        <div class="field"><label>Clarifying questions</label>
+          <div class="slider-row"><input type="checkbox" id="s-clarify-mode" style="accent-color:var(--accent)"><span class="val" style="min-width:auto">Ask me a few questions before starting, to sharpen the task</span></div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+            <span style="font-size:11px;color:var(--tx-3)">Questions to ask:</span>
+            <input type="number" id="s-clarify-count" value="3" min="1" max="5" style="width:55px">
+            <span style="font-size:11px;color:var(--tx-4)">(1–5)</span>
+          </div>
+          <div class="hint">Before the agent starts, it generates targeted questions about ambiguities in your request. Answer them inline, then it proceeds with full context.</div>
+        </div>
         <div class="field"><label>Auto-verify command</label>
           <input type="text" id="s-auto-verify" placeholder="e.g. pytest, npm test, cargo test">
           <div class="hint">Run automatically after file edits. If tests fail, agent auto-fixes up to N retries. Empty = off.</div>
@@ -6304,6 +6436,8 @@ if __name__ == "__main__":
       verifyWrites: true,
       /* ── Model load settings ── */
       requireEditApproval: false,
+      clarifyMode: false,
+      clarifyCount: 3,
       autoVerifyCommand: '',
       autoVerifyMaxRetries: 3,
       _autoVerifyRetries: 0,
@@ -14615,6 +14749,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         if (s.sysPrompt) document.getElementById('s-sys-prompt').value = s.sysPrompt;
         if (s.sysPromptProfiles) state.sysPromptProfiles = s.sysPromptProfiles;
         if (s.requireEditApproval !== undefined) state.requireEditApproval = s.requireEditApproval;
+        if (s.clarifyMode !== undefined) state.clarifyMode = s.clarifyMode;
+        if (s.clarifyCount !== undefined) state.clarifyCount = s.clarifyCount;
         if (s.autoVerifyCommand !== undefined) state.autoVerifyCommand = s.autoVerifyCommand;
         if (s.autoVerifyMaxRetries !== undefined) state.autoVerifyMaxRetries = s.autoVerifyMaxRetries;
         if (s.smartContextThreshold !== undefined) state.smartContextThreshold = s.smartContextThreshold;else state.smartContextThreshold = 150;  
@@ -14649,6 +14785,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           sysPrompt: document.getElementById('s-sys-prompt').value,
           sysPromptProfiles: state.sysPromptProfiles,
           requireEditApproval: state.requireEditApproval,
+          clarifyMode: state.clarifyMode,
+          clarifyCount: state.clarifyCount,
           autoVerifyCommand: state.autoVerifyCommand,
           autoVerifyMaxRetries: state.autoVerifyMaxRetries,
           wsWarningDismissed: _wsWarningDismissed,
@@ -14673,6 +14811,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       document.getElementById('s-model-eval').value = state.modelEvalBatch;
       document.getElementById('s-max-iters').value = state.maxIters;
       document.getElementById('s-require-approval').checked = state.requireEditApproval;
+      document.getElementById('s-clarify-mode').checked = state.clarifyMode;
+      document.getElementById('s-clarify-count').value = state.clarifyCount;
       document.getElementById('s-auto-verify').value = state.autoVerifyCommand || '';
       document.getElementById('s-auto-verify-retries').value = state.autoVerifyMaxRetries;
       document.getElementById('s-smart-context').value = state.smartContextThreshold;
@@ -14715,6 +14855,9 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       state.ctxWindow = Math.max(1024, parseInt(document.getElementById('s-ctx-window').value) || 32768);
       state.autoCompactPct = Math.max(50, Math.min(99, parseInt(document.getElementById('s-auto-compact').value) || 85));
       state.verifyWrites = document.getElementById('s-verify-writes').checked;
+      state.requireEditApproval = document.getElementById('s-require-approval').checked;
+      state.clarifyMode = document.getElementById('s-clarify-mode').checked;
+      state.clarifyCount = Math.min(5, Math.max(1, parseInt(document.getElementById('s-clarify-count').value) || 3));
       state.requireEditApproval = document.getElementById('s-require-approval').checked;
       state.autoVerifyCommand = document.getElementById('s-auto-verify').value.trim();
       state.autoVerifyMaxRetries = Math.max(1, parseInt(document.getElementById('s-auto-verify-retries').value) || 3);
@@ -14881,6 +15024,200 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       } catch (e) { if (e.name !== 'AbortError') showToast(e.message, 'err'); }
     }
 
+    /**
+     * Pre-flight clarifying questions flow.
+     * Streams a quick API call asking the model to generate N targeted
+     * questions about the user's task. Renders them as interactive inputs.
+     * Returns a promise that resolves with the augmented task string
+     * once the user submits answers (or skips).
+     */
+    async function runClarifyFlow(task, nQuestions) {
+      return new Promise(async (resolve) => {
+        // ── Build the panel ──────────────────────────────────────────
+        const panel = document.createElement('div');
+        panel.className = 'clarify-panel';
+        panel.innerHTML = `
+          <div class="clarify-hdr">
+            <i class="fas fa-circle-question"></i>
+            A few quick questions
+            <span class="clarify-skip" onclick="this.closest('.clarify-panel')._skip()">Skip &amp; proceed now</span>
+          </div>
+          <div class="clarify-dots"><span></span><span></span><span></span></div>`;
+        $msg().appendChild(panel);
+        scrollBottom();
+
+        // ── Skip helper ──────────────────────────────────────────────
+        panel._skip = () => {
+          panel.remove();
+          resolve(task);
+        };
+
+        // ── Stream questions from the model ──────────────────────────
+        const sysMsg = `You are a clarification assistant. The user has given a task to an AI coding agent. Your job is to identify the ${nQuestions} most important ambiguities or missing details that, if known, would significantly improve the agent's output quality.
+
+Rules:
+- Ask ONLY ${nQuestions} questions, numbered 1 to ${nQuestions}
+- Each question must be specific and actionable — not generic ("what is your goal?")
+- Focus on: technical constraints, preferred approach, output format, scope limits, existing code style
+- If the task is already fully clear and specific, write: CLEAR — no questions needed
+- Output ONLY the numbered questions, nothing else. No preamble, no explanation.
+
+Format:
+1. <question>
+2. <question>
+...`;
+
+        let questionsText = '';
+        try {
+          const res = await fetch(`${state.apiUrl}/v1/chat/completions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: state.model,
+              messages: [
+                { role: 'system', content: sysMsg },
+                { role: 'user', content: task }
+              ],
+              stream: true,
+              temperature: 0.3,
+              max_tokens: 600
+            })
+          });
+
+          if (!res.ok) throw new Error('API ' + res.status);
+          const reader = res.body.getReader();
+          const dec = new TextDecoder();
+          let buf = '';
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += dec.decode(value, { stream: true });
+            const lines = buf.split('\n'); buf = lines.pop();
+            for (const line of lines) {
+              if (!line.startsWith('data:')) continue;
+              const d = line.slice(5).trim();
+              if (d === '[DONE]') continue;
+              try { questionsText += JSON.parse(d).choices?.[0]?.delta?.content || ''; } catch { /**/ }
+            }
+          }
+        } catch (e) {
+          // API failed — skip clarification silently
+          panel.remove();
+          resolve(task);
+          return;
+        }
+
+        questionsText = questionsText.trim();
+
+        // If model says task is clear, skip the UI entirely
+        if (questionsText.toUpperCase().startsWith('CLEAR')) {
+          panel.remove();
+          resolve(task);
+          return;
+        }
+
+        // ── Parse questions ──────────────────────────────────────────
+        const qLines = questionsText
+          .split('\n')
+          .map(l => l.replace(/^\d+\.\s*/, '').trim())
+          .filter(Boolean);
+
+        if (!qLines.length) {
+          panel.remove();
+          resolve(task);
+          return;
+        }
+
+        // ── Render question inputs ───────────────────────────────────
+        const answers = new Array(qLines.length).fill('');
+        const dotsEl = panel.querySelector('.clarify-dots');
+        dotsEl.remove();
+
+        qLines.forEach((q, i) => {
+          const qEl = document.createElement('div');
+          qEl.className = 'clarify-question';
+          qEl.innerHTML = `
+            <div class="clarify-q-text">
+              <span class="clarify-q-num">Q${i + 1}.</span>${esc(q)}
+            </div>
+            <div class="clarify-input-row">
+              <input class="clarify-ans" type="text" placeholder="Your answer… (or leave blank to skip)"
+                data-idx="${i}" autocomplete="off">
+              <span class="clarify-skip-tag" data-idx="${i}">Skip</span>
+            </div>`;
+          panel.appendChild(qEl);
+
+          const inp = qEl.querySelector('.clarify-ans');
+          const skipTag = qEl.querySelector('.clarify-skip-tag');
+
+          inp.addEventListener('input', () => {
+            answers[i] = inp.value.trim();
+          });
+          inp.addEventListener('keydown', e => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              answers[i] = inp.value.trim();
+              inp.classList.add('answered');
+              // Focus next unanswered
+              const next = panel.querySelector(`.clarify-ans[data-idx="${i + 1}"]`);
+              if (next) next.focus(); else proceedBtn.focus();
+            }
+          });
+          skipTag.addEventListener('click', () => {
+            answers[i] = '';
+            inp.value = '';
+            inp.classList.remove('answered');
+            inp.placeholder = '(skipped)';
+            inp.disabled = true;
+          });
+        });
+
+        // ── Proceed button ───────────────────────────────────────────
+        const proceedRow = document.createElement('div');
+        proceedRow.className = 'clarify-proceed';
+        proceedRow.innerHTML = `<button class="clarify-proceed-btn" id="clarify-proceed-btn">Proceed →</button>`;
+        panel.appendChild(proceedRow);
+        const proceedBtn = proceedRow.querySelector('#clarify-proceed-btn');
+
+        // Focus first input
+        const firstInput = panel.querySelector('.clarify-ans');
+        if (firstInput) setTimeout(() => firstInput.focus(), 50);
+
+        scrollBottom();
+
+        proceedBtn.addEventListener('click', () => {
+          // Collect all current input values
+          panel.querySelectorAll('.clarify-ans').forEach((inp, i) => {
+            if (!inp.disabled) answers[i] = inp.value.trim();
+          });
+
+          // Build augmented task
+          const answered = qLines
+            .map((q, i) => answers[i] ? `Q: ${q}\nA: ${answers[i]}` : null)
+            .filter(Boolean);
+
+          const augmented = answered.length
+            ? task + '\n\n--- Clarifications ---\n' + answered.join('\n\n')
+            : task;
+
+          // Replace panel with a compact answered summary
+          const summary = document.createElement('div');
+          summary.className = 'clarify-panel';
+          summary.style.cssText = 'opacity:.7;padding:10px 14px;gap:5px';
+          summary.innerHTML = `
+            <div class="clarify-hdr" style="margin-bottom:0">
+              <i class="fas fa-circle-check" style="color:var(--green)"></i>
+              Clarifications collected — proceeding
+            </div>
+            ${answered.map(a => `<div style="font-size:11px;color:var(--tx-3);padding-left:18px">${esc(a.replace('\n', ' → '))}</div>`).join('')}`;
+          panel.replaceWith(summary);
+          scrollBottom();
+
+          resolve(augmented);
+        });
+      });
+    }
+
     async function handleSend() {
       if (state.running) {
         state.abortCtrl?.abort();
@@ -14929,9 +15266,18 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       if (!state.originalTask && t) state.originalTask = t;
       updateSendBtn(); updateContextMeter();
 
+      /* ── Clarifying questions — runs before both plan mode and agent ── */
+      if (state.clarifyMode && t && state.messages.length === 1) {
+        const augmented = await runClarifyFlow(t, state.clarifyCount);
+        if (augmented !== t) {
+          state.messages[state.messages.length - 1] = { role: 'user', content: augmented };
+          if (state.originalTask === t) state.originalTask = augmented;
+        }
+      }
+
       /* ── Plan mode: generate plan instead of executing ── */
       if (state.planMode && (t || state.pendingImages.length)) {
-        const taskText = t || '[Image analysis request]';
+        const taskText = state.messages[state.messages.length - 1]?.content || t;
         await handlePlanRequest(taskText);
         return;
       }
