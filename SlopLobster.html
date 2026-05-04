@@ -3776,7 +3776,8 @@
     }
     .clarify-dots span:nth-child(2) { animation-delay: .2s; }
     .clarify-dots span:nth-child(3) { animation-delay: .4s; }
-       ══════════════════════════════════════════ */
+    /* ═══════════════════════════════════════════ */
+
     .swarm-panel {
       border: 1px solid rgba(139, 92, 246, .25);
       border-radius: 10px;
@@ -4733,6 +4734,144 @@
     }
     .embed-status.has-error .embed-retry { display: inline-flex; align-items: center; gap: 3px; }
     .embed-retry:hover { color: var(--tx-0); background: var(--bg-3); border-color: var(--border-l); }
+
+    /* ── In-conversation search bar ── */
+    .conv-search-bar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      background: var(--bg-1);
+      border-bottom: 1px solid var(--border-l);
+      box-shadow: 0 4px 16px rgba(0,0,0,.4);
+      transform: translateY(-100%);
+      transition: transform .2s ease;
+    }
+    .conv-search-bar.open {
+      transform: translateY(0);
+    }
+    .conv-search-bar input {
+      flex: 1;
+      background: var(--bg-2);
+      border: 1px solid var(--border-l);
+      color: var(--tx-0);
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-family: inherit;
+      outline: none;
+      transition: .15s;
+    }
+    .conv-search-bar input:focus { border-color: var(--accent-d); box-shadow: 0 0 0 2px var(--accent-glow); }
+    .conv-search-bar input::placeholder { color: var(--tx-4); }
+    .conv-search-meta {
+      font-size: 10px;
+      color: var(--tx-4);
+      font-family: 'JetBrains Mono', monospace;
+      white-space: nowrap;
+      min-width: 60px;
+      text-align: right;
+    }
+    .conv-search-nav {
+      display: flex;
+      gap: 2px;
+    }
+    .conv-search-nav button {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--tx-3);
+      cursor: pointer;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      transition: .12s;
+    }
+    .conv-search-nav button:hover { background: var(--bg-3); color: var(--tx-0); }
+    .conv-search-nav button:disabled { opacity: .3; cursor: not-allowed; }
+    .conv-search-close {
+      background: none;
+      border: none;
+      color: var(--tx-4);
+      cursor: pointer;
+      padding: 3px 7px;
+      border-radius: 4px;
+      font-size: 13px;
+      transition: .12s;
+    }
+    .conv-search-close:hover { color: var(--tx-0); background: var(--bg-3); }
+    .msg-search-highlight {
+      background: rgba(232, 160, 35, .25);
+      border-radius: 2px;
+      outline: 1px solid rgba(232, 160, 35, .4);
+    }
+    .msg-search-highlight.current {
+      background: rgba(232, 160, 35, .5);
+      outline-color: var(--accent);
+    }
+
+    /* ── Input character counter ── */
+    .input-counter {
+      font-size: 9px;
+      color: var(--tx-4);
+      font-family: 'JetBrains Mono', monospace;
+      transition: color .2s;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .input-counter.warn { color: var(--yellow); }
+    .input-counter.danger { color: var(--red); }
+
+    /* ── Improved streaming cursor ── */
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+    .streaming-cursor::after {
+      content: '▋';
+      display: inline-block;
+      color: var(--accent);
+      animation: blink .8s step-start infinite;
+      font-size: .85em;
+      vertical-align: baseline;
+      margin-left: 1px;
+    }
+
+    /* ── Copy-as-markdown button ── */
+    .msg-act.copy-md { }
+    .msg-act.copy-md.copied { color: var(--green) !important; }
+
+    /* ── Message highlight for search scroll-to ── */
+    .msg.search-focus .msg-body {
+      background: rgba(232, 160, 35, .04);
+      border-radius: 6px;
+      transition: background .3s;
+    }
+
+    /* ── Swarm toggle button in toolbar ── */
+    .swarm-toggle-btn {
+      background: none;
+      border: 1px solid transparent;
+      color: var(--tx-4);
+      cursor: pointer;
+      padding: 5px 7px;
+      border-radius: 6px;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: .15s;
+    }
+    .swarm-toggle-btn:hover { background: var(--bg-3); color: var(--tx-1); }
+    .swarm-toggle-btn.active {
+      color: #a78bfa;
+      background: rgba(139,92,246,.1);
+      border-color: rgba(139,92,246,.2);
+    }
   </style>
 </head>
 
@@ -4876,6 +5015,17 @@
             </div>
           </div>
         </div>
+        <!-- In-conversation search bar -->
+        <div class="conv-search-bar" id="conv-search-bar">
+          <i class="fas fa-search" style="color:var(--tx-4);font-size:11px;flex-shrink:0"></i>
+          <input type="text" id="conv-search-input-msg" placeholder="Search in conversation..." autocomplete="off" oninput="convSearchInput(this.value)" onkeydown="convSearchKeydown(event)">
+          <span class="conv-search-meta" id="conv-search-meta"></span>
+          <div class="conv-search-nav">
+            <button id="conv-search-prev" onclick="convSearchPrev()" title="Previous (Shift+Enter)" disabled><i class="fas fa-chevron-up"></i></button>
+            <button id="conv-search-next" onclick="convSearchNext()" title="Next (Enter)" disabled><i class="fas fa-chevron-down"></i></button>
+          </div>
+          <button class="conv-search-close" onclick="closeConvSearch()" title="Close (Esc)"><i class="fas fa-xmark"></i></button>
+        </div>
         <div id="messages" style="display:none"></div>
         <div class="ws-warning" id="ws-warning" style="display:none">
             <i class="fas fa-folder-open"></i>
@@ -4982,6 +5132,7 @@
             title="Send screenshot to model"><i class="fas fa-camera"></i><span id="vision-badge"
               class="vision-badge off">text</span></button>
           <button class="plan-toggle-btn" id="plan-toggle-btn" onclick="togglePlanMode()" title="Plan Mode: break task into steps before executing"><i class="fas fa-list-check"></i><span class="plan-badge">PLAN</span></button>
+          <button class="swarm-toggle-btn" id="swarm-toggle-btn" onclick="toggleSwarmInputMode()" title="Swarm Mode: run multiple agents in parallel"><i class="fas fa-network-wired"></i></button>
           <button class="input-action-btn" id="attach-btn" onclick="document.getElementById('file-input').click()"
             title="Attach file or drop here"><i class="fas fa-paperclip"></i></button>
           <input type="file" id="file-input" multiple style="display:none" onchange="handleFileAttach(this.files)">
@@ -4993,7 +5144,8 @@
       </div>
       <div id="img-attachments" style="display:none"></div>
       <div class="input-hints">
-        <span><b>Enter</b> send · <b>Shift+Enter</b> newline · <b>/</b> commands · drop files to attach</span>
+        <span><b>Enter</b> send · <b>Shift+Enter</b> newline · <b>/</b> commands · drop files to attach · <b>Ctrl+F</b> search</span>
+        <span class="input-counter" id="input-counter"></span>
         <button class="scroll-lock-btn following" id="scroll-lock-btn" onclick="toggleAutoScroll()"
           title="Toggle auto-scroll"><i class="fas fa-arrow-down"></i><span>Following</span></button>
       </div>
@@ -5166,6 +5318,7 @@
         </div>
         <div class="shortcut-row"><span class="desc">Export conversation</span><span><span
               class="kbd">Ctrl+Shift+E</span></span></div>
+        <div class="shortcut-row"><span class="desc">Search in conversation</span><span><span class="kbd">Ctrl+F</span></span></div>
         <div class="shortcut-row"><span class="desc">Compact context</span><span><span
               class="kbd">Ctrl+Shift+M</span></span></div>
         <div class="shortcut-row"><span class="desc">Close modal</span><span><span class="kbd">Esc</span></span></div>
@@ -6404,7 +6557,11 @@ if __name__ == "__main__":
 
     /** Strip <think>...</think> and <|channel>thought...<channel|> from model output */
     function stripThinkingBlocks(text) {
+      if (!text) return '';
       text = text.replace(/<think>[\s\S]*?<\/think>/g, '');
+      // Gemma 4: opening tag is <|channel>thought, closing tag is <channel|>  (note: channel| not |channel)
+      text = text.replace(/<\|channel>thought[\s\S]*?<channel\|>/g, '');
+      // Fallback variant
       text = text.replace(/<\|channel>thought[\s\S]*?<\|channel>/g, '');
       return text.trim();
     }
@@ -8580,29 +8737,20 @@ Python command: {{PYTHON_CMD}}`;
         if (lineCount > threshold) {
           let skeleton = null;
 
-          // Try companion for accurate AST-based extraction (includes body previews)
+          // Try companion for accurate AST-based extraction
           if (state.compConnected) {
             try {
               skeleton = await getFileSkeleton(text, ext, rel, lineCount);
             } catch { /* fallback to client-side */ }
+          }
 
-          // Fallback: client-side extraction
+          // Fallback: client-side extraction (runs regardless of companion)
           if (!skeleton) {
             skeleton = extractEnhancedSkeleton(text, ext);
           }
 
           if (skeleton) {
             const skelLen = skeleton.length;
-
-            // ── KEY FIX: strip body previews from large skeletons ──
-            //
-            // Body previews (first 3 lines of function bodies, class attributes, variable
-            // assignments) are "variable content" that gets lost on compact. After compact the
-            // agent sees only signatures and re-reads the file — causing a read-compact loop.
-            //
-            // By stripping them upfront, the skeleton contains only "fixed parts" (imports,
-            // signatures with line numbers) that survive compaction. The agent can then grep
-            // for what it needs and use read_file_lines to read specific sections — no loop.
             if (skelLen > 4000) {
               const stripped = stripBodyPreviews(skeleton);
               return {
@@ -8613,10 +8761,11 @@ Python command: {{PYTHON_CMD}}`;
                   stripped
               };
             }
-           }
-            // Skeleton is reasonable size, return as-is (body preview preserved for context)
+            // Skeleton is reasonable size, return as-is
             return { output: skeleton };
           }
+
+          // No skeleton available — fall through to structure-aware truncation
 
           // No skeleton available — use structure-aware truncation (head + tail)
           if (f.size > maxB) {
@@ -9820,7 +9969,6 @@ Python command: {{PYTHON_CMD}}`;
           if (oldest !== undefined) searchCache.delete(oldest);
         }
         searchCache.set(cacheKey, { data, time: Date.now() });
-        if (searchCache.size > 20) { const keys = [...searchCache.keys()]; searchCache.delete(keys[0]); }
         return data;
       } catch (e) {
         return { query, error: e.message, count: 0, results: [{ "error": `Search failed: ${e.message}` }] };
@@ -10439,6 +10587,7 @@ Python command: {{PYTHON_CMD}}`;
       }
       state.messages = state.messages.slice(0, cp.messageCount);
       state.checkpoints = state.checkpoints.filter(c => c.id <= checkpointId);
+      modifiedFiles.clear();
       const parent = $msg(); while (parent.firstChild) parent.firstChild.remove();
       streamEl = null;
       if (state.messages.length) { switchToChat(); replayMessages(state.messages); updateContextMeter(); }
@@ -10796,7 +10945,10 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
       const _usesTC = usesThinkChannels();
       const _isQwen = isQwen();
-      const sysContent = _usesTC ? '<|think|>\n' : state._sysPromptCacheText;
+      const _isGemma = isGemma();
+      // Always use full system prompt — Gemma/Qwen thinking is handled via chat template, not system content
+      const sysContent = state._sysPromptCacheText;
+      state._sysPromptLength = estimateTokens(sysContent);
       const apiMsgs = [{ role: 'system', content: sysContent }, ...messages.map(m => {
       if (m._images && m._images.length) {
         const parts = [];
@@ -10806,6 +10958,22 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       }
       return m;
       })];
+
+      // Compute model-specific sampling parameters
+      // Gemma 4: Google recommends temp=1.0, top_k=64, top_p=0.95, min_p=0.0
+      // Qwen 3.x thinking mode: temp=1.0, top_k=20, top_p=0.95, presence_penalty=1.5
+      // Qwen 3.x non-thinking mode: temp=0.7, top_k=20, top_p=0.8, presence_penalty=1.5
+      const _qwenThinking = _isQwen && (document.getElementById('s-qwen-enable-thinking')?.checked ?? true);
+      let _temp, _top_p, _top_k, _min_p, _pres;
+      if (_isGemma) {
+        _temp = 1.0; _top_k = 64; _top_p = 0.95; _min_p = 0.0; _pres = undefined;
+      } else if (_isQwen && _qwenThinking) {
+        _temp = 1.0; _top_k = 20; _top_p = 0.95; _min_p = 0.0; _pres = 1.5;
+      } else if (_isQwen) {
+        _temp = 0.7; _top_k = 20; _top_p = 0.8; _min_p = 0.0; _pres = 1.5;
+      } else {
+        _temp = state.temp; _top_k = undefined; _top_p = undefined; _min_p = undefined; _pres = undefined;
+      }
 
       state.abortCtrl = new AbortController();
       const res = await fetch(`${state.apiUrl}/v1/chat/completions`, {
@@ -10822,10 +10990,11 @@ Use git_diff to review changes before committing. git_diff without arguments sho
               preserve_thinking: document.getElementById('s-qwen-preserve-thinking')?.checked ?? true,
             }
           } : {}),
-          temperature: _usesTC ? 1.0 : state.temp,
-          top_p: _usesTC ? 0.95 : undefined,
-          top_k: _usesTC ? (_isQwen ? 20 : 64) : undefined,
-          presence_penalty: _isQwen ? 1.5 : undefined,
+          temperature: _temp,
+          top_p: _top_p,
+          top_k: _top_k,
+          min_p: _min_p,
+          presence_penalty: _pres,
           max_tokens: (() => {
             // For local servers (llama.cpp, LM Studio, Ollama) the context slot is
             // fixed. Asking for more output tokens than the remaining space causes
@@ -12657,6 +12826,9 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
       const sysPrompt = 'Summarize this conversation preserving: the core task, key decisions, files modified with brief descriptions, errors and their resolutions, current state. Be concise — under 600 tokens.';
       const convText = state.messages.map(m => {
+        if (m._images?.length) {
+          text += `\n[${m._images.length} image(s) were attached and analyzed]`;
+        }
         if (m.role === 'user') return '[User]: ' + (m.content || '');
         if (m.role === 'assistant') {
           let text = '[Agent]: ' + (m.content || '');
@@ -12759,19 +12931,23 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       tokenTracker.reset();
       tokenTracker._probeDone = false; 
       agentStopwatch = performance.now();
-      // Save checkpoint before this iteration's tools run
-      saveCheckpoint(iters);
 
       while (state.running) {
         const ctxPct = getContextPct();
-        if (ctxPct >= state.autoCompactPct) {
+        // Only compact based on context % after at least one real LLM call has happened.
+        // On iteration 0: tokenTracker.lastPromptTokens is -1, so getContextPct() falls back
+        // to estimateConvTokens() which can wildly overestimate when previous compact artifacts
+        // ([ORIGINAL TASK], [summary], [CONTINUE WORKING]) are already in state.messages.
+        // Waiting until iters > 0 guarantees we have a real token count from the model.
+        const hasRealTokenCount = iters > 0 && tokenTracker.lastPromptTokens > 0;
+        if (hasRealTokenCount && ctxPct >= state.autoCompactPct) {
           const saved = await saveProgressToWorkspace('context limit (' + Math.round(ctxPct) + '%)');
           if (!saved) appendMsg('system', '⚠ Could not save progress file — workspace may be disconnected');
-          await progressCompact(saved); iters = 0; if (!state.running) break; continue;
+          await progressCompact(saved); iters = 0; tokenTracker.reset(); if (!state.running) break; continue;
         }
         if (iters >= COMPACT_AT) {
           const saved = await saveProgressToWorkspace('iteration limit (' + iters + ')');
-          await progressCompact(saved); iters = 0; if (!state.running) break; continue;
+          await progressCompact(saved); iters = 0; tokenTracker.reset(); if (!state.running) break; continue;
         }
         if (iters === SOFT_WARN) {
           state.messages.push({
@@ -12806,6 +12982,10 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           tcs = _chatRes?.toolCalls?.filter(Boolean) || [];
           usage = _chatRes.usage || { in: 0, out: 0 };
           tokenTracker.commit();
+
+          // Strip thinking blocks (Gemma 4 <|channel>thought...<channel|>, Qwen <think>...</think>)
+          // from the visible text content. These are internal reasoning that shouldn't show in the bubble.
+          cur = stripThinkingBlocks(cur);
 
           /* ── Truncation recovery ──────────────────────────────────────
            * If the model hit max_tokens while generating a tool call's
@@ -12870,9 +13050,9 @@ Use git_diff to review changes before committing. git_diff without arguments sho
               tokEl.textContent = (usage ? '' : '~') + formatTok(outTok) + ' out';
               hdr.insertBefore(tokEl, hdr.querySelector('.msg-actions'));
 
+              // Don't push am yet — check for truncation first
               const am = { role: 'assistant', content: cur || null };
               if (tcs.length) am.tool_calls = tcs;
-              state.messages.push(am); updateContextMeter();
             } else {
               streamEl.remove();
             }
@@ -12889,11 +13069,27 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           break;
         }
         if (th && th.parentNode) th.remove();
-        const am = { role: 'assistant', content: cur || null }; if (tcs.length) am.tool_calls = tcs;
-        state.messages.push(am); updateContextMeter();
-        for (const [, el] of liveThinkEls) finalizeLiveThinkBlock(el); liveThinkEls.clear();
+
+        // ── Create assistant message (do NOT push yet — truncation check decides when) ──
+        const am = { role: 'assistant', content: cur || null };
+        if (tcs.length) am.tool_calls = tcs;
+
+        for (const [, el] of liveThinkEls) finalizeLiveThinkBlock(el);
+        liveThinkEls.clear();
+
+        // If Gemma/Qwen produced only a thinking block (no text, no tool calls), continue the loop
+        if (!cur && !tcs.length) {
+          if (streamEl) { streamEl.remove(); streamEl = null; }
+          // Inject a nudge so the model responds with actual content next turn
+          state.messages.push({ role: 'user', content: '[SYSTEM: Please respond with your answer or use a tool. Do not output only a thinking block.]' });
+          continue;
+        }
 
         if (!tcs.length) {
+          // ── No tool calls: text-only response ──
+          state.messages.push(am);
+          updateContextMeter();
+
           if (checkTextLoop(cur)) {
             if (streamEl) { finalizeStreamingMsg(cur); streamEl = null; }
             const wEl = document.createElement('div'); wEl.className = 'health-warning';
@@ -12903,6 +13099,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             textLoopBuffer.length = 0;
             continue;
           }
+
           // Warn if the model was cut off mid-response by the context/token limit
           if (_chatRes.finishReason === 'length' && !tcs._hasTruncation) {
             const promptTok = tokenTracker.lastPromptTokens > 0 ? tokenTracker.lastPromptTokens : estimateConvTokens();
@@ -12911,62 +13108,148 @@ Use git_diff to review changes before committing. git_diff without arguments sho
             wEl.innerHTML = `<i class="fas fa-scissors"></i><span>Response cut off — model hit the output token limit mid-answer (~${formatTok(promptTok)} of ${formatTok(state.ctxWindow)} ctx used, ~${formatTok(remaining)} remaining). Run <code>/compact</code> to free context, or ask the model to continue.</span>`;
             $msg().appendChild(wEl); scrollBottom();
           }
-          finalizeStreamingMsg(cur); break;
+
+          finalizeStreamingMsg(cur);
+          break;
         }
 
-        /* ── Truncation recovery: inject synthetic error results ── */
+        /* ════════════════════════════════════════════════════════════════════════
+           TRUNCATION RECOVERY
+           When the model hit max_tokens mid-tool-call, its arguments are
+           invalid JSON. We must:
+             1. Push the assistant message ONCE (with all tool_calls)
+             2. Inject synthetic error results for EVERY tool call in the batch
+                (truncated ones get recovery guidance; non-truncated ones in the
+                same batch are also unsalvageable because the model's attention
+                was cut off and it can't meaningfully process their results)
+             3. Continue the loop so the model reads the errors and retries
+           ════════════════════════════════════════════════════════════════════════ */
         if (tcs._hasTruncation) {
-          finalizeStreamingMsg(cur); streamEl = null;
-          const am2 = { role: 'assistant', content: cur || null, tool_calls: tcs };
-          state.messages.push(am2); updateContextMeter();
+          state.messages.push(am);   // ← push ONCE
+          updateContextMeter();
+          finalizeStreamingMsg(cur);
+          streamEl = null;
 
-          for (const tc of tcs._truncatedTcs) {
-            const name = tc.function.name;
-            const argsStr = tc.function.arguments || '';
-            // Try to rescue path from whatever was generated before truncation
-            const pathMatch = argsStr.match(/"path"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-            const rescuedPath = pathMatch ? pathMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\') : null;
-            const pathHint = rescuedPath ? ` for "${rescuedPath}"` : '';
+          for (const tc of tcs) {
+            const isTruncated = tcs._truncatedTcs.some(t => t.id === tc.id);
 
-            let recoveryMsg;
-            if (name === 'write_file') {
-              recoveryMsg =
-                `TRUNCATED — write_file${pathHint} was cut off mid-argument (hit max_tokens).\n\n` +
-                `The file content is too large to fit in a single tool call's JSON.\n\n` +
-                `Fix — use write_file_chunked instead:\n` +
-                `write_file_chunked({\n` +
-                `  "path": "${rescuedPath || 'YOUR_FILE_PATH'}",\n` +
-                `  "chunks": [\n` +
-                `    "first ~200 lines of the file",\n` +
-                `    "next ~200 lines",\n` +
-                `    "... continue until complete"\n` +
-                `  ]\n` +
-                `})\n\n` +
-                `Each chunk should be under 300 lines. The tool concatenates them in order.`;
-            } else if (name === 'edit_file') {
-              recoveryMsg =
-                `TRUNCATED — edit_file${pathHint} was cut off mid-argument (hit max_tokens).\n\n` +
-                `The old_text or new_text block is too large.\n\n` +
-                `Fix:\n` +
-                `1. Break the edit into multiple smaller edit_file calls (each old_text ≤ 20 lines)\n` +
-                `2. Target only the specific lines that need to change — don't include large unchanged blocks in old_text\n` +
-                `3. Always put "path" as the FIRST key in the JSON`;
+            if (isTruncated) {
+              // ── This tool call's arguments were cut off (invalid JSON) ──
+              const name = tc.function.name;
+              const argsStr = tc.function.arguments || '';
+
+              // Try to rescue the path from whatever was generated before truncation
+              const pathMatch = argsStr.match(/"path"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+              const rescuedPath = pathMatch ? pathMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\') : null;
+              const pathHint = rescuedPath ? ` for "${rescuedPath}"` : '';
+
+              let recoveryMsg;
+
+              if (name === 'write_file') {
+                recoveryMsg =
+                  `TRUNCATED — write_file${pathHint} was cut off mid-argument (hit max_tokens).\n\n` +
+                  `The file content is too large to fit in a single tool call's JSON.\n\n` +
+                  `Fix — use write_file_chunked instead:\n` +
+                  `write_file_chunked({\n` +
+                  `  "path": "${rescuedPath || 'YOUR_FILE_PATH'}",\n` +
+                  `  "chunks": [\n` +
+                  `    "first ~200 lines of the file",\n` +
+                  `    "next ~200 lines",\n` +
+                  `    "... continue until complete"\n` +
+                  `  ]\n` +
+                  `})\n\n` +
+                  `Each chunk should be under 300 lines. The tool concatenates them in order.`;
+              } else if (name === 'edit_file') {
+                recoveryMsg =
+                  `TRUNCATED — edit_file${pathHint} was cut off mid-argument (hit max_tokens).\n\n` +
+                  `The old_text or new_text block is too large.\n\n` +
+                  `Fix:\n` +
+                  `1. Break the edit into multiple smaller edit_file calls (each old_text ≤ 20 lines)\n` +
+                  `2. Target only the specific lines that need to change — don't include large unchanged blocks in old_text\n` +
+                  `3. Always put "path" as the FIRST key in the JSON`;
+              } else if (name === 'write_file_chunked') {
+                // Salvage what we can from partial chunks
+                const rescuedChunks = [];
+                const chunksStart = argsStr.indexOf('"chunks"');
+                if (chunksStart !== -1) {
+                  const arrStart = argsStr.indexOf('[', chunksStart);
+                  if (arrStart !== -1) {
+                    const partial = argsStr.slice(arrStart);
+                    let i = 1;
+                    while (i < partial.length) {
+                      while (i < partial.length && /[\s,]/.test(partial[i])) i++;
+                      if (partial[i] !== '"') break;
+                      let j = i + 1, str = '', complete = false;
+                      while (j < partial.length) {
+                        if (partial[j] === '\\' && j + 1 < partial.length) {
+                          const esc = partial[j + 1];
+                          str += esc === 'n' ? '\n' : esc === 't' ? '\t' : esc === 'r' ? '\r' : esc === '"' ? '"' : esc === '\\' ? '\\' : esc;
+                          j += 2;
+                        } else if (partial[j] === '"') { complete = true; j++; break; }
+                        else { str += partial[j]; j++; }
+                      }
+                      if (complete) { rescuedChunks.push(str); i = j; }
+                      else break;
+                    }
+                  }
+                }
+
+                if (rescuedChunks.length && rescuedPath) {
+                  const joinedLen = rescuedChunks.join('').split('\n').length;
+                  recoveryMsg =
+                    `⚠ PARTIAL WRITE — write_file_chunked${pathHint} was truncated mid-stream.\n` +
+                    `Received ${rescuedChunks.length} chunk(s) / ~${joinedLen} lines before truncation.\n\n` +
+                    `The file may be INCOMPLETE. Continue with:\n` +
+                    `write_file_chunked({"path": "${rescuedPath}", "append": true, "chunks": ["...remaining content..."]})\n\n` +
+                    `Keep each chunk ≤ 60 lines.`;
+                } else {
+                  recoveryMsg =
+                    `TRUNCATED — write_file_chunked${pathHint} was cut off before any complete chunks could be parsed.\n\n` +
+                    `Fix: Keep each chunk small (≤60 lines) so all chunks fit in one tool call.\n\n` +
+                    `write_file_chunked({"path": "${rescuedPath || 'YOUR_FILE_PATH'}", "chunks": ["chunk1", "chunk2", ...]})`;
+                }
+              } else {
+                recoveryMsg =
+                  `TRUNCATED — ${name}${pathHint} arguments were cut off mid-stream (hit max_tokens).\n\n` +
+                  `Reduce the size of the arguments and retry.`;
+              }
+
+              state.messages.push({ role: 'tool', tool_call_id: tc.id, content: recoveryMsg });
+
             } else {
-              recoveryMsg =
-                `TRUNCATED — ${name}${pathHint} arguments were cut off mid-stream (hit max_tokens).\n\n` +
-                `Reduce the size of the arguments and retry.`;
+              // ── This tool call had valid JSON, but the batch was interrupted ──
+              // The model's generation was cut off, so it can't meaningfully
+              // process real results. Tell it to retry the whole batch.
+              state.messages.push({
+                role: 'tool',
+                tool_call_id: tc.id,
+                content:
+                  `[BATCH INTERRUPTED — another tool call in this batch was truncated when the model hit max_tokens. ` +
+                  `The model's generation was cut off and cannot process results reliably.\n\n` +
+                  `Please retry this tool call in your next response.]`
+              });
             }
-
-            state.messages.push({ role: 'tool', tool_call_id: tc.id, content: recoveryMsg });
-
-            // Show a warning UI element
-            const warnEl = document.createElement('div');
-            warnEl.className = 'health-warning';
-            warnEl.innerHTML = `<i class="fas fa-scissors"></i><span>Tool call truncated (hit max_tokens) — injecting recovery guidance for <code>${esc(name)}</code>${rescuedPath ? ' → ' + esc(rescuedPath) : ''}</span>`;
-            $msg().appendChild(warnEl); scrollBottom();
           }
-          continue; // Let the model read the recovery messages and retry
+
+          // Show a warning UI element
+          const warnEl = document.createElement('div');
+          warnEl.className = 'health-warning';
+          const truncatedNames = tcs._truncatedTcs.map(tc => `<code>${esc(tc.function.name)}</code>`).join(', ');
+          const otherCount = tcs.length - tcs._truncatedTcs.length;
+          const otherNote = otherCount > 0
+            ? ` and ${otherCount} other tool${otherCount > 1 ? 's' : ''} interrupted`
+            : '';
+          warnEl.innerHTML = `<i class="fas fa-scissors"></i><span>Tool call truncated (hit max_tokens) — injecting recovery guidance for ${truncatedNames}${otherNote}</span>`;
+          $msg().appendChild(warnEl);
+          scrollBottom();
+
+          continue;   // Let the model read the recovery messages and retry
         }
+
+        // ── Normal flow: push assistant message and proceed to tool execution ──
+        state.messages.push(am);
+        updateContextMeter();
+
         if (cur) finalizeStreamingMsg(cur);
 
         const thinkTcs = tcs.filter(tc => tc.function.name === 'think');
@@ -13432,6 +13715,10 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           }
         }
 
+        // Save a checkpoint after each iteration where files were modified
+        saveCheckpoint(iters);
+        modifiedFiles.clear();
+
         updateContextMeter();
       }
 
@@ -13807,7 +14094,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       el._time = new Date().toLocaleTimeString();
       el._msgIndex = state.messages.length;
       const gid = 'ag_' + Math.random().toString(36).substr(2, 9);
-      el.innerHTML = `<div class="msg-avatar ${isUser ? 'user' : 'agent'}">${isUser ? '<i class="fas fa-user" style="font-size:10px"></i>' : '<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:18px;height:18px"><defs><linearGradient id="' + gid + '" x1="2" y1="2" x2="26" y2="26" gradientUnits="userSpaceOnUse"><stop stop-color="#f5b742"/><stop offset="1" stop-color="#a06e10"/></linearGradient></defs><rect width="28" height="28" rx="6" fill="url(#' + gid + ')"/><ellipse cx="14" cy="18" rx="5.5" ry="4" fill="#08080a" opacity=".9"/><path d="M14 22L12 26M14 22L14 26.5M14 22L16 26" stroke="#08080a" stroke-width="1.2" stroke-linecap="round" opacity=".85"/><circle cx="14" cy="13" r="3.2" fill="#08080a" opacity=".9"/><path d="M8.5 17Q4.5 15 3 11Q2.5 9.5 4 9.5Q5.5 9.5 6.5 11.5Q7.5 13.5 8.5 15" fill="#08080a" opacity=".85"/><path d="M19.5 17Q23.5 15 25 11Q25.5 9.5 24 9.5Q22.5 9.5 21.5 11.5Q20.5 13.5 19.5 15" fill="#08080a" opacity=".85"/><circle cx="12.2" cy="12" r="1" fill="#f5b742"/><circle cx="15.8" cy="12" r="1" fill="#f5b742"/><path d="M12.5 10.2Q10 7 9 5" stroke="#08080a" stroke-width="1" stroke-linecap="round" opacity=".8"/><path d="M15.5 10.2Q18 7 19 5" stroke="#08080a" stroke-width="1" stroke-linecap="round" opacity=".8"/><circle cx="9" cy="5" r=".8" fill="#08080a" opacity=".8"/><circle cx="19" cy="5" r=".8" fill="#08080a" opacity=".8"/><path d="M10 19L8 21.5M11 19.5L9.5 22M13 20L12 22.5M15 20L16 22.5M17 19.5L18.5 22M18 19L20 21.5" stroke="#08080a" stroke-width=".9" stroke-linecap="round" opacity=".7"/></svg>'}</div><div class="msg-body"><div class="msg-header"><span class="msg-name">${isUser ? 'You' : 'SlopLobster'}</span><span class="msg-time">${el._time}</span><div class="msg-actions">${isAgent ? '<button class="msg-act" onclick="copyMsgText(this)" title="Copy"><i class="fas fa-copy"></i></button><button class="msg-act" onclick="pruneMsg(this)" title="Prune out of context"><i class="fas fa-scissors"></i></button><button class="msg-act" onclick="retryMsg(this)" title="Retry from here"><i class="fas fa-rotate-right"></i></button>' : ''}${isUser ? '<button class="msg-act" onclick="editMsg(this)" title="Edit & resend"><i class="fas fa-pen"></i></button><button class="msg-act" onclick="copyMsgText(this)" title="Copy"><i class="fas fa-copy"></i></button><button class="msg-act" onclick="pruneMsg(this)" title="Prune out of context"><i class="fas fa-scissors"></i></button>' : ''}</div></div><div class="msg-content ${streaming ? 'streaming-cursor' : ''}">${isUser ? esc(text) : renderMd(text)}</div></div>`;
+      el.innerHTML = `<div class="msg-avatar ${isUser ? 'user' : 'agent'}">${isUser ? '<i class="fas fa-user" style="font-size:10px"></i>' : '<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:18px;height:18px"><defs><linearGradient id="' + gid + '" x1="2" y1="2" x2="26" y2="26" gradientUnits="userSpaceOnUse"><stop stop-color="#f5b742"/><stop offset="1" stop-color="#a06e10"/></linearGradient></defs><rect width="28" height="28" rx="6" fill="url(#' + gid + ')"/><ellipse cx="14" cy="18" rx="5.5" ry="4" fill="#08080a" opacity=".9"/><path d="M14 22L12 26M14 22L14 26.5M14 22L16 26" stroke="#08080a" stroke-width="1.2" stroke-linecap="round" opacity=".85"/><circle cx="14" cy="13" r="3.2" fill="#08080a" opacity=".9"/><path d="M8.5 17Q4.5 15 3 11Q2.5 9.5 4 9.5Q5.5 9.5 6.5 11.5Q7.5 13.5 8.5 15" fill="#08080a" opacity=".85"/><path d="M19.5 17Q23.5 15 25 11Q25.5 9.5 24 9.5Q22.5 9.5 21.5 11.5Q20.5 13.5 19.5 15" fill="#08080a" opacity=".85"/><circle cx="12.2" cy="12" r="1" fill="#f5b742"/><circle cx="15.8" cy="12" r="1" fill="#f5b742"/><path d="M12.5 10.2Q10 7 9 5" stroke="#08080a" stroke-width="1" stroke-linecap="round" opacity=".8"/><path d="M15.5 10.2Q18 7 19 5" stroke="#08080a" stroke-width="1" stroke-linecap="round" opacity=".8"/><circle cx="9" cy="5" r=".8" fill="#08080a" opacity=".8"/><circle cx="19" cy="5" r=".8" fill="#08080a" opacity=".8"/><path d="M10 19L8 21.5M11 19.5L9.5 22M13 20L12 22.5M15 20L16 22.5M17 19.5L18.5 22M18 19L20 21.5" stroke="#08080a" stroke-width=".9" stroke-linecap="round" opacity=".7"/></svg>'}</div><div class="msg-body"><div class="msg-header"><span class="msg-name">${isUser ? 'You' : 'SlopLobster'}</span><span class="msg-time" title="${new Date().toLocaleString()}">${el._time}</span><div class="msg-actions">${isAgent ? '<button class="msg-act" onclick="copyMsgText(this)" title="Copy plain text"><i class="fas fa-copy"></i></button><button class="msg-act copy-md" onclick="copyMsgMarkdown(this)" title="Copy as Markdown"><i class="fas fa-markdown"></i></button><button class="msg-act" onclick="pruneMsg(this)" title="Prune out of context"><i class="fas fa-scissors"></i></button><button class="msg-act" onclick="retryMsg(this)" title="Retry from here"><i class="fas fa-rotate-right"></i></button>' : ''}${isUser ? '<button class="msg-act" onclick="editMsg(this)" title="Edit & resend"><i class="fas fa-pen"></i></button><button class="msg-act" onclick="copyMsgText(this)" title="Copy"><i class="fas fa-copy"></i></button><button class="msg-act" onclick="pruneMsg(this)" title="Prune out of context"><i class="fas fa-scissors"></i></button>' : ''}</div></div><div class="msg-content ${streaming ? 'streaming-cursor' : ''}">${isUser ? esc(text) : renderMd(text)}</div></div>`;
       if (isAgent && !streaming) { el.querySelector('.msg-content').querySelectorAll('pre code').forEach(b => hljs.highlightElement(b)); addCopyBtns(el.querySelector('.msg-content')); }
       return el;
     }
@@ -13826,6 +14113,23 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     function copyMsgText(btn) {
       const msgEl = btn.closest('.msg'); const text = msgEl._text || msgEl.querySelector('.msg-content')?.textContent || '';
       navigator.clipboard.writeText(text).then(() => { btn.innerHTML = '<i class="fas fa-check"></i>'; setTimeout(() => btn.innerHTML = '<i class="fas fa-copy"></i>', 1200); });
+    }
+
+    function copyMsgMarkdown(btn) {
+      const msgEl = btn.closest('.msg');
+      // Get raw markdown from state messages
+      const idx = msgEl._msgIndex;
+      let md = '';
+      if (idx !== undefined && state.messages[idx]) {
+        const m = state.messages[idx];
+        md = typeof m.content === 'string' ? m.content : (m.content?.[0]?.text || '');
+      }
+      if (!md) md = msgEl._text || msgEl.querySelector('.msg-content')?.textContent || '';
+      navigator.clipboard.writeText(md).then(() => {
+        btn.classList.add('copied');
+        btn.innerHTML = '<i class="fas fa-check"></i>';
+        setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = '<i class="fas fa-markdown"></i>'; }, 1400);
+      });
     }
 
     function pruneMsg(btn) {
@@ -14217,7 +14521,13 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const statsHtml = `<span style="color:var(--yellow)">+${creC} created</span><span style="color:var(--orange)">~${modC} modified</span>${delC ? '<span style="color:var(--red)">-' + delC + ' deleted</span>' : ''}${movC ? '<span style="color:var(--cyan)">→' + movC + ' moved</span>' : ''}`;
       el.innerHTML = `<div class="change-summary-hdr" onclick="this.nextElementSibling.classList.toggle('open')"><i class="fas fa-list-check"></i><span class="cs-label">Session Changes</span><div class="cs-stats">${statsHtml}</div></div><div class="change-summary-body">`;
       const body = el.querySelector('.change-summary-body');
-      const allFiles = [...changes.created].map(f => ({ f, op: 'created', icon: 'fa-plus', cls: 'created' }), [...changes.modified].map(f => ({ f, op: 'modified', icon: 'fa-pen', cls: 'modified' }), [...changes.deleted].map(f => ({ f, op: 'deleted', icon: 'fa-trash', cls: 'deleted' })), changes.moved.map(m => ({ f: m.from + ' → ' + m.to, op: 'moved', icon: 'fa-arrow-right', cls: 'moved' }))));
+      const allFiles = [
+        ...[...changes.created].map(f => ({ f, op: 'created', icon: 'fa-plus', cls: 'created' })),
+        ...[...changes.modified].map(f => ({ f, op: 'modified', icon: 'fa-pen', cls: 'modified' })),
+        ...[...changes.deleted].map(f => ({ f, op: 'deleted', icon: 'fa-trash', cls: 'deleted' })),
+        ...changes.moved.map(m => ({ f: m.from + ' → ' + m.to, op: 'moved', icon: 'fa-arrow-right', cls: 'moved' }))
+      ];
+
       if (!allFiles.length) { body.innerHTML = '<div class="cs-empty">No file changes in this session</div>'; }
       else { body.innerHTML = allFiles.map(({ f, op, icon, cls }) => `<div class="cs-file" onclick="insertPath(&quot;${esc(f.split(' → ')[0] || f)}&quot;)"><span class="cs-op ${cls}">${op}</span><i class="fas ${icon}"></i>${esc(f)}</div>`).join(''); }
       $msg().appendChild(el); scrollBottom();
@@ -14225,8 +14535,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
     function renderMd(t) {
       if (!t) return '';
-      // Strip Gemma <|channel>thought...<channel|> blocks before markdown parsing
-      t = t.replace(/<\|channel>thought\s*\n?([\s\S]*?)<\|channel>/gs, '');
+      // Strip thinking blocks (Gemma 4, Qwen <think>) before markdown parsing
+      t = stripThinkingBlocks(t);
       try {
         const raw = marked.parse(t, { breaks: true, gfm: true });
         // Allow images, links, code blocks, tables — block everything else
@@ -15379,8 +15689,8 @@ Format:
       const thinkingEl = showThinking();
       thinkingEl.innerHTML = '<div class="thinking-dots"><span></span><span></span><span></span></div> Generating plan...';
 
-      const _usesTC = usesThinkChannels();
       const _isQwen = isQwen();
+      const _isGemma = isGemma();
       const toolNames = getToolDefs().map(t => t.function.name).join(', ');
 
       const planSysPrompt = `You are a planning assistant. Break the user's task into specific, actionable steps.
@@ -15414,7 +15724,7 @@ Format:
             { role: 'user', content: userText + (state.dirName ? '\n\nWorking directory: ' + state.dirName : '') }
           ],
           stream: false,
-          temperature: _usesTC ? 1.0 : 0.3,
+          temperature: _isGemma ? 1.0 : _isQwen ? 0.7 : 0.3,
           max_tokens: Math.min(state.maxTokens, 3000),
           tools: [],
         };
@@ -16733,6 +17043,7 @@ Format:
         inp.style.height = 'auto';
         inp.style.height = Math.min(inp.scrollHeight, 150) + 'px';
         updateSendBtn();
+        updateInputCounter();
       });
       inp.addEventListener('keydown', e => {
         if (e.key === 'ArrowUp') {
@@ -16823,6 +17134,10 @@ Format:
       /* ── Keyboard shortcuts ── */
       document.addEventListener('keydown', e => {
         if (e.key === 'Escape') {
+          if (document.getElementById('conv-search-bar')?.classList.contains('open')) {
+            closeConvSearch();
+            return;
+          }
           if (document.getElementById('img-viewer').classList.contains('open')) {
             closeImgViewer();
             return;
@@ -16869,6 +17184,13 @@ Format:
         if (e.ctrlKey && e.shiftKey && e.key === 'P') {
           e.preventDefault();
           togglePlanMode();
+        }
+        if ((e.ctrlKey || e.metaKey) && e.key === 'f' && !e.shiftKey) {
+          // Only intercept if messages are visible (not welcome screen)
+          if (document.getElementById('messages').style.display !== 'none') {
+            e.preventDefault();
+            openConvSearch();
+          }
         }
         if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
           e.preventDefault();
@@ -16975,6 +17297,149 @@ Format:
           }
         } catch { /* ignore parse errors */ }
       }, 5000);
+    }
+
+    /* ═══════════════ IN-CONVERSATION SEARCH ═══════════════ */
+    const _convSearch = {
+      query: '',
+      matches: [],   // [{el, textNode, start, end, mark}]
+      current: -1,
+    };
+
+    function openConvSearch() {
+      const bar = document.getElementById('conv-search-bar');
+      if (!bar) return;
+      bar.classList.add('open');
+      const inp = document.getElementById('conv-search-input-msg');
+      inp.focus();
+      inp.select();
+    }
+
+    function closeConvSearch() {
+      const bar = document.getElementById('conv-search-bar');
+      if (!bar) return;
+      bar.classList.remove('open');
+      _clearConvSearchHighlights();
+      _convSearch.matches = [];
+      _convSearch.current = -1;
+      _updateConvSearchMeta();
+      document.getElementById('conv-search-input-msg').value = '';
+    }
+
+    function convSearchKeydown(e) {
+      if (e.key === 'Escape') { closeConvSearch(); return; }
+      if (e.key === 'Enter') { e.shiftKey ? convSearchPrev() : convSearchNext(); }
+    }
+
+    function _clearConvSearchHighlights() {
+      document.querySelectorAll('.msg-search-highlight').forEach(el => {
+        const parent = el.parentNode;
+        if (parent) {
+          parent.replaceChild(document.createTextNode(el.textContent), el);
+          parent.normalize();
+        }
+      });
+      _convSearch.matches = [];
+      _convSearch.current = -1;
+    }
+
+    function convSearchInput(q) {
+      _clearConvSearchHighlights();
+      _convSearch.query = q.trim();
+      if (!_convSearch.query) { _updateConvSearchMeta(); return; }
+
+      const msgs = document.querySelectorAll('#messages .msg-content, #messages .think-content, #messages .tool-result');
+      const matches = [];
+
+      // Walk text nodes and highlight
+      function walkAndHighlight(node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const idx = node.nodeValue.toLowerCase().indexOf(_convSearch.query.toLowerCase());
+          if (idx !== -1) {
+            const before = document.createTextNode(node.nodeValue.slice(0, idx));
+            const mark = document.createElement('mark');
+            mark.className = 'msg-search-highlight';
+            mark.textContent = node.nodeValue.slice(idx, idx + _convSearch.query.length);
+            const after = document.createTextNode(node.nodeValue.slice(idx + _convSearch.query.length));
+            const parent = node.parentNode;
+            parent.insertBefore(before, node);
+            parent.insertBefore(mark, node);
+            parent.insertBefore(after, node);
+            parent.removeChild(node);
+            matches.push(mark);
+            // Continue searching in the 'after' text node
+            walkAndHighlight(after);
+          }
+        } else if (node.nodeType === Node.ELEMENT_NODE && !['SCRIPT','STYLE'].includes(node.tagName)) {
+          Array.from(node.childNodes).forEach(walkAndHighlight);
+        }
+      }
+
+      msgs.forEach(el => walkAndHighlight(el));
+      _convSearch.matches = matches;
+      _convSearch.current = matches.length > 0 ? 0 : -1;
+      if (_convSearch.current === 0) _scrollToConvMatch(0);
+      _updateConvSearchMeta();
+    }
+
+    function _scrollToConvMatch(idx) {
+      _convSearch.matches.forEach((m, i) => m.classList.toggle('current', i === idx));
+      const m = _convSearch.matches[idx];
+      if (m) m.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    function convSearchNext() {
+      if (!_convSearch.matches.length) return;
+      _convSearch.current = (_convSearch.current + 1) % _convSearch.matches.length;
+      _scrollToConvMatch(_convSearch.current);
+      _updateConvSearchMeta();
+    }
+
+    function convSearchPrev() {
+      if (!_convSearch.matches.length) return;
+      _convSearch.current = (_convSearch.current - 1 + _convSearch.matches.length) % _convSearch.matches.length;
+      _scrollToConvMatch(_convSearch.current);
+      _updateConvSearchMeta();
+    }
+
+    function _updateConvSearchMeta() {
+      const meta = document.getElementById('conv-search-meta');
+      const prev = document.getElementById('conv-search-prev');
+      const next = document.getElementById('conv-search-next');
+      if (!meta) return;
+      const n = _convSearch.matches.length;
+      if (!_convSearch.query) { meta.textContent = ''; }
+      else if (n === 0) { meta.textContent = 'No results'; meta.style.color = 'var(--red)'; }
+      else { meta.textContent = `${_convSearch.current + 1} / ${n}`; meta.style.color = ''; }
+      if (prev) prev.disabled = n < 2;
+      if (next) next.disabled = n < 2;
+    }
+
+    /* ═══════════════ INPUT CHARACTER COUNTER ═══════════════ */
+    function updateInputCounter() {
+      const inp = document.getElementById('msg-input');
+      const counter = document.getElementById('input-counter');
+      if (!inp || !counter) return;
+      const len = inp.value.length;
+      if (len === 0) { counter.textContent = ''; return; }
+      const estTokens = Math.round(len / 4);
+      counter.textContent = `${len} chars · ~${estTokens} tok`;
+      counter.className = 'input-counter' + (len > 8000 ? ' danger' : len > 4000 ? ' warn' : '');
+    }
+
+    /* ═══════════════ SWARM INPUT MODE TOGGLE ═══════════════ */
+    let _swarmInputMode = false;
+    function toggleSwarmInputMode() {
+      _swarmInputMode = !_swarmInputMode;
+      const btn = document.getElementById('swarm-toggle-btn');
+      const inp = document.getElementById('msg-input');
+      if (btn) btn.classList.toggle('active', _swarmInputMode);
+      if (inp) {
+        inp.placeholder = _swarmInputMode
+          ? 'Describe a goal for the swarm (multiple agents will tackle it in parallel)...'
+          : (state.planMode ? 'Describe a task to plan (steps will be generated before execution)...' : 'Ask SlopLobster to do something... (drop files or paste images)');
+      }
+      showToast(_swarmInputMode ? 'Swarm mode ON — agents will run in parallel' : 'Swarm mode OFF', 'info');
     }
 
     init();
