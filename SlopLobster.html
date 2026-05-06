@@ -442,7 +442,12 @@
       flex: 1;
       overflow: hidden;
       text-overflow: ellipsis;
-      white-space: nowrap
+      white-space: nowrap;
+      cursor: pointer
+    }
+
+    .conv-item:hover .conv-title {
+      cursor: text
     }
 
     .conv-item .conv-del {
@@ -1020,18 +1025,21 @@
 
     .msg-tok {
       font-size: 9px;
-      color: var(--tx-4);
+      color: var(--tx-3);
       font-family: 'JetBrains Mono', monospace;
       background: var(--bg-3);
-      padding: 0 4px;
-      border-radius: 3px
+      padding: 0 5px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      cursor: default;
     }
+    .msg-tok.fast { color: var(--green); border-color: rgba(34,197,94,.25); }
 
     .msg-actions {
       display: flex;
       gap: 2px;
       margin-left: auto;
-      opacity: 0;
+      opacity: 0.15;
       transition: opacity .15s
     }
 
@@ -1136,6 +1144,14 @@
 
     .code-hdr button:hover {
       color: var(--tx-0)
+    }
+
+    .code-hdr button.run-btn {
+      color: var(--green);
+    }
+    .code-hdr button.run-btn:hover {
+      background: rgba(34,197,94,.12);
+      color: var(--green);
     }
 
     .code-block pre {
@@ -4826,6 +4842,13 @@
     .input-counter.warn { color: var(--yellow); }
     .input-counter.danger { color: var(--red); }
 
+    .temp-quick {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
     /* ── Improved streaming cursor ── */
     @keyframes blink {
       0%, 100% { opacity: 1; }
@@ -4938,12 +4961,13 @@
       <div class="hdr-status">
         <div class="status-dot off" id="comp-dot"></div><span id="comp-text">Shell</span>
       </div>
-      <div class="ctx-meter" title="Estimated context usage">
+      <div class="ctx-meter" title="Click for context breakdown" onclick="showContextBreakdown()" style="cursor:pointer">
         <div class="ctx-bar">
           <div class="ctx-fill low" id="ctx-fill" style="width:0%"></div>
         </div><span class="ctx-label" id="ctx-label">0 tok</span>
       </div>
       <div style="flex:1"></div>
+      <span id="session-tok-total" style="font-size:9px;color:var(--tx-4);font-family:'JetBrains Mono',monospace;white-space:nowrap;display:none" title="Total tokens generated this session"></span>
       <button class="hdr-btn" onclick="openShortcuts()" title="Keyboard shortcuts"><i
           class="fas fa-keyboard"></i></button>
       <button class="hdr-btn" onclick="exportConversation()" title="Export"><i class="fas fa-download"></i></button>
@@ -4955,7 +4979,7 @@
     <aside id="sidebar">
       <div class="sb-scroll">
         <div class="sb-section" style="padding-bottom:6px">
-          <div class="sb-title">Conversations</div>
+          <div class="sb-title">Conversations <span style="font-size:8px;color:var(--tx-4);font-weight:400;text-transform:none;letter-spacing:0">· dblclick to rename</span></div>
         </div>
         <div class="conv-search"><i class="fas fa-search"></i><input id="conv-search-input"
             placeholder="Search conversations..." oninput="filterConversations(this.value)"></div>
@@ -5146,6 +5170,11 @@
       <div class="input-hints">
         <span><b>Enter</b> send · <b>Shift+Enter</b> newline · <b>/</b> commands · drop files to attach · <b>Ctrl+F</b> search</span>
         <span class="input-counter" id="input-counter"></span>
+        <span class="temp-quick" title="Temperature (creativity) — click to adjust">
+          <i class="fas fa-thermometer-half" style="font-size:9px;color:var(--tx-4)"></i>
+          <input type="range" id="temp-quick-slider" min="0" max="2" step="0.05" style="width:50px;height:2px;accent-color:var(--accent);cursor:pointer;vertical-align:middle" oninput="quickTemp(this.value)" title="Temperature">
+          <span id="temp-quick-val" style="font-size:9px;color:var(--tx-4);font-family:'JetBrains Mono',monospace;min-width:24px">0.3</span>
+        </span>
         <button class="scroll-lock-btn following" id="scroll-lock-btn" onclick="toggleAutoScroll()"
           title="Toggle auto-scroll"><i class="fas fa-arrow-down"></i><span>Following</span></button>
       </div>
@@ -5307,11 +5336,13 @@
         </div>
         <div class="shortcut-row"><span class="desc">Stop generation</span><span><span class="kbd">Esc</span></span>
         </div>
+        <div class="shortcut-row"><span class="desc">Focus input (idle)</span><span><span class="kbd">Esc</span></span>
+        </div>
         <div class="shortcut-row"><span class="desc">New conversation</span><span><span
               class="kbd">Ctrl+Shift+N</span></span></div>
         <div class="shortcut-row"><span class="desc">Toggle sidebar</span><span><span class="kbd">Ctrl+B</span></span>
         </div>
-        <div class="shortcut-row"><span class="desc">Focus input</span><span><span class="kbd">/</span></span></div>
+        <div class="shortcut-row"><span class="desc">Focus input</span><span><span class="kbd">/</span> <span class="kbd">Ctrl+/</span></span></div>
         <div class="shortcut-row"><span class="desc">Search conversations</span><span><span
               class="kbd">Ctrl+K</span></span></div>
         <div class="shortcut-row"><span class="desc">Open settings</span><span><span class="kbd">Ctrl+,</span></span>
@@ -10159,17 +10190,17 @@ Python command: {{PYTHON_CMD}}`;
               const isTruncated = args._parseError.includes('truncated') || args._parseError.includes('empty');
               const pathHint = args.path ? ` (path: "${args.path}")` : '';
               const msg = isTruncated
-                ? `TRUNCATED — edit_file JSON was cut off mid-stream${pathHint}. The edits array content was too large.\n\nThis usually happens when:\n- old_text or new_text contains a very large block of code\n- The path was placed AFTER the edits array and got cut off\n\nFix:\n1. Put "path" FIRST in the JSON object — before "edits"\n2. Keep each old_text under 20 lines / 500 chars\n3. Split large edits into multiple sequential edit_file calls\n\nExample:\nedit_file({"path": "index.html", "edits": [{"old_text": "short snippet", "new_text": "replacement"}]})`
+                ? `TRUNCATED — edit_file JSON was cut off mid-stream${pathHint}. The edits array content was too large.\n\nThis usually happens when:\n- old_text or new_text contains a very large block of code\n- The path was placed AFTER the edits array and got cut off\n\nFix:\n1. Put "path" FIRST in the JSON object — before "edits"\n2. Keep each old_text under 20 lines / 500 chars\n3. Split large edits into multiple sequential edit_file calls\n\nExample:\nedit_file({"path":"index.html", "edits": [{"old_text":"short snippet", "new_text":"replacement"}]})`
                 : `Error: edit_file received invalid arguments${pathHint} — ${args._parseError}\n\nExample:\nedit_file({"path": "src/example.py", "edits": [{"old_text": "old line", "new_text": "new line"}]})`;
               result = { output: msg, _truncatedWrite: isTruncated };
               break;
             }
             if (!args.path) {
-              result = { output: 'Error: "path" is required for edit_file. Put "path" as the FIRST key in the JSON object (before "edits") so it is never truncated.\n\nExample:\nedit_file({"path": "src/example.py", "edits": [{"old_text": "...", "new_text": "..."}]})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
+              result = { output: 'Error: "path" is required for edit_file. Put "path" as the FIRST key in the JSON object (before "edits") so it is never truncated.\n\nExample:\nedit_file({"path": "src/example.py", "edits": [{"old_text":"old text", "new_text":"new text"}]})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
               break;
             }
             if (!Array.isArray(args.edits) || !args.edits.length) {
-              result = { output: 'Error: "edits" must be a non-empty array of {old_text, new_text} objects.\n\nExample:\nedit_file({"path": "src/example.py", "edits": [\n  {"old_text": "line to find", "new_text": "replacement line"},\n  {"old_text": "another line", "new_text": "another replacement"}\n]})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
+              result = { output: 'Error: "edits" must be a non-empty array of {old_text, new_text} objects.\n\nExample:\nedit_file({"path": "src/example.py", "edits": [\n  {"old_text":"line to find", "new_text":"replacement line"},\n  {"old_text":"another line", "new_text":"another replacement"}\n]})\n\nDebug: received args: ' + esc(JSON.stringify(args).slice(0, 300)) };
               break;
             }
             let editsValid = true;
@@ -14097,7 +14128,44 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     function showThinking() { switchToChat(); const el = document.createElement('div'); el.className = 'thinking-indicator'; el.innerHTML = '<div class="thinking-dots"><span></span><span></span><span></span></div> Thinking...'; $msg().appendChild(el); scrollBottom(); return el; }
     function showParallelBadge(n) { const el = document.createElement('div'); el.className = 'thinking-indicator'; el.innerHTML = `<span class="tool-parallel-badge"><i class="fas fa-bolt"></i> ${n} tools in parallel</span>`; $msg().appendChild(el); setTimeout(() => el.remove(), 1500); scrollBottom(); }
 
+    let _sessionTotalOut = 0;
+
+    function _updateSessionTok(outTok) {
+      if (!outTok) return;
+      _sessionTotalOut += outTok;
+      const el = document.getElementById('session-tok-total');
+      if (el) {
+        el.style.display = '';
+        el.textContent = formatTok(_sessionTotalOut) + ' session';
+        el.title = `Total output tokens generated this session: ${_sessionTotalOut.toLocaleString()}`;
+      }
+    }
+
     let streamEl = null;
+    let _streamStartTime = null;
+    let _streamTokenCount = 0;
+    let _streamTimerEl = null;
+    let _streamTimerInterval = null;
+
+    function _startStreamTimer() {
+      _streamStartTime = performance.now();
+      _streamTokenCount = 0;
+      if (_streamTimerInterval) clearInterval(_streamTimerInterval);
+      _streamTimerInterval = setInterval(() => {
+        if (!streamEl) { clearInterval(_streamTimerInterval); _streamTimerInterval = null; return; }
+        const elapsed = ((performance.now() - _streamStartTime) / 1000).toFixed(1);
+        const hdr = streamEl.querySelector('.msg-header');
+        let timerEl = hdr.querySelector('.stream-timer');
+        if (!timerEl) {
+          timerEl = document.createElement('span');
+          timerEl.className = 'stream-timer msg-tok';
+          timerEl.style.cssText = 'color:var(--yellow);animation:pulse 1s infinite';
+          hdr.insertBefore(timerEl, hdr.querySelector('.msg-actions'));
+        }
+        timerEl.textContent = elapsed + 's';
+      }, 200);
+    }
+
     function updateStreamingMsg(t) {
       switchToChat();
       if (!streamEl) {
@@ -14106,6 +14174,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         streamEl._lastRenderedLen = 0;
         streamEl._lastBlockText = '';
         $msg().appendChild(streamEl);
+        _startStreamTimer();
       }
       streamEl._text = t;
       const c = streamEl.querySelector('.msg-content');
@@ -14128,6 +14197,10 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     }
 
     function finalizeStreamingMsg(t, usage) {
+      if (_streamTimerInterval) { clearInterval(_streamTimerInterval); _streamTimerInterval = null; }
+      const elapsed = _streamStartTime ? (performance.now() - _streamStartTime) / 1000 : 0;
+      _streamStartTime = null;
+
       if (!streamEl) { if (t) appendMsg('assistant', t); return; }
       if (streamEl._rAF) cancelAnimationFrame(streamEl._rAF);
       const c = streamEl.querySelector('.msg-content');
@@ -14139,21 +14212,24 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       addCopyBtns(c);
 
       const hdr = streamEl.querySelector('.msg-header');
-      // Remove any stale token elements
-      hdr.querySelectorAll('.msg-tok').forEach(el => el.remove());
+      // Remove timer and any stale token elements
+      hdr.querySelectorAll('.msg-tok, .stream-timer').forEach(el => el.remove());
 
-      if (usage && usage.out && usage.out > 0) {
-          const tokEl = document.createElement('span');
-          tokEl.className = 'msg-tok';
-          tokEl.textContent = formatTok(usage.out) + ' out';
-          tokEl.title = 'Output tokens (from LM Studio)';
-          hdr.insertBefore(tokEl, hdr.querySelector('.msg-actions'));
-      } else if (tokenTracker._callOut > 0) {
-          const tokEl = document.createElement('span');
-          tokEl.className = 'msg-tok';
-          tokEl.textContent = '~' + formatTok(tokenTracker._callOut) + ' out (est)';
-          tokEl.title = 'Output tokens (estimated)';
-          hdr.insertBefore(tokEl, hdr.querySelector('.msg-actions'));
+      const outTok = (usage && usage.out && usage.out > 0) ? usage.out : (tokenTracker._callOut > 0 ? tokenTracker._callOut : 0);
+      const isExact = !!(usage && usage.out && usage.out > 0);
+      const tps = (outTok > 0 && elapsed > 0.5) ? Math.round(outTok / elapsed) : 0;
+
+      if (outTok > 0) {
+        _updateSessionTok(outTok);
+        const tokEl = document.createElement('span');
+        tokEl.className = 'msg-tok';
+        const prefix = isExact ? '' : '~';
+        const tpsStr = tps > 0 ? ` · ${tps} t/s` : '';
+        const timeStr = elapsed > 0.5 ? ` · ${elapsed.toFixed(1)}s` : '';
+        tokEl.textContent = prefix + formatTok(outTok) + ' out' + tpsStr + timeStr;
+        tokEl.title = (isExact ? 'Output tokens (exact)' : 'Output tokens (estimated)') + (tps > 0 ? ` · ${tps} tokens/sec · ${elapsed.toFixed(1)}s total` : '');
+        if (tps >= 30) tokEl.classList.add('fast');
+        hdr.insertBefore(tokEl, hdr.querySelector('.msg-actions'));
       }
 
       streamEl._streaming = false;
@@ -14172,7 +14248,9 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       el._msgIndex = state.messages.length;
       el._text = text;
       const gid = 'ag_' + Math.random().toString(36).substr(2, 9);
-      el.innerHTML = `<div class="msg-avatar ${isUser ? 'user' : 'agent'}">${isUser ? '<i class="fas fa-user" style="font-size:10px"></i>' : '<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:18px;height:18px"><defs><linearGradient id="' + gid + '" x1="2" y1="2" x2="26" y2="26" gradientUnits="userSpaceOnUse"><stop stop-color="#f5b742"/><stop offset="1" stop-color="#a06e10"/></linearGradient></defs><rect width="28" height="28" rx="6" fill="url(#' + gid + ')"/><ellipse cx="14" cy="18" rx="5.5" ry="4" fill="#08080a" opacity=".9"/><path d="M14 22L12 26M14 22L14 26.5M14 22L16 26" stroke="#08080a" stroke-width="1.2" stroke-linecap="round" opacity=".85"/><circle cx="14" cy="13" r="3.2" fill="#08080a" opacity=".9"/><path d="M8.5 17Q4.5 15 3 11Q2.5 9.5 4 9.5Q5.5 9.5 6.5 11.5Q7.5 13.5 8.5 15" fill="#08080a" opacity=".85"/><path d="M19.5 17Q23.5 15 25 11Q25.5 9.5 24 9.5Q22.5 9.5 21.5 11.5Q20.5 13.5 19.5 15" fill="#08080a" opacity=".85"/><circle cx="12.2" cy="12" r="1" fill="#f5b742"/><circle cx="15.8" cy="12" r="1" fill="#f5b742"/><path d="M12.5 10.2Q10 7 9 5" stroke="#08080a" stroke-width="1" stroke-linecap="round" opacity=".8"/><path d="M15.5 10.2Q18 7 19 5" stroke="#08080a" stroke-width="1" stroke-linecap="round" opacity=".8"/><circle cx="9" cy="5" r=".8" fill="#08080a" opacity=".8"/><circle cx="19" cy="5" r=".8" fill="#08080a" opacity=".8"/><path d="M10 19L8 21.5M11 19.5L9.5 22M13 20L12 22.5M15 20L16 22.5M17 19.5L18.5 22M18 19L20 21.5" stroke="#08080a" stroke-width=".9" stroke-linecap="round" opacity=".7"/></svg>'}</div><div class="msg-body"><div class="msg-header"><span class="msg-name">${isUser ? 'You' : 'SlopLobster'}</span><span class="msg-time" title="${new Date().toLocaleString()}">${el._time}</span><div class="msg-actions">${isAgent ? '<button class="msg-act" onclick="copyMsgText(this)" title="Copy plain text"><i class="fas fa-copy"></i></button><button class="msg-act copy-md" onclick="copyMsgMarkdown(this)" title="Copy as Markdown"><i class="fas fa-markdown"></i></button><button class="msg-act" onclick="pruneMsg(this)" title="Prune out of context"><i class="fas fa-scissors"></i></button><button class="msg-act" onclick="retryMsg(this)" title="Retry from here"><i class="fas fa-rotate-right"></i></button>' : ''}${isUser ? '<button class="msg-act" onclick="editMsg(this)" title="Edit & resend"><i class="fas fa-pen"></i></button><button class="msg-act" onclick="copyMsgText(this)" title="Copy"><i class="fas fa-copy"></i></button><button class="msg-act" onclick="pruneMsg(this)" title="Prune out of context"><i class="fas fa-scissors"></i></button>' : ''}</div></div><div class="msg-content ${streaming ? 'streaming-cursor' : ''}">${isUser ? esc(text) : renderMd(text)}</div></div>`;
+      const wordCount = isUser && text ? text.trim().split(/\s+/).filter(Boolean).length : 0;
+      const wordBadge = isUser && wordCount > 0 ? `<span class="msg-tok" title="${wordCount} words" style="cursor:default">${wordCount}w</span>` : '';
+      el.innerHTML = `<div class="msg-avatar ${isUser ? 'user' : 'agent'}">${isUser ? '<i class="fas fa-user" style="font-size:10px"></i>' : '<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:18px;height:18px"><defs><linearGradient id="' + gid + '" x1="2" y1="2" x2="26" y2="26" gradientUnits="userSpaceOnUse"><stop stop-color="#f5b742"/><stop offset="1" stop-color="#a06e10"/></linearGradient></defs><rect width="28" height="28" rx="6" fill="url(#' + gid + ')"/><ellipse cx="14" cy="18" rx="5.5" ry="4" fill="#08080a" opacity=".9"/><path d="M14 22L12 26M14 22L14 26.5M14 22L16 26" stroke="#08080a" stroke-width="1.2" stroke-linecap="round" opacity=".85"/><circle cx="14" cy="13" r="3.2" fill="#08080a" opacity=".9"/><path d="M8.5 17Q4.5 15 3 11Q2.5 9.5 4 9.5Q5.5 9.5 6.5 11.5Q7.5 13.5 8.5 15" fill="#08080a" opacity=".85"/><path d="M19.5 17Q23.5 15 25 11Q25.5 9.5 24 9.5Q22.5 9.5 21.5 11.5Q20.5 13.5 19.5 15" fill="#08080a" opacity=".85"/><circle cx="12.2" cy="12" r="1" fill="#f5b742"/><circle cx="15.8" cy="12" r="1" fill="#f5b742"/><path d="M12.5 10.2Q10 7 9 5" stroke="#08080a" stroke-width="1" stroke-linecap="round" opacity=".8"/><path d="M15.5 10.2Q18 7 19 5" stroke="#08080a" stroke-width="1" stroke-linecap="round" opacity=".8"/><circle cx="9" cy="5" r=".8" fill="#08080a" opacity=".8"/><circle cx="19" cy="5" r=".8" fill="#08080a" opacity=".8"/><path d="M10 19L8 21.5M11 19.5L9.5 22M13 20L12 22.5M15 20L16 22.5M17 19.5L18.5 22M18 19L20 21.5" stroke="#08080a" stroke-width=".9" stroke-linecap="round" opacity=".7"/></svg>'}</div><div class="msg-body"><div class="msg-header"><span class="msg-name">${isUser ? 'You' : 'SlopLobster'}</span><span class="msg-time" title="${new Date().toLocaleString()}">${el._time}</span>${wordBadge}<div class="msg-actions">${isAgent ? '<button class="msg-act" onclick="copyMsgText(this)" title="Copy plain text"><i class="fas fa-copy"></i></button><button class="msg-act copy-md" onclick="copyMsgMarkdown(this)" title="Copy as Markdown"><i class="fas fa-markdown"></i></button><button class="msg-act" onclick="pruneMsg(this)" title="Prune out of context"><i class="fas fa-scissors"></i></button><button class="msg-act" onclick="retryMsg(this)" title="Retry from here"><i class="fas fa-rotate-right"></i></button>' : ''}${isUser ? '<button class="msg-act" onclick="editMsg(this)" title="Edit & resend"><i class="fas fa-pen"></i></button><button class="msg-act" onclick="copyMsgText(this)" title="Copy"><i class="fas fa-copy"></i></button><button class="msg-act" onclick="pruneMsg(this)" title="Prune out of context"><i class="fas fa-scissors"></i></button>' : ''}</div></div><div class="msg-content ${streaming ? 'streaming-cursor' : ''}">${isUser ? esc(text) : renderMd(text)}</div></div>`;
       if (isAgent && !streaming) { el.querySelector('.msg-content').querySelectorAll('pre code').forEach(b => hljs.highlightElement(b)); addCopyBtns(el.querySelector('.msg-content')); }
       return el;
     }
@@ -14652,9 +14730,26 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         const code = pre.querySelector('code'); const lang = (code?.className?.match(/language-(\w+)/) || [])[1] || '';
         const w = document.createElement('div'); w.className = 'code-block';
         const h = document.createElement('div'); h.className = 'code-hdr';
-        h.innerHTML = `<span>${lang || 'code'}</span><button onclick="copyCode(this)"><i class="fas fa-copy"></i> Copy</button>`;
+        const isRunnable = ['bash', 'sh', 'shell', 'zsh', 'fish', 'console'].includes(lang);
+        const runBtn = isRunnable && state.compConnected
+          ? `<button class="run-btn" onclick="runCodeInShell(this)" title="Run in shell"><i class="fas fa-play"></i> Run</button>`
+          : '';
+        h.innerHTML = `<span>${lang || 'code'}</span>${runBtn}<button onclick="copyCode(this)"><i class="fas fa-copy"></i> Copy</button>`;
         pre.parentNode.insertBefore(w, pre); w.appendChild(h); w.appendChild(pre);
       });
+    }
+
+    function runCodeInShell(btn) {
+      const code = btn.closest('.code-block').querySelector('code');
+      const text = code?.textContent || '';
+      if (!text.trim()) return;
+      const inp = document.getElementById('msg-input');
+      inp.value = text.trim();
+      inp.style.height = 'auto';
+      inp.style.height = Math.min(inp.scrollHeight, 150) + 'px';
+      updateSendBtn();
+      inp.focus();
+      showToast('Command loaded — press Enter to execute', 'ok');
     }
 
     function copyCode(btn) {
@@ -14982,7 +15077,10 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const el = document.getElementById('conv-list');
       let convs = [...state.conversations];
       if (state.convSearchQuery) convs = convs.filter(c => (c.title || '').toLowerCase().includes(state.convSearchQuery));
-      convs.sort((a, b) => (b.updated || 0) - (a.updated || 0));
+      convs.sort((a, b) => {
+        if (!!b.pinned !== !!a.pinned) return b.pinned ? 1 : -1;
+        return (b.updated || 0) - (a.updated || 0);
+      });
 
       const status = getConvStorageStatus();
 
@@ -15003,11 +15101,13 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         const msgCount = c.messages ? c.messages.filter(m => m.role === 'user').length : 0;
         const isGhost = !c.messages.length && !c._loadError;
         const opacity = isGhost ? 'opacity:.5' : '';
-        return `<div class="conv-item ${a}" style="${opacity}" onclick="switchConv('${c.id}')">
-          <i class="fas fa-message" style="font-size:9px;color:var(--tx-4);flex-shrink:0"></i>
-          <span class="conv-title">${esc(c.title || 'Untitled')}${c._loadError ? ' ⚠' : ''}</span>
+        const pinBorder = c.pinned ? 'border-left:2px solid var(--accent-d);' : '';
+        return `<div class="conv-item ${a}" style="${opacity}${pinBorder}" onclick="switchConv('${c.id}')">
+          <i class="fas ${c.pinned ? 'fa-thumbtack' : 'fa-message'}" style="font-size:9px;color:${c.pinned ? 'var(--accent)' : 'var(--tx-4)'};flex-shrink:0"></i>
+          <span class="conv-title" ondblclick="renameConv('${c.id}',event)" title="Double-click to rename">${esc(c.title || 'Untitled')}${c._loadError ? ' ⚠' : ''}</span>
           ${msgCount > 0 ? `<span style="font-size:8px;color:var(--tx-4);flex-shrink:0;font-family:'JetBrains Mono',monospace">${msgCount}m</span>` : ''}
           <span style="font-size:9px;color:var(--tx-4);flex-shrink:0;font-family:'JetBrains Mono',monospace">${ago}</span>
+          <button class="conv-fork" onclick="pinConv('${c.id}',event)" title="${c.pinned ? 'Unpin' : 'Pin to top'}" style="color:${c.pinned ? 'var(--accent)' : ''}"><i class="fas fa-thumbtack"></i></button>
           <button class="conv-fork" onclick="forkConv('${c.id}',event)" title="Fork"><i class="fas fa-code-branch"></i></button>
           <button class="conv-del" onclick="deleteConv('${c.id}',event)" title="Delete"><i class="fas fa-xmark"></i></button>
         </div>`;
@@ -15018,6 +15118,45 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const s = Math.floor((Date.now() - ts) / 1000);
       if (s < 60) return 'now'; if (s < 3600) return Math.floor(s / 60) + 'm';
       if (s < 86400) return Math.floor(s / 3600) + 'h'; return Math.floor(s / 86400) + 'd';
+    }
+
+    function pinConv(id, event) {
+      event.stopPropagation();
+      const c = state.conversations.find(c => c.id === id);
+      if (!c) return;
+      c.pinned = !c.pinned;
+      saveConversations();
+      renderConvList();
+      showToast(c.pinned ? 'Pinned' : 'Unpinned', 'ok');
+    }
+
+    function renameConv(id, event) {
+      event.stopPropagation();
+      const c = state.conversations.find(c => c.id === id);
+      if (!c) return;
+      const titleEl = event.target;
+      const oldTitle = c.title || 'Untitled';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = oldTitle;
+      input.style.cssText = 'flex:1;background:var(--bg-3);color:var(--tx-0);border:1px solid var(--accent-d);border-radius:3px;padding:1px 5px;font-size:11px;font-family:inherit;outline:none;min-width:0;width:0';
+      titleEl.replaceWith(input);
+      input.focus();
+      input.select();
+      const commit = () => {
+        const newTitle = input.value.trim() || oldTitle;
+        c.title = newTitle;
+        c.updated = Date.now();
+        saveConversations();
+        scheduleConvIndexSave();
+        renderConvList();
+      };
+      input.addEventListener('blur', commit);
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { input.value = oldTitle; input.blur(); }
+        e.stopPropagation();
+      });
     }
 
     /* ═══════════════ REPLAY MESSAGES ═══════════════ */
@@ -15308,6 +15447,15 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       state.smartContextThreshold = Math.max(0, parseInt(document.getElementById('s-smart-context').value) || 0);
       persistSettings(); closeSettings(); showToast('Settings saved', 'ok');
       testConnection(); updateContextMeter();
+      // Sync quick temp slider
+      const _tqs = document.getElementById('temp-quick-slider');
+      const _tqv = document.getElementById('temp-quick-val');
+      if (_tqs) {
+        _tqs.value = state.temp;
+        const _v = parseFloat(state.temp);
+        _tqv.textContent = _v.toFixed(2);
+        _tqv.style.color = _v <= 0.3 ? 'var(--cyan)' : _v <= 0.8 ? 'var(--tx-4)' : _v <= 1.3 ? 'var(--yellow)' : 'var(--red)';
+      }
     }
 
     /* ═══════════════ EXPORT ═══════════════ */
@@ -15748,14 +15896,40 @@ Format:
     function handleCmd(c) {
       const p = c.split(/\s+/); const rest = c.slice(p[0].length).trim();
       switch (p[0]) {
-        case '/help': appendMsg('system', 'Commands: /help, /new, /compact, /dir, /model, /tools, /shell, /status, /export, /clear'); break;
+        case '/help': {
+          const helpRows = [
+            ['/help', 'Show this help'],
+            ['/new or /clear', 'Start a new conversation'],
+            ['/compact', 'Smart-compress conversation context'],
+            ['/dir', 'Open a workspace directory'],
+            ['/model', 'List available models'],
+            ['/tools', 'List available agent tools'],
+            ['/shell', 'Check shell companion status'],
+            ['/status', 'Full status: model, context, shell, dir'],
+            ['/export', 'Export conversation as markdown'],
+          ];
+          const shortcuts = [
+            ['Ctrl+B', 'Toggle sidebar'],
+            ['Ctrl+F', 'Search in conversation'],
+            ['Ctrl+Shift+N', 'New conversation'],
+            ['Ctrl+Shift+P', 'Toggle plan mode'],
+            ['Ctrl+,', 'Open settings'],
+            ['Escape', 'Stop / focus input'],
+            ['↑ / ↓', 'Input history'],
+            ['/', 'Focus input from anywhere'],
+          ];
+          const table = helpRows.map(([cmd, desc]) => `  ${cmd.padEnd(22)} ${desc}`).join('\n');
+          const sc = shortcuts.map(([k, d]) => `  ${k.padEnd(22)} ${d}`).join('\n');
+          appendMsg('system', `Commands:\n${table}\n\nKeyboard shortcuts:\n${sc}`);
+          break;
+        }
         case '/clear': case '/new': doNewConversation(); break;
         case '/compact': smartCompact(); break;
         case '/dir': openDirectory(); break;
         case '/model': { const ms = [...document.getElementById('model-sel').options].map(o => o.value).filter(Boolean); appendMsg('system', `Models: ${ms.join(', ') || 'none'}`); break; }
         case '/tools': appendMsg('system', 'Tools: think, read_file, read_file_lines, edit_file, write_file, list_directory, search_files, grep' + (state.compConnected ? ', web_search, fetch_url, execute_command, git_status, git_diff, git_log, git_add, git_commit' : '')); break;
         case '/shell': checkCompanion().then(() => appendMsg('system', state.compConnected ? `Shell+Search: ${state.compInfo?.platform}` : 'Not running.')); break;
-        case '/status': appendMsg('system', `LLM: ${state.connected ? state.model : 'off'} | Shell: ${state.compConnected ? state.compInfo?.platform : 'virtual'} | Project: ${state.projectType || 'none'} | Dir: ${state.dirName || 'none'} | Tokens: ~${estimateConvTokens()} (${Math.round(getContextPct())}%)`); break;
+        case '/status': appendMsg('system', `LLM: ${state.connected ? state.model : 'off'} | Shell: ${state.compConnected ? state.compInfo?.platform : 'virtual'} | Project: ${state.projectType || 'none'} | Dir: ${state.dirName || 'none'} | Tokens: ~${estimateConvTokens()} (${Math.round(getContextPct())}%)${_sessionTotalOut > 0 ? ' | Session out: ~' + formatTok(_sessionTotalOut) : ''}`); break;
         case '/export': exportConversation(); break;
         default: appendMsg('system', `Unknown: ${c}. /help for commands.`);
       }
@@ -17221,6 +17395,16 @@ Format:
         document.getElementById('s-temp-val').textContent = e.target.value;
       });
 
+      // Sync quick temp slider
+      const tqs = document.getElementById('temp-quick-slider');
+      const tqv = document.getElementById('temp-quick-val');
+      if (tqs) {
+        tqs.value = state.temp;
+        const v = parseFloat(state.temp);
+        tqv.textContent = v.toFixed(2);
+        tqv.style.color = v <= 0.3 ? 'var(--cyan)' : v <= 0.8 ? 'var(--tx-4)' : v <= 1.3 ? 'var(--yellow)' : 'var(--red)';
+      }
+
       /* ── Modal close on backdrop click ── */
       document.getElementById('settings-modal').addEventListener('click', e => {
         if (e.target === e.currentTarget) closeSettings();
@@ -17254,6 +17438,9 @@ Format:
             updateSendBtn();
             return;
           }
+          // When idle and no modals open, focus the input
+          const msgInp = document.getElementById('msg-input');
+          if (msgInp && document.activeElement !== msgInp) { msgInp.focus(); return; }
         }
         if (e.ctrlKey && e.shiftKey && e.key === 'N') {
           e.preventDefault();
@@ -17291,6 +17478,10 @@ Format:
           }
         }
         if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+          e.preventDefault();
+          inp.focus();
+        }
+        if ((e.ctrlKey || e.metaKey) && e.key === '/') {
           e.preventDefault();
           inp.focus();
         }
@@ -17522,6 +17713,82 @@ Format:
       const estTokens = Math.round(len / 4);
       counter.textContent = `${len} chars · ~${estTokens} tok`;
       counter.className = 'input-counter' + (len > 8000 ? ' danger' : len > 4000 ? ' warn' : '');
+    }
+
+    function quickTemp(val) {
+      const v = parseFloat(val);
+      state.temp = v;
+      const el = document.getElementById('temp-quick-val');
+      el.textContent = v.toFixed(2);
+      el.style.color = v <= 0.3 ? 'var(--cyan)' : v <= 0.8 ? 'var(--tx-4)' : v <= 1.3 ? 'var(--yellow)' : 'var(--red)';
+      document.getElementById('s-temp').value = v;
+      document.getElementById('s-temp-val').textContent = v.toFixed(1);
+      persistSettings();
+    }
+
+    function showContextBreakdown() {
+      const sysTok = state._sysPromptLength || estimateTokens(DEFAULT_SYS);
+      const convTok = estimateConvTokens();
+      const exactTok = tokenTracker.lastPromptTokens > 0 ? tokenTracker.lastPromptTokens : null;
+      const totalTok = exactTok || (sysTok + convTok);
+      const ctxWindow = state.ctxWindow;
+      const pct = Math.min(100, (totalTok / ctxWindow) * 100);
+      const remaining = ctxWindow - totalTok;
+      const msgs = state.messages.length;
+      const userMsgs = state.messages.filter(m => m.role === 'user').length;
+      const asstMsgs = state.messages.filter(m => m.role === 'assistant').length;
+      const toolMsgs = state.messages.filter(m => m.role === 'tool').length;
+      const comprStats = getCompressionStats();
+
+      const rows = [
+        ['System prompt', formatTok(sysTok), 'var(--cyan)'],
+        ['Conversation', formatTok(convTok), 'var(--teal)'],
+        exactTok ? ['Total (exact from API)', formatTok(exactTok), 'var(--green)'] : ['Total (estimated)', formatTok(totalTok), 'var(--tx-2)'],
+        ['Context window', formatTok(ctxWindow), 'var(--tx-4)'],
+        ['Remaining', formatTok(remaining), remaining < ctxWindow * 0.2 ? 'var(--red)' : 'var(--green)'],
+      ];
+      const msgRows = [
+        ['User messages', userMsgs],
+        ['Assistant messages', asstMsgs],
+        ['Tool results', toolMsgs],
+        ['Total messages', msgs],
+      ];
+
+      const existing = document.getElementById('ctx-breakdown-popup');
+      if (existing) { existing.remove(); return; }
+
+      const popup = document.createElement('div');
+      popup.id = 'ctx-breakdown-popup';
+      popup.style.cssText = `position:fixed;z-index:1000;background:var(--bg-1);border:1px solid var(--border-l);border-radius:8px;padding:14px 16px;min-width:260px;box-shadow:0 8px 32px rgba(0,0,0,.5);font-size:11px;font-family:'JetBrains Mono',monospace`;
+      // Position below context meter
+      const meter = document.querySelector('.ctx-meter');
+      const rect = meter.getBoundingClientRect();
+      popup.style.top = (rect.bottom + 6) + 'px';
+      popup.style.left = Math.max(8, rect.left - 80) + 'px';
+
+      popup.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <span style="color:var(--tx-0);font-weight:600;font-size:12px">Context Breakdown</span>
+          <button onclick="document.getElementById('ctx-breakdown-popup').remove()" style="background:none;border:none;color:var(--tx-4);cursor:pointer;font-size:14px;line-height:1">×</button>
+        </div>
+        <div style="margin-bottom:10px">
+          <div style="height:5px;background:var(--bg-3);border-radius:3px;overflow:hidden;margin-bottom:4px">
+            <div style="height:100%;width:${pct.toFixed(1)}%;background:${pct>80?'var(--red)':pct>50?'var(--yellow)':'var(--cyan)'};border-radius:3px;transition:width .3s"></div>
+          </div>
+          <span style="color:var(--tx-3)">${pct.toFixed(1)}% used</span>
+        </div>
+        <table style="width:100%;border-collapse:collapse">
+          ${rows.map(([label, val, color]) => `<tr><td style="color:var(--tx-3);padding:2px 0">${label}</td><td style="text-align:right;color:${color};font-weight:600;padding:2px 0">${val}</td></tr>`).join('')}
+        </table>
+        <div style="border-top:1px solid var(--border);margin:8px 0"></div>
+        <table style="width:100%;border-collapse:collapse">
+          ${msgRows.map(([label, val]) => `<tr><td style="color:var(--tx-4);padding:2px 0">${label}</td><td style="text-align:right;color:var(--tx-2);padding:2px 0">${val}</td></tr>`).join('')}
+        </table>
+        ${comprStats && comprStats.saved > 100 ? `<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;color:var(--green);font-size:10px"><i class="fas fa-compress" style="margin-right:4px"></i>Compression saved ~${formatTok(Math.round(comprStats.saved/3.8))} tok (${comprStats.pct}%)</div>` : ''}
+      `;
+      document.body.appendChild(popup);
+      // Close on outside click
+      setTimeout(() => { document.addEventListener('click', function _close(e) { if (!popup.contains(e.target) && !e.target.closest('.ctx-meter')) { popup.remove(); document.removeEventListener('click', _close); } }); }, 10);
     }
 
     /* ═══════════════ SWARM INPUT MODE TOGGLE ═══════════════ */
