@@ -4842,7 +4842,7 @@
     }
 
     /* ── Copy-as-markdown button ── */
-    .msg-act.copy-md { }
+    
     .msg-act.copy-md.copied { color: var(--green) !important; }
 
     /* ── Message highlight for search scroll-to ── */
@@ -6562,7 +6562,7 @@ if __name__ == "__main__":
       // Gemma 4: opening tag is <|channel>thought, closing tag is <channel|>  (note: channel| not |channel)
       text = text.replace(/<\|channel>thought[\s\S]*?<channel\|>/g, '');
       // Fallback variant
-      text = text.replace(/<\|channel>thought[\s\S]*?<\|channel>/g, '');
+      text = text.replace(/<\|channel>thought[\s\S]*?<channel\|>/g, '');
       return text.trim();
     }
 
@@ -6670,8 +6670,8 @@ Read this section to know what is available RIGHT NOW:
 
 edit_file uses search/replace blocks. Rules:
 - **Always put \`"path"\` as the first key** in the JSON object — before \`"edits"\`. If \`path\` comes after the edits array and the JSON is truncated, the path is lost and the call fails.
-- The old_text MUST be a substring of the file. It is matched using four tiers in order: (1) exact, (2) CRLF + trailing-whitespace normalised, (3) indent-flexible (leading whitespace stripped and re-applied), (4) fuzzy best-window similarity score ≥ 0.82
-- If the fuzzy score is between 0.45 and 0.82, the error message will show you the closest matching block in the file — copy it as your new old_text and retry
+- The old_text MUST be a substring of the file. It is matched using four tiers in order: (1) exact, (2) CRLF + trailing-whitespace normalised, (3) indent-flexible (leading whitespace stripped and re-applied), (4) fuzzy best-window similarity score ≥ 0.88
+- If the fuzzy score is between 0.45 and 0.88, the error message will show you the closest matching block in the file — copy it as your new old_text and retry
 - If all tiers fail, use read_file or grep to find the exact current text, then retry
 - old_text must be unique in the file — include enough surrounding context (3-5 lines) to guarantee uniqueness
 - Keep each old_text under 20 lines — split large edits into multiple edit_file calls
@@ -7660,7 +7660,7 @@ Python command: {{PYTHON_CMD}}`;
       for (let i = toolResultIdx - 1; i >= 0; i--) {
         const m = state.messages[i];
         if (m.role === 'assistant' && m.tool_calls) {
-          const foundTc = m.toolCalls.find(t => t.id === toolCallId);
+          const foundTc = m.tool_calls.find(t => t.id === toolCallId);
           if (foundTc) { assistantIdx = i; targetToolCall = foundTc; break; }
         }
       }
@@ -8038,8 +8038,13 @@ Python command: {{PYTHON_CMD}}`;
 
     const _embedUpdateTimers = new Map();
     function debouncedEmbedUpdate(path) {
+      if (_embedUpdateTimers.size > 200) {
+        // Evict oldest 50 entries
+        const keys = [..._embedUpdateTimers.keys()].slice(0, 50);
+        keys.forEach(k => { clearTimeout(_embedUpdateTimers.get(k)); _embedUpdateTimers.delete(k); });
+      }
       clearTimeout(_embedUpdateTimers.get(path) || 0);
-      _embedUpdateTimers.set(path, setTimeout(async () => {
+      _embedUpdateTimers.set(path, setTimeout(async () =>{
         try {
           if (!embeddingService.isReady() || !state.dirHandle) return;
           const c = state.fileCache.get(path); if (!c) return;
@@ -9048,7 +9053,7 @@ Python command: {{PYTHON_CMD}}`;
      *           HINT_THRESHOLD but below the apply bar, show the near-
      *           match so the LLM can fix its old_text immediately.
      * ═══════════════════════════════════════════════════════ */
-    const FUZZY_APPLY_THRESHOLD = 0.82; // auto-apply above this similarity
+    const FUZZY_APPLY_THRESHOLD = 0.88; // auto-apply above this similarity (raised from 0.82)
     const FUZZY_HINT_THRESHOLD  = 0.45; // show near-match hint above this
 
     function _editTokens(line) {
@@ -9064,17 +9069,35 @@ Python command: {{PYTHON_CMD}}`;
       return inter / (setA.size + setB.size - inter);
     }
 
-    /** Score how similar old_lines are to fileLines[start..start+len] */
+    /**
+     * Score a window using a blend of:
+     *  - Jaccard on word tokens (order-insensitive, catches renames/typos)
+     *  - Exact-token-sequence overlap (order-sensitive, penalises wrong-block matches)
+     * The blend prevents high scores when the same tokens appear in a completely
+     * different structural context (e.g. two functions with the same keywords).
+     */
     function _windowScore(fileLines, start, oldLines) {
       const len = oldLines.length;
       if (start + len > fileLines.length) return 0;
-      let total = 0;
+      let jaccardTotal = 0;
+      let seqTotal = 0;
       for (let i = 0; i < len; i++) {
-        const fa = new Set(_editTokens(fileLines[start + i]));
-        const oa = new Set(_editTokens(oldLines[i]));
-        total += _jaccard(fa, oa);
+        const fToks = _editTokens(fileLines[start + i]);
+        const oToks = _editTokens(oldLines[i]);
+        const fa = new Set(fToks);
+        const oa = new Set(oToks);
+        jaccardTotal += _jaccard(fa, oa);
+        // Sequence score: longest common prefix of tokens / max length
+        let lcp = 0;
+        const minLen = Math.min(fToks.length, oToks.length);
+        for (let k = 0; k < minLen; k++) {
+          if (fToks[k] === oToks[k]) lcp++; else break;
+        }
+        const maxLen = Math.max(fToks.length, oToks.length, 1);
+        seqTotal += lcp / maxLen;
       }
-      return total / len;
+      // 70% Jaccard + 30% sequence order — order matters but shouldn't dominate
+      return (0.7 * (jaccardTotal / len)) + (0.3 * (seqTotal / len));
     }
 
     /** Find the best-matching window; returns {score, start, realOld} */
@@ -9098,12 +9121,31 @@ Python command: {{PYTHON_CMD}}`;
       return { lines: lines.map(l => l.slice(ind)), indent: ind };
     }
 
-    /** Re-indent new_text so its base indent matches targetIndent spaces */
+    /**
+     * Re-indent new_text so its base indent matches targetIndent spaces.
+     * Fixed: applies the prefix to ALL non-empty lines (including line 0),
+     * after stripping the original base indent from the entire block.
+     */
     function _reindent(newText, targetIndent) {
       const newLines = newText.split('\n');
-      const { lines: dedented, indent: newBase } = _dedent(newLines);
+      const { lines: dedented } = _dedent(newLines);
       const prefix = ' '.repeat(targetIndent);
-      return dedented.map((l, i) => (i === 0 || l.trim() === '') ? l : prefix + l).join('\n');
+      return dedented.map(l => l.trim() === '' ? l : prefix + l).join('\n');
+    }
+
+    /**
+     * Safe string replacement that avoids regex pitfalls by using
+     * indexOf + slice instead of String.replace() with a pattern.
+     * Also verifies uniqueness so we don't silently replace the wrong instance.
+     */
+    function _safeReplace(content, realOld, replacement) {
+      const idx = content.indexOf(realOld);
+      if (idx === -1) return null; // not found
+      // Check for duplicate occurrences
+      const secondIdx = content.indexOf(realOld, idx + 1);
+      const unique = secondIdx === -1;
+      const newContent = content.slice(0, idx) + replacement + content.slice(idx + realOld.length);
+      return { newContent, unique };
     }
 
     async function editFileSafe(rel, edits, dryRun = false) {
@@ -9150,10 +9192,14 @@ Python command: {{PYTHON_CMD}}`;
           const oldLineCount = normOld.split('\n').length;
           const realOld = origLines.slice(lineStart, lineStart + oldLineCount).join('\n');
           if (content.includes(realOld)) {
-            content = content.replace(realOld, new_text);
-            results.push(`Edit ${i + 1}: OK (whitespace-normalized match)`);
-            allDiffs.push(generateDiffFromStrings(realOld, new_text));
-            continue;
+            const replaced = _safeReplace(content, realOld, new_text);
+            if (replaced) {
+              content = replaced.newContent;
+              const warn = replaced.unique ? '' : ' WARNING — matched block appears multiple times, replaced first occurrence';
+              results.push(`Edit ${i + 1}: OK (whitespace-normalized match)${warn}`);
+              allDiffs.push(generateDiffFromStrings(realOld, new_text));
+              continue;
+            }
           }
         }
 
@@ -9185,10 +9231,14 @@ Python command: {{PYTHON_CMD}}`;
             const firstNonEmpty = fileLines.slice(matchStart, matchStart + matchLen).find(l => l.trim());
             const fileIndent = firstNonEmpty ? firstNonEmpty.match(/^(\s*)/)[1].length : 0;
             const reindentedNew = _reindent(new_text, fileIndent);
-            content = content.replace(realOld, reindentedNew);
-            results.push(`Edit ${i + 1}: OK (indent-flexible match, re-indented to ${fileIndent} spaces)`);
-            allDiffs.push(generateDiffFromStrings(realOld, reindentedNew));
-            continue;
+            const replaced = _safeReplace(content, realOld, reindentedNew);
+            if (replaced) {
+              content = replaced.newContent;
+              const warn = replaced.unique ? '' : ' WARNING — matched block appears multiple times, replaced first occurrence';
+              results.push(`Edit ${i + 1}: OK (indent-flexible match, re-indented to ${fileIndent} spaces)${warn}`);
+              allDiffs.push(generateDiffFromStrings(realOld, reindentedNew));
+              continue;
+            }
           }
         }
 
@@ -9206,10 +9256,15 @@ Python command: {{PYTHON_CMD}}`;
               const firstNonEmpty = (best.realOld.split('\n')).find(l => l.trim());
               const fileIndent = firstNonEmpty ? firstNonEmpty.match(/^(\s*)/)[1].length : 0;
               const reindentedNew = _reindent(new_text, fileIndent);
-              content = content.replace(best.realOld, reindentedNew);
-              results.push(`Edit ${i + 1}: OK (fuzzy match, score=${best.score.toFixed(2)}, re-indented to ${fileIndent} spaces)`);
-              allDiffs.push(generateDiffFromStrings(best.realOld, reindentedNew));
-              continue;
+              const replaced = _safeReplace(content, best.realOld, reindentedNew);
+              if (replaced) {
+                content = replaced.newContent;
+                const warn = replaced.unique ? '' : ' WARNING — matched block appears multiple times, replaced first occurrence';
+                results.push(`Edit ${i + 1}: OK (fuzzy match, score=${best.score.toFixed(2)}, re-indented to ${fileIndent} spaces)${warn}`);
+                allDiffs.push(generateDiffFromStrings(best.realOld, reindentedNew));
+                continue;
+              }
+              // realOld not found in content (prior edit shifted things) — fall through to error
             }
 
             if (best.score >= FUZZY_HINT_THRESHOLD) {
@@ -11147,7 +11202,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           '## File Modification Rules',
           '- You CAN modify files — use edit_file for existing files, write_file ONLY for new files',
           '- Always read a file before editing it',
-          '- edit_file uses 4-tier matching: exact → whitespace-normalised → indent-flexible → fuzzy (≥0.82). If it fails with a near-match hint, copy that hint as your new old_text.',
+          '- edit_file uses 4-tier matching: exact → whitespace-normalised → indent-flexible → fuzzy (≥0.88). If it fails with a near-match hint, copy that hint as your new old_text.',
           '- After editing, describe what you changed concisely',
           '- Do NOT create unnecessary files',
         );
@@ -12543,7 +12598,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
      */
     function _stripHtml(text) {
       if (!text || !text.includes('<')) return text;
-      // Remove full block elements we never want
+
+      // 1. Remove full block elements we never want
       text = text.replace(/<script[\s\S]*?<\/script>/gi, '');
       text = text.replace(/<style[\s\S]*?<\/style>/gi, '');
       text = text.replace(/<nav[\s\S]*?<\/nav>/gi, '');
@@ -12551,14 +12607,35 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       text = text.replace(/<footer[\s\S]*?<\/footer>/gi, '');
       text = text.replace(/<aside[\s\S]*?<\/aside>/gi, '');
       text = text.replace(/<!--[\s\S]*?-->/g, '');
-      // Strip remaining tags but keep their text content
-      text = text.replace(/<[^>]+>/g, ' ');
-      // Decode common HTML entities
-      text = text.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ');
-      // Collapse whitespace — but preserve paragraph breaks
+
+      // 2. Replace block-level tags with newlines to preserve document structure
+      text = text.replace(/<\/?(p|div|br|h[1-6]|li|ul|ol|tr|td|th|table|blockquote|hr|section|article|main|figure|figcaption|details|summary)[^>]*>/gi, '\n');
+
+      // 3. Strip remaining tags (Robust: handles attributes containing > inside quotes)
+      text = text.replace(/<(?:[^>"']|"[^"]*"|'[^']*')*>/g, ' ');
+
+      // 4. Strip unclosed tags at the end of truncated HTML (e.g., "<div id=...")
+      text = text.replace(/<[^>]*$/, '');
+
+      // 5. Decode common named entities
+      text = text.replace(/&amp;/g, '&')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&quot;/g, '"')
+                .replace(/&#39;/g, "'")
+                .replace(/&nbsp;/g, ' ')
+                .replace(/&mdash;/g, '—')
+                .replace(/&ndash;/g, '–');
+
+      // 6. Decode numeric and hex entities (e.g., &#60; &#x3C; &#x27;)
+      text = text.replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num, 10)));
+      text = text.replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+
+      // 7. Collapse whitespace — preserve paragraph breaks
       text = text.replace(/[ \t]+/g, ' ');
       text = text.replace(/\n[ \t]+/g, '\n');
       text = text.replace(/\n{3,}/g, '\n\n');
+
       return text.trim();
     }
 
@@ -14093,6 +14170,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       el._role = role;
       el._time = new Date().toLocaleTimeString();
       el._msgIndex = state.messages.length;
+      el._text = text;
       const gid = 'ag_' + Math.random().toString(36).substr(2, 9);
       el.innerHTML = `<div class="msg-avatar ${isUser ? 'user' : 'agent'}">${isUser ? '<i class="fas fa-user" style="font-size:10px"></i>' : '<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:18px;height:18px"><defs><linearGradient id="' + gid + '" x1="2" y1="2" x2="26" y2="26" gradientUnits="userSpaceOnUse"><stop stop-color="#f5b742"/><stop offset="1" stop-color="#a06e10"/></linearGradient></defs><rect width="28" height="28" rx="6" fill="url(#' + gid + ')"/><ellipse cx="14" cy="18" rx="5.5" ry="4" fill="#08080a" opacity=".9"/><path d="M14 22L12 26M14 22L14 26.5M14 22L16 26" stroke="#08080a" stroke-width="1.2" stroke-linecap="round" opacity=".85"/><circle cx="14" cy="13" r="3.2" fill="#08080a" opacity=".9"/><path d="M8.5 17Q4.5 15 3 11Q2.5 9.5 4 9.5Q5.5 9.5 6.5 11.5Q7.5 13.5 8.5 15" fill="#08080a" opacity=".85"/><path d="M19.5 17Q23.5 15 25 11Q25.5 9.5 24 9.5Q22.5 9.5 21.5 11.5Q20.5 13.5 19.5 15" fill="#08080a" opacity=".85"/><circle cx="12.2" cy="12" r="1" fill="#f5b742"/><circle cx="15.8" cy="12" r="1" fill="#f5b742"/><path d="M12.5 10.2Q10 7 9 5" stroke="#08080a" stroke-width="1" stroke-linecap="round" opacity=".8"/><path d="M15.5 10.2Q18 7 19 5" stroke="#08080a" stroke-width="1" stroke-linecap="round" opacity=".8"/><circle cx="9" cy="5" r=".8" fill="#08080a" opacity=".8"/><circle cx="19" cy="5" r=".8" fill="#08080a" opacity=".8"/><path d="M10 19L8 21.5M11 19.5L9.5 22M13 20L12 22.5M15 20L16 22.5M17 19.5L18.5 22M18 19L20 21.5" stroke="#08080a" stroke-width=".9" stroke-linecap="round" opacity=".7"/></svg>'}</div><div class="msg-body"><div class="msg-header"><span class="msg-name">${isUser ? 'You' : 'SlopLobster'}</span><span class="msg-time" title="${new Date().toLocaleString()}">${el._time}</span><div class="msg-actions">${isAgent ? '<button class="msg-act" onclick="copyMsgText(this)" title="Copy plain text"><i class="fas fa-copy"></i></button><button class="msg-act copy-md" onclick="copyMsgMarkdown(this)" title="Copy as Markdown"><i class="fas fa-markdown"></i></button><button class="msg-act" onclick="pruneMsg(this)" title="Prune out of context"><i class="fas fa-scissors"></i></button><button class="msg-act" onclick="retryMsg(this)" title="Retry from here"><i class="fas fa-rotate-right"></i></button>' : ''}${isUser ? '<button class="msg-act" onclick="editMsg(this)" title="Edit & resend"><i class="fas fa-pen"></i></button><button class="msg-act" onclick="copyMsgText(this)" title="Copy"><i class="fas fa-copy"></i></button><button class="msg-act" onclick="pruneMsg(this)" title="Prune out of context"><i class="fas fa-scissors"></i></button>' : ''}</div></div><div class="msg-content ${streaming ? 'streaming-cursor' : ''}">${isUser ? esc(text) : renderMd(text)}</div></div>`;
       if (isAgent && !streaming) { el.querySelector('.msg-content').querySelectorAll('pre code').forEach(b => hljs.highlightElement(b)); addCopyBtns(el.querySelector('.msg-content')); }
@@ -14111,24 +14189,37 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     }
 
     function copyMsgText(btn) {
-      const msgEl = btn.closest('.msg'); const text = msgEl._text || msgEl.querySelector('.msg-content')?.textContent || '';
-      navigator.clipboard.writeText(text).then(() => { btn.innerHTML = '<i class="fas fa-check"></i>'; setTimeout(() => btn.innerHTML = '<i class="fas fa-copy"></i>', 1200); });
+      const msgEl = btn.closest('.msg');
+      const text = msgEl._text || '';
+
+      if (!text) {
+        showToast('No text content to copy', 'warn');
+        return;
+      }
+
+      navigator.clipboard.writeText(text).then(() => {
+        btn.innerHTML = '<i class="fas fa-check"></i>';
+        setTimeout(() => { btn.innerHTML = '<i class="fas fa-copy"></i>'; }, 1200);
+      });
     }
 
     function copyMsgMarkdown(btn) {
       const msgEl = btn.closest('.msg');
-      // Get raw markdown from state messages
-      const idx = msgEl._msgIndex;
-      let md = '';
-      if (idx !== undefined && state.messages[idx]) {
-        const m = state.messages[idx];
-        md = typeof m.content === 'string' ? m.content : (m.content?.[0]?.text || '');
+      // Directly use the reliably stored raw text
+      const md = msgEl._text || '';
+
+      if (!md) {
+        showToast('No Markdown content to copy', 'warn');
+        return;
       }
-      if (!md) md = msgEl._text || msgEl.querySelector('.msg-content')?.textContent || '';
+
       navigator.clipboard.writeText(md).then(() => {
         btn.classList.add('copied');
         btn.innerHTML = '<i class="fas fa-check"></i>';
-        setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = '<i class="fas fa-markdown"></i>'; }, 1400);
+        setTimeout(() => {
+          btn.classList.remove('copied');
+          btn.innerHTML = '<i class="fas fa-markdown"></i>';
+        }, 1400);
       });
     }
 
@@ -14728,6 +14819,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
     async function doNewConversation() {
       _wsWarningDismissed = false;
+      _totalOriginalChars = 0;
+      _totalCompressedChars = 0;
       updateWorkspaceBanner();
       
       if (state.messages.length > 0 && state.activeConvId) {
@@ -14781,6 +14874,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
     async function switchConv(id) {
       if (state.running) return;
+      _totalOriginalChars = 0;
+      _totalCompressedChars = 0;
 
       // Flush pending save
       if (state.activeConvId) {
@@ -14811,6 +14906,9 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       state.messages = c.messages || [];
       state.fileCache.clear();
       modifiedFiles.clear();
+      state.fileBackups.clear();
+      state.pendingImages = []; 
+      addImageAttachmentsToInputArea(); 
       state.originalTask = c._originalTask || null;
       toolCallHistory.length = 0;
       textLoopBuffer.length = 0;
@@ -17250,31 +17348,30 @@ Format:
       });
 
       window.addEventListener('beforeunload', () => {
+        _intervals.forEach(clearInterval);
+        clearTimeout(_convSaveTimer);
+        clearTimeout(_convIndexTimer);
+
+        // Save to workspace if available
+        if (state.activeConvId && state.dirHandle) {
+          const c = state.conversations.find(c => c.id === state.activeConvId);
+          if (c) saveConvToWorkspace(c);
+        }
+
+        // Fallback: save lightweight version to localStorage
         if (state.messages.length > 0 && state.activeConvId) {
           const c = state.conversations.find(c => c.id === state.activeConvId);
           if (c) {
             c.messages = state.messages.map(m => {
               const clean = { ...m };
               delete clean._diff; delete clean._searchData; delete clean._images;
-              if (m._images?.length) { clean._hadImages = m._images.length; delete clean._images; }
-              if (clean.role === 'tool' && typeof clean.content === 'string' && clean.content.length > 2000) {
+              if (m._images?.length) clean._hadImages = m._images.length;
+              if (clean.role === 'tool' && typeof clean.content === 'string' && clean.content.length > 2000)
                 clean.content = clean.content.slice(0, 2000) + '\n... [truncated]';
-              }
               return clean;
             });
-            c.updated = Date.now();
-            try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.conversations)); } catch (e) { /* silent */ }
+            try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.conversations)); } catch {}
           }
-        }
-      });
-
-      window.addEventListener('beforeunload', () => {
-        _intervals.forEach(clearInterval);
-        clearTimeout(_convSaveTimer);
-        clearTimeout(_convIndexTimer);
-        if (state.activeConvId && state.dirHandle) {
-          const c = state.conversations.find(c => c.id === state.activeConvId);
-          if (c) saveConvToWorkspace(c);
         }
       });
 
