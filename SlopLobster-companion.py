@@ -44,6 +44,105 @@ def _find_bash():
 WINDOWS_BASH = _find_bash()
 SHELL_NAME = "bash" if WINDOWS_BASH else ("sh" if platform.system() != "Windows" else "cmd.exe")
 
+# Persistent shell pool (Windows/Git-Bash only)
+# Avoids spawning a new WSL/HyperV instance per command (0x800705aa).
+import uuid as _uuid
+_PSHELL_LOCK = threading.Lock()
+_pshell_proc = None
+_PSHELL_CMD_LOCK = threading.Lock()
+
+def _pshell_get():
+    global _pshell_proc
+    with _PSHELL_LOCK:
+        if _pshell_proc is None or _pshell_proc.poll() is not None:
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            _pshell_proc = subprocess.Popen(
+                [WINDOWS_BASH, "--norc", "--noprofile", "-s"],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, encoding="utf-8", errors="replace",
+                creationflags=flags
+            )
+        return _pshell_proc
+
+def _pshell_invalidate():
+    global _pshell_proc
+    with _PSHELL_LOCK:
+        if _pshell_proc:
+            try: _pshell_proc.kill()
+            except: pass
+        _pshell_proc = None
+
+def stream_cmd_persistent(write_fn, cmd, cwd=None, timeout=DEFAULT_TIMEOUT):
+    sid = _uuid.uuid4().hex
+    sentinel_out = "__SLOP_OUT_" + sid + "__"
+    sentinel_err = "__SLOP_ERR_" + sid + "__"
+    sentinel_rc  = "__SLOP_RC_"  + sid + "__"
+    cd_part = "cd " + repr(cwd) + " 2>/dev/null && " if cwd else ""
+    script = (
+        cd_part +
+        "( " + cmd + " ) ; "
+        "__rc__=$? ; "
+        "echo " + sentinel_out + " ; "
+        "echo " + sentinel_rc + "$" + "{__rc__} >&2 ; "
+        "echo " + sentinel_err + " >&2\n"
+    )
+    with _PSHELL_CMD_LOCK:
+        for attempt in range(2):
+            try:
+                proc = _pshell_get()
+                out_lines = []; err_lines = []
+                out_done = threading.Event(); err_done = threading.Event()
+                rc_holder = [0]; lock = threading.Lock()
+
+                def read_out():
+                    try:
+                        for line in proc.stdout:
+                            if sentinel_out in line:
+                                out_done.set(); break
+                            with lock: out_lines.append(line)
+                            write_fn("o", line)
+                    except: out_done.set()
+
+                def read_err():
+                    try:
+                        for line in proc.stderr:
+                            if sentinel_err in line:
+                                err_done.set(); break
+                            if sentinel_rc in line:
+                                try: rc_holder[0] = int(line.strip()[len(sentinel_rc):])
+                                except: pass
+                                continue
+                            with lock: err_lines.append(line)
+                            write_fn("e", line)
+                    except: err_done.set()
+
+                t_out = threading.Thread(target=read_out, daemon=True)
+                t_err = threading.Thread(target=read_err, daemon=True)
+                t_out.start(); t_err.start()
+                proc.stdin.write(script)
+                proc.stdin.flush()
+
+                if not out_done.wait(timeout) or not err_done.wait(5):
+                    write_fn("e", "\n[Timed out after " + str(timeout) + "s]\n")
+                    _pshell_invalidate()
+                    write_fn("d", "1")
+                    return
+
+                full = "".join(out_lines) + "".join(err_lines)
+                if len(full) > MAX_OUTPUT:
+                    full = full[:MAX_OUTPUT] + "\n[Truncated at " + str(MAX_OUTPUT) + "]"
+                write_fn("d", str(rc_holder[0]))
+                return
+
+            except Exception as e:
+                _pshell_invalidate()
+                if attempt == 0: continue
+                write_fn("e", "[Persistent shell error: " + str(e) + " — using fresh process]\n")
+                break
+
+    stream_cmd_fresh(write_fn, cmd, cwd=cwd, timeout=timeout)
+
+
 
 def _translate_for_cmd(cmd):
     parts = cmd.strip().split(None, 1)
@@ -123,9 +222,20 @@ def run_cmd(cmd, cwd=None, timeout=DEFAULT_TIMEOUT):
             if shutil.which(alt):
                 cmd = alt + stripped[len(first_word):]
     if WINDOWS_BASH:
-        # Translate Windows command syntax to Unix/bash equivalents for Git Bash
-        cmd = _translate_for_cmd_bash(cmd)
-        kw = dict(args=[WINDOWS_BASH, "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd)
+        # Use persistent shell — avoids spawning a new WSL/HyperV instance per call (0x800705aa)
+        out_parts = []; err_parts = []; rc_holder = [0]
+        def _wfn(kind, data):
+            if kind == "o": out_parts.append(data)
+            elif kind == "e": err_parts.append(data)
+            elif kind == "d":
+                try: rc_holder[0] = int(data)
+                except: pass
+        stream_cmd_persistent(_wfn, cmd, cwd=cwd, timeout=timeout)
+        parts = [p for p in ["".join(out_parts), "".join(err_parts)] if p]
+        output = "\n".join(parts)
+        if len(output) > MAX_OUTPUT:
+            output = output[:MAX_OUTPUT] + "\n[Truncated at " + str(MAX_OUTPUT) + "]"
+        return rc_holder[0], output or "(no output)"
     elif platform.system() == "Windows":
         translated = _translate_for_cmd(cmd)
         kw = dict(shell=True, args=translated, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd)
@@ -444,7 +554,7 @@ def _translate_for_cmd_bash(cmd):
 
     return base + " " + new_rest
 
-def stream_cmd(write_fn, cmd, cwd=None, timeout=DEFAULT_TIMEOUT):
+def stream_cmd_fresh(write_fn, cmd, cwd=None, timeout=DEFAULT_TIMEOUT):
     base_cwd = cwd or os.getcwd()
     stripped = cmd.strip()
     first_word = stripped.split(None, 1)[0] if stripped else ''
@@ -510,6 +620,14 @@ def stream_cmd(write_fn, cmd, cwd=None, timeout=DEFAULT_TIMEOUT):
         write_fn('d', str(int(returncode)))
         
     return full, returncode
+
+def stream_cmd(write_fn, cmd, cwd=None, timeout=DEFAULT_TIMEOUT):
+    # On Windows with Git Bash, reuse a persistent shell to avoid
+    # spawning a new Hyper-V/WSL VM instance per command (0x800705aa).
+    if WINDOWS_BASH:
+        stream_cmd_persistent(write_fn, cmd, cwd=cwd, timeout=timeout)
+    else:
+        stream_cmd_fresh(write_fn, cmd, cwd=cwd, timeout=timeout)
 
 def extract_python_signatures(source, max_lines=300):
     import ast as _ast
