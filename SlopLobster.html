@@ -608,6 +608,21 @@
       background: #519aba
     }
 
+    .ft-item .dot.new-file {
+      background: var(--yellow);
+      box-shadow: 0 0 6px var(--yellow)
+    }
+
+    .ft-item.is-new-file .ft-name {
+      color: var(--yellow);
+      font-weight: 600
+    }
+
+    .ft-item.is-modified .ft-name {
+      color: var(--accent);
+      font-weight: 600
+    }
+
     .ft-item .dot.img {
       background: #a855f7
     }
@@ -5187,7 +5202,23 @@
         <h2>Settings</h2><button class="modal-close" onclick="closeSettings()"><i class="fas fa-xmark"></i></button>
       </div>
       <div class="modal-body">
-        <div class="field"><label>LM Studio API URL</label><input id="s-api-url" value="http://localhost:1234"></div>
+        <div class="field">
+          <label>Backend</label>
+          <select id="s-backend-type" style="background:var(--bg-2);border:1px solid var(--border);color:var(--tx-0);padding:4px 8px;border-radius:5px;font-size:12px;font-family:'JetBrains Mono',monospace;width:100%" onchange="onBackendTypeChange(this.value)">
+            <option value="lmstudio">LM Studio</option>
+            <option value="llamacpp">llama.cpp (server)</option>
+          </select>
+          <div class="hint" id="s-backend-hint">LM Studio: full model load/unload support. Default port 1234.</div>
+        </div>
+        <div class="field" id="s-llamacpp-vision-field" style="display:none">
+          <label>Vision / Multimodal</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="checkbox" id="s-llamacpp-vision" style="accent-color:var(--accent)" onchange="state.llamacppVision=this.checked;updateVisionUI();persistSettings()">
+            <span style="font-size:11px;color:var(--tx-2)">mmproj loaded (vision capable)</span>
+          </div>
+          <div class="hint">Check this if you started llama.cpp with <code style="background:var(--bg-3);padding:1px 4px;border-radius:3px">--mmproj</code>. Auto-detected via /props when connecting.</div>
+        </div>
+        <div class="field"><label id="s-api-url-label">API URL</label><input id="s-api-url" value="http://localhost:1234"></div>
         <div class="field"><label>Companion Server URL</label><input id="s-comp-url" value="http://127.0.0.1:8765">
         </div>
         <div class="field"><label>Temperature</label>
@@ -6611,8 +6642,10 @@ if __name__ == "__main__":
 
     /* ═══════════════ STATE ═══════════════ */
     const modifiedFiles = new Set();
+    const newFiles = new Set(); // tracks files created this session (yellow in tree)
     const state = {
       apiUrl: 'http://localhost:1234', compUrl: 'http://127.0.0.1:8765',
+      backendType: 'lmstudio', // 'lmstudio' | 'llamacpp'
       isGitRepo: false,
       modelInfoMap: new Map(), // modelId -> {vision, contextLength, displayName, trainedForToolUse, architecture, paramsString}
       model: null, connected: false, compConnected: false, compInfo: null,
@@ -6646,6 +6679,7 @@ if __name__ == "__main__":
       fileCache: new Map(),
       fileBackups: new Map(),
       visionCapable: false,
+      llamacppVision: false, // manually set or probed for llama.cpp
       pendingImages: [],   // [{dataUrl, name, size}]
       originalTask: null,
       projectType: null, projectMeta: null,
@@ -7110,9 +7144,39 @@ Python command: {{PYTHON_CMD}}`;
 
     function detectVision(modelId) {
       if (!modelId) return false;
-      /* ── Check LM Studio native API metadata  ── */
+      /* ── llama.cpp: use probed or manually set flag ── */
+      if (state.backendType === 'llamacpp') return state.llamacppVision;
+      /* ── LM Studio: check native API metadata ── */
       const info = state.modelInfoMap.get(modelId);
       if (info !== undefined) return info.vision;
+      return false;
+    }
+
+    /* Probe llama.cpp /props to detect mmproj/vision support.
+       Falls back gracefully if the endpoint doesn't exist. */
+    async function probeLlamaCppVision() {
+      if (state.backendType !== 'llamacpp') return;
+      // Try /props first (older builds), then /v1/props (newer)
+      for (const path of ['/props', '/v1/props']) {
+        try {
+          const res = await fetch(state.apiUrl + path, { signal: AbortSignal.timeout(3000) });
+          if (!res.ok) continue;
+          const data = await res.json();
+          // llama.cpp sets "vision" or includes "clip" / "mmproj" keys when a projection is loaded
+          const hasVision = !!(
+            data.vision ||
+            data.has_vision ||
+            data.clip_model_loaded ||
+            data.mmproj ||
+            (typeof data.model_type === 'string' && data.model_type.toLowerCase().includes('vision')) ||
+            (Array.isArray(data.models) && data.models.some(m => m.type === 'clip' || m.type === 'mmproj'))
+          );
+          // Only upgrade to true from probe — never force false and override the user's manual toggle
+          if (hasVision) { state.llamacppVision = true; updateVisionUI(); }
+          return;
+        } catch { /* endpoint may not exist */ }
+      }
+      // /props not available — leave as-is (user can toggle manually)
     }
 
     function updateVisionUI() {
@@ -9182,6 +9246,7 @@ Python command: {{PYTHON_CMD}}`;
     async function editFileSafe(rel, edits, dryRun = false) {
       requireWorkspace();
       const segs = sanitizePath(rel);
+      rel = segs.join('/'); // normalize so it matches f.p in the file tree
       if (isSkippedPath(rel)) return { output: `File "${rel}" is filtered by workspace rules and cannot be edited.` };
 
       let dir = state.dirHandle;
@@ -9410,6 +9475,7 @@ Python command: {{PYTHON_CMD}}`;
 
     async function writeFileSafe(rel, content, dryRun = false) {
       requireWorkspace(); const segs = sanitizePath(rel);
+      rel = segs.join('/'); // normalize so it matches f.p in the file tree
       let dir = state.dirHandle;
       for (let i = 0; i < segs.length - 1; i++) dir = await dir.getDirectoryHandle(segs[i], { create: true });
       const lastName = segs[segs.length - 1];
@@ -9438,6 +9504,7 @@ Python command: {{PYTHON_CMD}}`;
       const fh = await dir.getFileHandle(lastName, { create: true });
       const w = await fh.createWritable(); await w.write(content); await w.close();
       state.fileCache.set(rel, content); modifiedFiles.add(rel);
+      if (prevContent === null) newFiles.add(rel); // brand-new file — highlight yellow
       let verifyMsg = '';
       if (state.verifyWrites) { try { const v = await (await fh.getFile()).text(); verifyMsg = v === content ? '\n✓ Write verified' : '\n✗ WRITE VERIFICATION FAILED'; } catch { } }
       const diff = prevContent !== null ? { path: rel, lines: generateDiffFromStrings(prevContent, content).lines, stats: generateDiffFromStrings(prevContent, content).stats, truncated: false } : null;
@@ -9450,7 +9517,7 @@ Python command: {{PYTHON_CMD}}`;
       let dir = state.dirHandle; for (let i = 0; i < segs.length - 1; i++)dir = await dir.getDirectoryHandle(segs[i]);
       const name = segs[segs.length - 1];
       await dir.removeEntry(name, { recursive: !!recursive });
-      state.fileCache.delete(rel); modifiedFiles.delete(rel);
+      state.fileCache.delete(rel); modifiedFiles.delete(rel); newFiles.delete(rel);
       return `Deleted: ${rel}`;
     }
     async function moveFileSafe(source, destination) {
@@ -9469,6 +9536,7 @@ Python command: {{PYTHON_CMD}}`;
       await srcDir.removeEntry(srcName, { recursive: false });
       state.fileCache.delete(source); state.fileCache.set(destination, content);
       if (modifiedFiles.has(source)) { modifiedFiles.delete(source); modifiedFiles.add(destination); }
+      if (newFiles.has(source)) { newFiles.delete(source); newFiles.add(destination); }
       return `Moved: ${source} → ${destination}`;
     }
 
@@ -10673,7 +10741,7 @@ Python command: {{PYTHON_CMD}}`;
       }
       state.messages = state.messages.slice(0, cp.messageCount);
       state.checkpoints = state.checkpoints.filter(c => c.id <= checkpointId);
-      modifiedFiles.clear();
+      modifiedFiles.clear(); newFiles.clear();
       const parent = $msg(); while (parent.firstChild) parent.firstChild.remove();
       streamEl = null;
       if (state.messages.length) { switchToChat(); replayMessages(state.messages); updateContextMeter(); }
@@ -10734,6 +10802,8 @@ Python command: {{PYTHON_CMD}}`;
 
     async function fetchModelInfo() {
       state.modelInfoMap.clear();
+      // llama.cpp doesn't have /api/v0/models — only LM Studio does
+      if (state.backendType !== 'lmstudio') return;
       try {
         const res = await fetch(`${state.apiUrl}/api/v0/models`, { signal: AbortSignal.timeout(5000) });
         if (!res.ok) return;
@@ -10764,8 +10834,9 @@ Python command: {{PYTHON_CMD}}`;
     }
 
     async function testConnection(retry = 3) {
+          const backendLabel = state.backendType === 'llamacpp' ? 'llama.cpp' : 'LM Studio';
           try {
-            // ── Pre-flight: can LM Studio serve at all? ──
+            // ── Pre-flight: check /v1/models (supported by both LM Studio and llama.cpp) ──
             const testRes = await fetch(`${state.apiUrl}/v1/models`, {
               signal: AbortSignal.timeout(3000)
             });
@@ -10774,12 +10845,17 @@ Python command: {{PYTHON_CMD}}`;
               const status = testRes.status;
               let hint = '';
 
-              if (status === 500) {
-                // Don't parse — model likely crashed, parsing can also crash LM Studio
-                hint = '\n\n→ Open LM Studio, check the console for errors, restart the model, then try again.';
-              } else if (status === 503) {
-                hint = '\n→ LM Studio is busy or restarting. Wait a moment and try again.';
+              if (state.backendType === 'lmstudio') {
+                if (status === 500) {
+                  hint = '\n\n→ Open LM Studio, check the console for errors, restart the model, then try again.';
+                } else if (status === 503) {
+                  hint = '\n→ LM Studio is busy or restarting. Wait a moment and try again.';
+                }
               } else {
+                if (status === 500) hint = '\n→ llama.cpp server error — check your server console.';
+                else if (status === 503) hint = '\n→ llama.cpp server unavailable. Is it running?';
+              }
+              if (!hint) {
                 const errRaw = await testRes.text().catch(() => testRes.statusText);
                 let err = errRaw;
                 if (err.includes('<!DOCTYPE') || err.includes('<html')) {
@@ -10791,7 +10867,7 @@ Python command: {{PYTHON_CMD}}`;
                 hint = '\n' + err;
               }
 
-              showToast(`LM Studio: HTTP ${status}${hint}`, 'err');
+              showToast(`${backendLabel}: HTTP ${status}${hint}`, 'err');
               checkCompanion();
               return;
             }
@@ -10804,7 +10880,7 @@ Python command: {{PYTHON_CMD}}`;
               state.connected = false;
               document.getElementById('llm-dot').className = 'status-dot off';
               document.getElementById('llm-text').textContent = 'LLM';
-              showToast('LM Studio: no models found', 'warn');
+              showToast(`${backendLabel}: no models found`, 'warn');
               return;
             }
 
@@ -10812,22 +10888,30 @@ Python command: {{PYTHON_CMD}}`;
             document.getElementById('llm-dot').className = 'status-dot on';
             document.getElementById('llm-text').textContent = 'LLM';
 
-            if (activeInstance?.identifier === state.model) {
-              showToast(`Connected — ${state.model.split('/').pop()}`, 'ok');
-            } else if (!activeInstance) {
-              showToast(`Connected (${count} models) — couldn't verify loaded model`, 'warn');
+            if (state.backendType === 'lmstudio') {
+              if (activeInstance?.identifier === state.model) {
+                showToast(`Connected — ${state.model.split('/').pop()}`, 'ok');
+              } else if (!activeInstance) {
+                showToast(`Connected (${count} models) — couldn't verify loaded model`, 'warn');
+              } else {
+                showToast(`Loaded: ${activeInstance.identifier.split('/').pop()} — selector shows different model`, 'warn');
+              }
             } else {
-              showToast(`Loaded: ${activeInstance.identifier.split('/').pop()} — selector shows different model`, 'warn');
+              // llama.cpp: probe /props for vision, then show connected toast
+              probeLlamaCppVision().then(() => {
+                const visionNote = state.llamacppVision ? ' · vision ✓' : '';
+                showToast(`Connected to llama.cpp (${count} model${count !== 1 ? 's' : ''})${visionNote}`, 'ok');
+              });
             }
           } catch (e) {
             if (e.name === 'AbortError') return; // user cancelled
             if (retry > 0) {
               const wait = Math.min(1000 * Math.pow(2, 3 - retry), 8000);
-              showToast(`LM Studio unreachable (attempt ${4 - retry}). Retrying in ${(wait / 1000).toFixed(1)}s...`, 'warn');
+              showToast(`${backendLabel} unreachable (attempt ${4 - retry}). Retrying in ${(wait / 1000).toFixed(1)}s...`, 'warn');
               setTimeout(() => testConnection(retry - 1), wait);
               return;
             }
-            showToast(`LM Studio: ${e.message.slice(0, 120)}`, 'err');
+            showToast(`${backendLabel}: ${e.message.slice(0, 120)}`, 'err');
           }
           checkCompanion();
         }
@@ -11110,12 +11194,13 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         }
         /* Truncate very long errors */
         if (err.length > 300) err = err.slice(0, 300) + '...';
+        const _backendLabel500 = state.backendType === 'llamacpp' ? 'llama.cpp server' : 'LM Studio';
         const hints = res.status === 500
-            ? '\n\nCommon fixes:\n• Model may have crashed — check LM Studio console\n• Context too large — run /compact first\n• GPU out of memory — try a smaller model or shorter context\n• Try again in a few seconds (LM Studio may be recovering)'
+            ? `\n\nCommon fixes:\n• Model may have crashed — check ${_backendLabel500} console\n• Context too large — run /compact first\n• GPU out of memory — try a smaller model or shorter context\n• Try again in a few seconds (${_backendLabel500} may be recovering)`
             : res.status === 422
             ? '\n\nThis usually means invalid tool call format. The agent will self-correct on the next iteration.'
             : res.status === 503
-            ? '\n\nLM Studio is busy or restarting. Wait a moment and try again.'
+            ? (state.backendType === 'llamacpp' ? '\n\nllama.cpp server is busy or unavailable. Wait a moment and try again.' : '\n\nLM Studio is busy or restarting. Wait a moment and try again.')
             : '';
           throw new Error(`API ${res.status}: ${err}${hints}`);
       }
@@ -12218,6 +12303,11 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     let activeInstance = null; // { instance_id, identifier, ... }
 
     async function fetchActiveModel(retries = 2) {
+      // llama.cpp has no concept of active instance — skip the LM Studio-only endpoint
+      if (state.backendType === 'llamacpp') {
+        activeInstance = null;
+        return null;
+      }
       for (let attempt = 0; attempt <= retries; attempt++) {
         try {
           const timeout = attempt === 0 ? 5000 : 8000;
@@ -12396,11 +12486,17 @@ Use git_diff to review changes before committing. git_diff without arguments sho
     function updateModelLoadBtn() {
       const btn = document.getElementById('model-load-btn');
       if (!btn) return;
+      // llama.cpp doesn't support model load/unload via API — hide the button
+      if (state.backendType === 'llamacpp') { btn.style.display = 'none'; return; }
       const needsLoad = activeInstance?.identifier !== state.model;
       btn.style.display = needsLoad ? '' : 'none';
     }
 
     async function requestModelLoad(modelId) {
+      if (state.backendType === 'llamacpp') {
+        showToast('llama.cpp: model load/unload is not supported via API. Restart the server with a different model.', 'warn');
+        return;
+      }
       const dot = document.getElementById('llm-dot');
       const txt = document.getElementById('llm-text');
       const meta = document.getElementById('model-meta');
@@ -13825,7 +13921,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
         // Save a checkpoint after each iteration where files were modified
         saveCheckpoint(iters);
-        modifiedFiles.clear();
+        modifiedFiles.clear(); newFiles.clear();
 
         updateContextMeter();
       }
@@ -14547,6 +14643,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       await w.close();
       state.fileCache.set(pr._pendingPath, pr._pendingNewContent);
       modifiedFiles.add(pr._pendingPath);
+      if (pr._pendingIsNewFile) newFiles.add(pr._pendingPath);
       let vm = '';
       if (state.verifyWrites) {
         try {
@@ -14565,6 +14662,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const fh = await dir.getFileHandle(segs[segs.length - 1], { create: true });
       const w = await fh.createWritable(); await w.write(pr._pendingNewContent); await w.close();
       state.fileCache.set(pr._pendingPath, pr._pendingNewContent); modifiedFiles.add(pr._pendingPath);
+      if (pr._pendingIsNewFile) newFiles.add(pr._pendingPath);
       let vm = '';
       if (state.verifyWrites) { try { const v = await (await fh.getFile()).text(); vm = v === pr._pendingNewContent ? '\n✓ Write verified' : '\n✗ WRITE VERIFICATION FAILED'; } catch { } }
       const op = pr._pendingIsNewFile ? 'Created' : 'Overwrote';
@@ -14817,18 +14915,32 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       }
       await walk(state.dirHandle, '', 0);
       state.fileTree = tree;
-      const header = fileCount > 0 ? `<div style="padding:2px 6px;font-size:9px;color:var(--tx-4);font-family:'JetBrains Mono',monospace">${tree.filter(f => f.k === 'directory').length} dirs, ${fileCount} files${modifiedFiles.size ? ' · <span style="color:var(--accent)">' + modifiedFiles.size + ' modified</span>' : ''}</div>` : '';
+      const _newCount = newFiles.size;
+      const _modCount = [...modifiedFiles].filter(p => !newFiles.has(p)).length;
+      const _changeStr = [
+        _newCount ? `<span style="color:var(--yellow)">${_newCount} new</span>` : '',
+        _modCount ? `<span style="color:var(--accent)">${_modCount} modified</span>` : ''
+      ].filter(Boolean).join(' · ');
+      const header = fileCount > 0 ? `<div style="padding:2px 6px;font-size:9px;color:var(--tx-4);font-family:'JetBrains Mono',monospace">${tree.filter(f => f.k === 'directory').length} dirs, ${fileCount} files${_changeStr ? ' · ' + _changeStr : ''}</div>` : '';
       document.getElementById('file-tree').innerHTML = header + tree.map(f => {
-        const isMod = f.k === 'file' && modifiedFiles.has(f.p);
-        const dotStyle = isMod ? 'background:var(--accent);box-shadow:0 0 5px var(--accent)' : '';
-        const nameStyle = isMod ? 'color:var(--accent);font-weight:600' : '';
+        const isNew = f.k === 'file' && newFiles.has(f.p);
+        const isMod = f.k === 'file' && !isNew && modifiedFiles.has(f.p);
+
         const pEsc = esc(f.p);
         const clickFn = f.k === 'directory' ? `insertPath(&quot;${pEsc}&quot;)` : `previewFile(&quot;${pEsc}&quot;)`;
         let ext = '';
         if (f.k === 'file') {
           ext = `<div class="ft-acts"><button title="View" onclick="event.stopPropagation();previewFile(&quot;${pEsc}&quot;)"><i class="fas fa-eye"></i></button><button title="Copy path" onclick="event.stopPropagation();navigator.clipboard.writeText(&quot;${pEsc}&quot;);showToast('Copied to clipboard', 'ok')"><i class="fas fa-copy"></i></button><button title="Delete" onclick="event.stopPropagation();if(confirm('Delete ${pEsc}?')){deleteFileSafe(&quot;${pEsc}&quot;, false).then(()=>debouncedFileTreeRefresh())}"><i class="fas fa-trash"></i></button></div>`;
         }
-        return `<div class="ft-item" style="padding-left:${6 + f.d * 12}px;${nameStyle ? 'color:var(--accent)' : ''}" onclick="${clickFn}" title="${f.p}${isMod ? ' (modified)' : ''}"><div class="ft-main"><span class="dot ${f.k === 'directory' ? 'dir' : getDotCls(f.n)}" style="${dotStyle}"></span><span class="ft-name">${esc(f.n)}</span></div>${ext}</div>`;
+        const dotCls = isNew || isMod ? '' : (f.k === 'directory' ? 'dir' : getDotCls(f.n));
+        const dotInlineStyle = isNew
+          ? 'background:#eab308;box-shadow:0 0 6px #eab308'
+          : isMod ? 'background:var(--accent);box-shadow:0 0 5px var(--accent)' : '';
+        const nameInlineStyle = isNew
+          ? 'color:#eab308;font-weight:600'
+          : isMod ? 'color:var(--accent);font-weight:600' : '';
+        const titleSuffix = isNew ? ' (new)' : isMod ? ' (modified)' : '';
+        return `<div class="ft-item" style="padding-left:${6 + f.d * 12}px" onclick="${clickFn}" title="${f.p}${titleSuffix}"><div class="ft-main"><span class="dot ${dotCls}" style="${dotInlineStyle}"></span><span class="ft-name" style="${nameInlineStyle}">${esc(f.n)}</span></div>${ext}</div>`;
       }).join('');
     }
 
@@ -14939,7 +15051,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       localStorage.setItem('SlopLobster_activeConvId', state.activeConvId);
       state.messages = [];
       state.fileCache.clear();
-      modifiedFiles.clear();
+      modifiedFiles.clear(); newFiles.clear();
       state.fileBackups.clear();
       state.pendingImages = [];
       state.originalTask = null;
@@ -15000,7 +15112,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       state.activeConvId = id;
       state.messages = c.messages || [];
       state.fileCache.clear();
-      modifiedFiles.clear();
+      modifiedFiles.clear(); newFiles.clear();
       state.fileBackups.clear();
       state.pendingImages = []; 
       addImageAttachmentsToInputArea(); 
@@ -15319,6 +15431,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       try {
         const r = localStorage.getItem(SETTINGS_KEY); if (!r) return; const s = JSON.parse(r);
         if (s.apiUrl) state.apiUrl = s.apiUrl; if (s.compUrl) state.compUrl = s.compUrl;
+        if (s.backendType) state.backendType = s.backendType;
+        if (s.llamacppVision !== undefined) state.llamacppVision = s.llamacppVision;
         if (s.temp !== undefined) state.temp = s.temp; if (s.maxTokens) state.maxTokens = s.maxTokens;
         if (s.maxReadKB) state.maxReadKB = s.maxReadKB; if (s.cmdTimeout) state.cmdTimeout = s.cmdTimeout;
         if (s.ctxWindow) state.ctxWindow = s.ctxWindow; if (s.autoCompactPct) state.autoCompactPct = s.autoCompactPct;
@@ -15352,6 +15466,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         localStorage.setItem(SETTINGS_KEY, JSON.stringify({
           apiUrl: state.apiUrl,
           compUrl: state.compUrl,
+          backendType: state.backendType,
+          llamacppVision: state.llamacppVision,
           temp: state.temp,
           maxTokens: state.maxTokens,
           maxReadKB: state.maxReadKB,
@@ -15381,8 +15497,29 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       } catch { }
     }
 
+    function onBackendTypeChange(val, silent) {
+      const hint = document.getElementById('s-backend-hint');
+      const urlInp = document.getElementById('s-api-url');
+      const modelLoadSection = document.querySelector('.modal [style*="Model Load Settings"]')?.closest('[style*="border-top"]');
+      const visionField = document.getElementById('s-llamacpp-vision-field');
+      if (val === 'llamacpp') {
+        if (hint) hint.textContent = 'llama.cpp server: no model load/unload via API. Uses /v1/models & /v1/chat/completions. Default port 8080.';
+        if (urlInp && urlInp.value === 'http://localhost:1234') urlInp.value = 'http://localhost:8080';
+        if (modelLoadSection) modelLoadSection.style.opacity = '0.4';
+        if (visionField) visionField.style.display = '';
+      } else {
+        if (hint) hint.textContent = 'LM Studio: full model load/unload support. Default port 1234.';
+        if (urlInp && urlInp.value === 'http://localhost:8080') urlInp.value = 'http://localhost:1234';
+        if (modelLoadSection) modelLoadSection.style.opacity = '';
+        if (visionField) visionField.style.display = 'none';
+      }
+    }
+
     function openSettings() {
       document.getElementById('s-api-url').value = state.apiUrl; document.getElementById('s-comp-url').value = state.compUrl;
+      document.getElementById('s-backend-type').value = state.backendType || 'lmstudio';
+      onBackendTypeChange(state.backendType || 'lmstudio', true);
+      const _lcvCb = document.getElementById('s-llamacpp-vision'); if (_lcvCb) _lcvCb.checked = !!state.llamacppVision;
       document.getElementById('s-temp').value = state.temp; document.getElementById('s-temp-val').textContent = state.temp;
       document.getElementById('s-max-tokens').value = state.maxTokens; document.getElementById('s-max-read').value = state.maxReadKB;
       document.getElementById('s-cmd-timeout').value = state.cmdTimeout; document.getElementById('s-ctx-window').value = state.ctxWindow;
@@ -15428,6 +15565,8 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       const u = document.getElementById('s-api-url').value.replace(/\/+$/, '');
       if (!/^https?:\/\/.+/.test(u)) { showToast('Invalid API URL', 'warn'); return; }
       state.apiUrl = u;
+      state.backendType = document.getElementById('s-backend-type').value || 'lmstudio';
+      if (state.backendType === 'llamacpp') { state.llamacppVision = document.getElementById('s-llamacpp-vision')?.checked ?? false; updateVisionUI(); }
       const cu = document.getElementById('s-comp-url').value.replace(/\/+$/, '');
       if (!/^https?:\/\/.+/.test(cu)) { showToast('Invalid companion URL', 'warn'); return; }
       state.compUrl = cu;
