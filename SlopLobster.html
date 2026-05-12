@@ -16115,17 +16115,17 @@ Format:
         }
       }
 
+      /* ── Swarm mode: prepend spawn_swarm instruction (runs before plan so plan sees the swarm goal) ── */
+      if (_swarmInputMode && t) {
+        const swarmInstruction = `Use the spawn_swarm tool to tackle this goal with multiple specialist agents working in parallel. Design appropriate worker roles, set up shared memory keys for inter-agent communication, and have the Manager synthesise their outputs into a final answer.\n\nGoal: ${t}`;
+        state.messages[state.messages.length - 1] = { role: 'user', content: swarmInstruction };
+      }
+
       /* ── Plan mode: generate plan instead of executing ── */
       if (state.planMode && (t || state.pendingImages.length)) {
         const taskText = state.messages[state.messages.length - 1]?.content || t;
         await handlePlanRequest(taskText);
         return;
-      }
-
-      /* ── Swarm mode: prepend spawn_swarm instruction ── */
-      if (_swarmInputMode && t) {
-        const swarmInstruction = `Use the spawn_swarm tool to tackle this goal with multiple specialist agents working in parallel. Design appropriate worker roles, set up shared memory keys for inter-agent communication, and have the Manager synthesise their outputs into a final answer.\n\nGoal: ${t}`;
-        state.messages[state.messages.length - 1] = { role: 'user', content: swarmInstruction };
       }
 
       agentLoop();
@@ -16207,7 +16207,7 @@ Format:
       const inp = document.getElementById('msg-input');
       inp.placeholder = state.planMode
         ? 'Describe a task to plan (steps will be generated before execution)...'
-        : 'Ask SlopLobster to do something... (drop files or paste images)';
+        : (_swarmInputMode ? 'Describe a goal for the swarm (multiple agents will tackle it in parallel)...' : 'Ask SlopLobster to do something... (drop files or paste images)');
       showToast(state.planMode ? 'Plan mode ON — your task will be broken into steps' : 'Plan mode OFF', 'info');
     }
 
