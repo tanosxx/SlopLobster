@@ -3833,7 +3833,7 @@
     .swarm-status.done    { background: rgba(34,197,94,.1);  color: var(--green); }
     .swarm-status.error   { background: rgba(239,68,68,.1);  color: var(--red); }
     .swarm-meta { font-size: 9px; color: var(--tx-4); flex-shrink: 0; }
-    .swarm-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+    .swarm-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; max-height: 600px; overflow-y: auto; }
     .swarm-mem { background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
     .swarm-mem-hdr { display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-bottom: 1px solid var(--border); font-size: 9px; color: var(--tx-3); cursor: pointer; }
     .swarm-mem-hdr:hover { background: var(--bg-3); }
@@ -12243,12 +12243,13 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         totalIterations += iterations;
         const lastAssistant = [...subMessages].reverse().find(m => m.role === 'assistant');
         const summary = lastAssistant?.content || '(no summary produced)';
+        const workerError = swarmError;
 
-        workerResults.push({ name: wDef.name, role: wDef.role, summary, log, iterations, error: swarmError });
+        workerResults.push({ name: wDef.name, role: wDef.role, summary, log, iterations, error: workerError });
 
         // Update worker UI to done/error
-        if (wEl) wEl.className = 'swarm-worker ' + (swarmError ? 'error' : 'done');
-        if (wStatus) { wStatus.className = 'swarm-worker-status ' + (swarmError ? 'error' : 'done'); wStatus.textContent = swarmError ? 'Error' : 'Done'; }
+        if (wEl) wEl.className = 'swarm-worker ' + (workerError ? 'error' : 'done');
+        if (wStatus) { wStatus.className = 'swarm-worker-status ' + (workerError ? 'error' : 'done'); wStatus.textContent = workerError ? 'Error' : 'Done'; }
         if (wIter) wIter.textContent = `${iterations}r · ${log.length} calls`;
         if (wBody) {
           const logHtml = log.map(e =>
@@ -12269,6 +12270,10 @@ Use git_diff to review changes before committing. git_diff without arguments sho
         if (wi === 0 && wBody) wBody.classList.add('open');
         scrollBottom();
         refreshMemoryUI();
+
+        // Reset per-worker error flag so subsequent workers start clean
+        swarmError = false;
+        if (workerError) break; // stop the swarm if a worker fatally errored
       }
 
       // ── Manager synthesis ──
@@ -12299,11 +12304,12 @@ Use git_diff to review changes before committing. git_diff without arguments sho
       } catch { /* fall through */ }
 
       const duration = performance.now() - startTime;
+      const anyWorkerError = workerResults.some(w => w.error);
 
       // Update live panel to final state
       const liveStatus = document.getElementById('swarm-live-status');
       const liveMeta = document.getElementById('swarm-live-meta');
-      if (liveStatus) { liveStatus.className = 'swarm-status ' + (swarmError ? 'error' : 'done'); liveStatus.textContent = swarmError ? 'Error' : 'Done'; }
+      if (liveStatus) { liveStatus.className = 'swarm-status ' + (anyWorkerError ? 'error' : 'done'); liveStatus.textContent = anyWorkerError ? 'Error' : 'Done'; }
       if (liveMeta) liveMeta.textContent = `${workerDefs.length} workers · ${totalIterations} rounds · ${(duration/1000).toFixed(1)}s`;
 
       // Append manager summary to swarm panel
@@ -12321,11 +12327,11 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
       updateParentStatus('Done', 'ok');
 
-      return { goal, workers: workerDefs, workerResults, managerSummary, memory: memory.readAll(), messageBus: memory.bus, totalIterations, duration, error: swarmError };
+      return { goal, workers: workerDefs, workerResults, managerSummary, memory: memory.readAll(), messageBus: memory.bus, totalIterations, duration, error: anyWorkerError };
     }
 
     /** Render a completed swarm data object into a panel (for message replay). */
-    function showSwarmPanel(data) {
+    function showSwarmPanel(data, container) {
       const el = document.createElement('div');
       el.className = 'swarm-panel';
       const goalDisplay = (data.goal || '').length > 90 ? (data.goal || '').slice(0, 87) + '…' : (data.goal || '');
@@ -12383,7 +12389,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           ${data.managerSummary ? `<div class="swarm-manager-summary"><div class="swarm-manager-label"><i class="fas fa-crown"></i> Manager Synthesis</div>${renderMd(data.managerSummary)}</div>` : ''}
         </div>`;
 
-      $msg().appendChild(el);
+      (container || $msg()).appendChild(el);
       scrollBottom();
       el.querySelectorAll('pre code').forEach(b => { if (!b.dataset.hljs) { hljs.highlightElement(b); b.dataset.hljs = '1'; } });
       addCopyBtns(el);
@@ -13981,7 +13987,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
             /* ── Swarm panels ── */
             if (panel.el._swarmData && !panel.el.querySelector('.swarm-panel')) {
-              showSwarmPanel(panel.el._swarmData);
+              showSwarmPanel(panel.el._swarmData, panel.el);
               const res = panel.el.querySelector('.tool-result');
               if (res) res.style.display = 'none';
               continue;
