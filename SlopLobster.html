@@ -3813,9 +3813,12 @@
       border: 1px solid rgba(139, 92, 246, .25);
       border-radius: 10px;
       background: var(--bg-1);
-      overflow: hidden;
+      overflow: visible;
       margin: 4px 0;
       font-family: 'JetBrains Mono', monospace;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
     }
     .swarm-hdr {
       display: flex; align-items: center; gap: 8px;
@@ -3823,6 +3826,7 @@
       background: rgba(139, 92, 246, .07);
       border-bottom: 1px solid rgba(139, 92, 246, .15);
       cursor: pointer; user-select: none;
+      border-radius: 10px 10px 0 0;
     }
     .swarm-hdr:hover { background: rgba(139, 92, 246, .12); }
     .swarm-icon { color: #a78bfa; font-size: 13px; flex-shrink: 0; }
@@ -3833,7 +3837,7 @@
     .swarm-status.done    { background: rgba(34,197,94,.1);  color: var(--green); }
     .swarm-status.error   { background: rgba(239,68,68,.1);  color: var(--red); }
     .swarm-meta { font-size: 9px; color: var(--tx-4); flex-shrink: 0; }
-    .swarm-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; max-height: 600px; overflow-y: auto; }
+    .swarm-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; max-height: min(420px, 45vh); overflow-y: auto; border-radius: 0 0 10px 10px; }
     .swarm-mem { background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
     .swarm-mem-hdr { display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-bottom: 1px solid var(--border); font-size: 9px; color: var(--tx-3); cursor: pointer; }
     .swarm-mem-hdr:hover { background: var(--bg-3); }
@@ -7107,7 +7111,7 @@ Python command: {{PYTHON_CMD}}`;
 
     async function exactTokenCount(text) {
       if (!text || !state.connected) return -1;
-      const key = text.slice(0, 200);
+      const key = `${text.length}:${text.slice(0, 100)}:${text.slice(-100)}`;
       if (_tokenizeCache.has(key)) return _tokenizeCache.get(key);
       try {
         const res = await fetch(`${state.apiUrl}/v1/tokenize`, {
@@ -7425,7 +7429,14 @@ Python command: {{PYTHON_CMD}}`;
 
     async function renderPdfPagesToContainer(file, container) {
       if (typeof pdfjsLib === 'undefined') {
-        container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--tx-4)"><i class="fas fa-file-pdf" style="font-size:24px;margin-bottom:8px;display:block"></i>pdf.js not loaded — cannot render pages</div>';
+        const objectUrl = URL.createObjectURL(file);
+        container.innerHTML = `
+          <div style="padding:12px;text-align:center;border-bottom:1px solid var(--border)">
+            <span style="font-size:11px;color:var(--tx-3)">pdf.js was not loaded. Using browser native viewer instead.</span>
+            <a href="${objectUrl}" target="_blank" class="btn btn-sm" style="margin-left:8px;display:inline-block;padding:2px 8px;font-size:10px;background:var(--accent);color:white;border-radius:3px;text-decoration:none">Open in New Tab</a>
+          </div>
+          <iframe src="${objectUrl}" style="width:100%;height:calc(100vh - 200px);border:none;"></iframe>
+        `;
         return;
       }
       container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--tx-3)"><i class="fas fa-spinner fa-spin"></i> Rendering pages...</div>';
@@ -9378,6 +9389,13 @@ Python command: {{PYTHON_CMD}}`;
       const results = [];
       const allDiffs = [];
 
+      const cleanLines = lines => {
+        let start = 0, end = lines.length;
+        while (start < end && lines[start].trim() === '') start++;
+        while (end > start && lines[end - 1].trim() === '') end--;
+        return lines.slice(start, end);
+      };
+
       for (let i = 0; i < edits.length; i++) {
         const { old_text, new_text = '' } = edits[i];
         if (!old_text) { results.push(`Edit ${i + 1}: ERROR — old_text is empty`); continue; }
@@ -9422,36 +9440,40 @@ Python command: {{PYTHON_CMD}}`;
         // then re-apply the file's indentation to new_text.
         {
           const fileLines = content.split('\n');
-          const oldLines  = old_text.split('\n');
-          const { lines: dedentedOld } = _dedent(oldLines.filter((_, li) => li > 0 || oldLines[0].trim()));
-          const dedentedOldStr = dedentedOld.join('\n').replace(/[^\S\n]+$/gm, '');
+          const oldClean = cleanLines(old_text.split('\n'));
+          const newClean = cleanLines(new_text.split('\n'));
 
-          // Build a dedented version of the file for searching
-          let matchStart = -1;
-          let matchLen   = dedentedOld.length;
-          for (let s = 0; s <= fileLines.length - matchLen; s++) {
-            const slice = fileLines.slice(s, s + matchLen);
-            const { lines: dedentedSlice } = _dedent(slice);
-            const dedentedSliceStr = dedentedSlice.join('\n').replace(/[^\S\n]+$/gm, '');
-            if (dedentedSliceStr === dedentedOldStr) {
-              matchStart = s;
-              break;
+          if (oldClean.length > 0) {
+            const { lines: dedentedOld } = _dedent(oldClean);
+            const dedentedOldStr = dedentedOld.join('\n').replace(/[^\S\n]+$/gm, '');
+
+            // Build a dedented version of the file for searching
+            let matchStart = -1;
+            let matchLen   = dedentedOld.length;
+            for (let s = 0; s <= fileLines.length - matchLen; s++) {
+              const slice = fileLines.slice(s, s + matchLen);
+              const { lines: dedentedSlice } = _dedent(slice);
+              const dedentedSliceStr = dedentedSlice.join('\n').replace(/[^\S\n]+$/gm, '');
+              if (dedentedSliceStr === dedentedOldStr) {
+                matchStart = s;
+                break;
+              }
             }
-          }
 
-          if (matchStart !== -1) {
-            const realOld = fileLines.slice(matchStart, matchStart + matchLen).join('\n');
-            // Detect the indent of the first non-empty matched line in the file
-            const firstNonEmpty = fileLines.slice(matchStart, matchStart + matchLen).find(l => l.trim());
-            const fileIndent = firstNonEmpty ? firstNonEmpty.match(/^(\s*)/)[1].length : 0;
-            const reindentedNew = _reindent(new_text, fileIndent);
-            const replaced = _safeReplace(content, realOld, reindentedNew);
-            if (replaced) {
-              content = replaced.newContent;
-              const warn = replaced.unique ? '' : ' WARNING — matched block appears multiple times, replaced first occurrence';
-              results.push(`Edit ${i + 1}: OK (indent-flexible match, re-indented to ${fileIndent} spaces)${warn}`);
-              allDiffs.push(generateDiffFromStrings(realOld, reindentedNew));
-              continue;
+            if (matchStart !== -1) {
+              const realOld = fileLines.slice(matchStart, matchStart + matchLen).join('\n');
+              // Detect the indent of the first non-empty matched line in the file
+              const firstNonEmpty = fileLines.slice(matchStart, matchStart + matchLen).find(l => l.trim());
+              const fileIndent = firstNonEmpty ? firstNonEmpty.match(/^(\s*)/)[1].length : 0;
+              const reindentedNew = _reindent(newClean.join('\n'), fileIndent);
+              const replaced = _safeReplace(content, realOld, reindentedNew);
+              if (replaced) {
+                content = replaced.newContent;
+                const warn = replaced.unique ? '' : ' WARNING — matched block appears multiple times, replaced first occurrence';
+                results.push(`Edit ${i + 1}: OK (indent-flexible match, re-indented to ${fileIndent} spaces)${warn}`);
+                allDiffs.push(generateDiffFromStrings(realOld, reindentedNew));
+                continue;
+              }
             }
           }
         }
@@ -9459,17 +9481,18 @@ Python command: {{PYTHON_CMD}}`;
         // ── Tier 4: best-window similarity (fuzzy) ───────────────────────
         {
           const fileLines = content.split('\n');
-          const oldLines  = old_text.split('\n');
+          const oldClean = cleanLines(old_text.split('\n'));
+          const newClean = cleanLines(new_text.split('\n'));
 
           // Skip fuzzy for very short (1-line) old_text — too many false matches
-          if (oldLines.length >= 2) {
-            const best = _bestWindow(fileLines, oldLines);
+          if (oldClean.length >= 2) {
+            const best = _bestWindow(fileLines, oldClean);
 
             if (best.score >= FUZZY_APPLY_THRESHOLD) {
               // High confidence — apply automatically
               const firstNonEmpty = (best.realOld.split('\n')).find(l => l.trim());
               const fileIndent = firstNonEmpty ? firstNonEmpty.match(/^(\s*)/)[1].length : 0;
-              const reindentedNew = _reindent(new_text, fileIndent);
+              const reindentedNew = _reindent(newClean.join('\n'), fileIndent);
               const replaced = _safeReplace(content, best.realOld, reindentedNew);
               if (replaced) {
                 content = replaced.newContent;
@@ -9748,6 +9771,7 @@ Python command: {{PYTHON_CMD}}`;
 
     async function grepSafe(pattern, searchPath, includeGlob, contextLines) {
       requireWorkspace();
+      if (!pattern) return { output: 'Error: Pattern is empty or undefined' };
       let regex;
       try { regex = new RegExp(pattern, 'g'); }
       catch { return { output: `Invalid regex: ${pattern}` }; }
@@ -17141,7 +17165,15 @@ Format:
         if (statusLines.length) {
           html += '<div class="rp-git-status">';
           for (const line of statusLines) {
-            const code = line.substring(0, 2).trim(); const path = line.substring(3).trim(); const sc = code.charAt(0) || '?';
+            const code = line.substring(0, 2).trim();
+            let path = line.substring(3).trim();
+            const sc = code.charAt(0) || '?';
+            if (path.includes(' -> ')) {
+              path = path.split(' -> ').pop().trim();
+            }
+            if (path.startsWith('"') && path.endsWith('"')) {
+              path = path.substring(1, path.length - 1).replace(/\\"/g, '"');
+            }
             html += `<div class="rp-git-status-file" onclick="previewFile(&quot;${esc(path)}&quot;)"><span class="rp-git-status-code ${sc}">${sc}</span><span class="rp-git-status-path">${esc(path)}</span></div>`;
           }
           html += '</div>';
