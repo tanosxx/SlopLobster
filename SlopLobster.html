@@ -12063,6 +12063,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
           </div>
         </div>`;
       $msg().appendChild(swarmLiveEl);
+      if (parentPanel?.el) parentPanel.el._swarmLiveEl = swarmLiveEl;
       scrollBottom();
 
       function refreshMemoryUI() {
@@ -14015,6 +14016,10 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
             /* ── Swarm panels ── */
             if (panel.el._swarmData && !panel.el.querySelector('.swarm-panel')) {
+              // Remove the live swarm panel that was appended directly to $msg() during execution
+              if (panel.el._swarmLiveEl && panel.el._swarmLiveEl.parentNode) {
+                panel.el._swarmLiveEl.remove();
+              }
               showSwarmPanel(panel.el._swarmData, panel.el);
               const res = panel.el.querySelector('.tool-result');
               if (res) res.style.display = 'none';
@@ -15507,7 +15512,7 @@ Use git_diff to review changes before committing. git_diff without arguments sho
 
                 /* ── Swarm panel replay ── */
                 if (toolMsg._swarmData) {
-                  showSwarmPanel(toolMsg._swarmData);
+                  showSwarmPanel(toolMsg._swarmData, panel.el);
                   const res = panel.el.querySelector('.tool-result');
                   if (res) res.style.display = 'none';
                 }
