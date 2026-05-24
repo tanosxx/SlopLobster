@@ -16266,6 +16266,8 @@ Format:
 
       try {
         state.abortCtrl = new AbortController();
+        state.running = true;
+        updateSendBtn();
 
         const body = {
           model: state.model,
@@ -16361,6 +16363,7 @@ Format:
         if (e.name === 'AbortError') { appendMsg('system', 'Plan generation cancelled.'); return; }
         appendMsg('system', 'Plan generation failed: ' + e.message);
       } finally {
+        state.running = false;
         state.planExecuting = false;
         updateSendBtn();
       }
